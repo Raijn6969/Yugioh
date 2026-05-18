@@ -4,7 +4,67 @@ import pyperclip
 import requests
 import base64
 import struct
+import json
+import os
+import requests
 
+# --- NEU: CACHE LOGIK FÜR API ---
+CACHE_FILE = "md_card_cache.json"
+_card_cache = None
+
+
+def _load_cache():
+    global _card_cache
+    if _card_cache is None:
+        if os.path.exists(CACHE_FILE):
+            try:
+                with open(CACHE_FILE, "r", encoding="utf-8") as f:
+                    _card_cache = json.load(f)
+            except Exception:
+                _card_cache = {}
+        else:
+            _card_cache = {}
+    return _card_cache
+
+
+def _save_cache():
+    if _card_cache is not None:
+        try:
+            with open(CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(_card_cache, f, indent=4)
+        except Exception:
+            pass
+
+
+def fetch_name_from_api(cid: str, amount: int, lang: str = "en"):
+    cache = _load_cache()
+    cid_str = str(cid)
+
+    # 1. Cache-Check (Das fotografische Gedächtnis)
+    if cid_str in cache:
+        return cache[cid_str], amount
+
+    # 2. Normaler API-Call, falls nicht im Cache
+    try:
+        url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?id={cid}"
+        # YGOPRODeck nutzt für Englisch den Standard-Link ohne Sprach-Parameter
+        if lang != "en":
+            url += f"&language={lang}"
+
+        resp = requests.get(url, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            name = data["data"][0]["name"]
+
+            # 3. Direkt im Cache abspeichern für die Zukunft!
+            cache[cid_str] = name
+            _save_cache()
+
+            return name, amount
+    except Exception:
+        pass
+
+    return None
 
 # =====================================================================
 # 1. MODULARE DIAGNOSE- & VERGLEICHS-KLASSEN (V22.4 - BULLETPROOF)
@@ -207,22 +267,6 @@ def parse_clipboard():
             if line.isdigit():
                 ids.append(line)
     return ids
-
-
-def fetch_name_from_api(cid, amt, lang="en"):
-    try:
-        url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?id={cid}"
-        if lang != "en":
-            url += f"&language={lang}"
-        res = requests.get(url, timeout=7)
-        if res.status_code == 200:
-            data = res.json()
-            name = data['data'][0]['name']
-            return name, amt
-    except Exception:
-        pass
-    return None
-
 
 _ocr_cache = {}
 

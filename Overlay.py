@@ -9,6 +9,8 @@ import threading
 import os
 import sys
 import json
+import win32gui
+import win32process
 
 try:
     # Zwingt Windows zu echten Hardware-Pixeln. Macht manuelles DPI-Scaling überflüssig!
@@ -43,16 +45,20 @@ class MasterDuelImporter:
     def __init__(self, root):
         self.root = root
         self.is_running = False
+        self.is_visible = True  # Status für den Smart Visibility Tracker
         self.config = self.load_config()
         self._build_main_ui()
+
+        # Starte den unsichtbaren Radar für den Fenster-Fokus
+        self._check_window_focus()
 
     def load_config(self):
         base_config = {
             "SEARCH_BAR": [1404, 245], "FIRST_CARD": [1390, 400],
             "TRASH_BTN": [1246, 127], "TRASH_CONFIRM": [1167, 665],
             "UNOWNED_BTN": [1786, 209],
-            "OFFSET_X": 88, "OFFSET_Y": 135,
-            "CLICK_SPEED": 0.03, "SEARCH_DELAY": 0.6,
+            "OFFSET_X": 88, "OFFSET_Y": 140,
+            "CLICK_SPEED": 0.03, "SEARCH_DELAY": 0.1,
             "LANGUAGE": "en",
             "IS_CALIBRATED": False
         }
@@ -79,34 +85,97 @@ class MasterDuelImporter:
             json.dump(self.config, f, indent=4)
 
     def _build_main_ui(self):
-        self.root.title("MD Importer V24.00 (Modular UI)")
+        self.root.title("MD IMPORTER V24.00")  # Etwas gekürzt für besseres Tracking
         self.root.overrideredirect(True)
         self.root.wm_attributes("-topmost", True)
         self.root.wm_attributes("-alpha", 0.95)
         self.root.configure(bg='#1e1e1e')
-        self.root.geometry("280x85+1343+900")
+
+        # --- DYNAMISCHE SKALIERUNG & 0-PIXEL POSITIONIERUNG ---
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+
+        scale = max(1.0, screen_h / 1080.0)
+
+        win_w = int(280 * scale)
+        win_h = int(85 * scale)
+
+        # Position: Mittig auf der X-Achse, 0 Pixel Abstand zum unteren Rand
+        x_pos = int((screen_w - win_w) / 2) + int(screen_w * 0.25)
+        y_pos = int(screen_h - win_h)
+
+        self.root.geometry(f"{win_w}x{win_h}+{x_pos}+{y_pos}")
 
         self.root.bind("<ButtonPress-1>", self.start_move)
         self.root.bind("<B1-Motion>", self.do_move)
 
+        font_main = ("Helvetica", int(10 * scale), "bold")
+        font_sub = ("Helvetica", int(10 * scale))
+        font_x = ("Helvetica", int(9 * scale), "bold")
+
         self.status_label = tk.Label(self.root, text="Bereit für Import", fg="#00ff00", bg="#1e1e1e",
-                                     font=("Helvetica", 10, "bold"))
-        self.status_label.pack(pady=4)
+                                     font=font_main)
+        self.status_label.pack(pady=int(4 * scale))
 
         btn_frame = tk.Frame(self.root, bg="#1e1e1e")
         btn_frame.pack()
 
         self.start_btn = tk.Button(btn_frame, text="Start Import", command=self.start_import_thread, bg="#007acc",
-                                   fg="white", bd=0, width=12, font=("Helvetica", 10, "bold"))
-        self.start_btn.pack(side=tk.LEFT, padx=5, ipady=3)
+                                   fg="white", bd=0, font=font_main)
+        self.start_btn.pack(side=tk.LEFT, padx=int(5 * scale), ipadx=int(10 * scale), ipady=int(3 * scale))
 
         self.calib_btn = tk.Button(btn_frame, text="Kalibrieren", command=self.open_calibration, bg="#444444",
-                                   fg="white", bd=0, width=12, font=("Helvetica", 10))
-        self.calib_btn.pack(side=tk.LEFT, padx=5, ipady=3)
+                                   fg="white", bd=0, font=font_sub)
+        self.calib_btn.pack(side=tk.LEFT, padx=int(5 * scale), ipadx=int(10 * scale), ipady=int(3 * scale))
 
         tk.Button(self.root, text="X", command=self.root.destroy, bg="#cc0000", fg="white", bd=0,
-                  font=("Helvetica", 9, "bold")).place(x=245, y=0, width=35, height=22)
+                  font=font_x).place(relx=1.0, y=0, anchor="ne", width=int(35 * scale), height=int(22 * scale))
 
+    # --- SMART VISIBILITY TRACKER ---
+    def _is_md_active(self, fg_hwnd, fg_pid):
+        """Prüft, ob das aktive Fenster Master Duel ist (egal ob Vollbild oder Fenster)"""
+        title = win32gui.GetWindowText(fg_hwnd).upper()
+        if "MASTER DUEL" in title:
+            return True
+
+        try:
+            # Fallback-Check über den Prozessnamen (für randloses Vollbild)
+            hProcess = ctypes.windll.kernel32.OpenProcess(0x1000, False, fg_pid)
+            if hProcess:
+                exe_name = ctypes.create_unicode_buffer(260)
+                size = ctypes.wintypes.DWORD(260)
+                if ctypes.windll.kernel32.QueryFullProcessImageNameW(hProcess, 0, exe_name, ctypes.byref(size)):
+                    ctypes.windll.kernel32.CloseHandle(hProcess)
+                    if "masterduel.exe" in exe_name.value.lower():
+                        return True
+                ctypes.windll.kernel32.CloseHandle(hProcess)
+        except Exception:
+            pass
+        return False
+
+    def _check_window_focus(self):
+        """Loop, der alle 300ms prüft, welches Fenster in Windows gerade vorne liegt."""
+        try:
+            fg_hwnd = win32gui.GetForegroundWindow()
+            if fg_hwnd:
+                _, fg_pid = win32process.GetWindowThreadProcessId(fg_hwnd)
+                my_pid = os.getpid()
+
+                # Soll sichtbar sein, wenn Master Duel offen ist ODER du gerade das Overlay selbst anklickst
+                if fg_pid == my_pid or self._is_md_active(fg_hwnd, fg_pid):
+                    if not self.is_visible:
+                        self.root.wm_attributes("-alpha", 0.95)
+                        self.is_visible = True
+                else:
+                    if self.is_visible:
+                        self.root.wm_attributes("-alpha", 0.0)  # Verstecken!
+                        self.is_visible = False
+        except Exception:
+            pass
+        finally:
+            self.root.after(300, self._check_window_focus)
+
+    # --- FENSTER LOGIK ---
     def start_move(self, event):
         if event.widget == self.root:
             self.root.x, self.root.y = event.x, event.y
@@ -152,7 +221,6 @@ class MasterDuelImporter:
             def status_cb(text, color="white"):
                 self.update_status(text, color)
 
-            # --- UPGRADE: DETAILLIERTE BENUTZERMELDUNG FÜR DECK-LÜCKEN ---
             def finish_cb(success, has_errors, failed_cards):
                 self.is_running = False
                 self.start_btn.config(state=tk.NORMAL)
