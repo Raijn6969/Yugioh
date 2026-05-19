@@ -218,7 +218,6 @@ class GhostTracker:
     def get_origin(self):
         return self.current_origin_slot
 
-
 # =====================================================================
 # 2. STANDALONE HILFSFUNKTIONEN FÜR DIE OVERLAY-SCHNITTSTELLE
 # =====================================================================
