@@ -56,6 +56,16 @@ class MatchValidator:
                     f.write(f"        [AUDIT] VETO: Base-Card Hijacking! '{target}' in '{ocr}' gefunden, aber OCR ist zu lang (Delta {len(ocr)-len(target)} > {max_allowed_delta}).\n")
                 return False, "NONE"
 
+        # --- TRUNCATION-ERKENNUNG: Abgeschnittene ultra-lange Namen ---
+        if len(target) > len(ocr) * 1.5 and len(ocr) >= 10:
+            prefix_ratio = SequenceMatcher(None, target[:len(ocr)], ocr).ratio()
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"        [AUDIT] Truncation-Check: target[:{len(ocr)}]='{target[:len(ocr)]}' vs ocr='{ocr}' ratio={prefix_ratio:.3f}\n")
+            if prefix_ratio >= 0.85:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(f"        [AUDIT] -> FUZZY (TRUNCATED_PREFIX, ratio={prefix_ratio:.3f})\n")
+                return True, "FUZZY"
+
         # --- DYNAMISCHER STAMM-SCHILD MIT 50% HÜRDE & ABSOLUTER FADE-OUT GRENZE ---
         match = SequenceMatcher(None, target, ocr).find_longest_match(0, len(target), 0, len(ocr))
         if match.size >= 6:

@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+
+# PyInstaller build artifacts
+build/
+dist/
+
+# IDE / Editor
+.idea/
+.vscode/
+
+# Claude / AI assistants
+.claude/
+
+# Runtime files (per-user, regenerated at runtime)
+md_debug.log
+md_config.json
+md_card_cache.json
+card_positions_cache.json
+problem_cards.json
+
+# Bundled OCR binary (91 MB — distribute separately)
+Tesseract-OCR/

@@ -1,0 +1,63 @@
+{
+  "archetypes": {
+    "sky_striker": {
+      "tokens": ["roze", "raye", "zeke", "shizuku", "kagari", "hayate", "azalea", "camellia", "cynet", "mining"],
+      "exclusivity": "high",
+      "common_mistakes": {
+        "roze": ["zero", "rose", "roz"],
+        "raye": ["rave", "rage", "ray"],
+        "shizuku": ["shizuka", "shizuk"],
+        "kagari": ["kagar", "kag"],
+        "hayate": ["hayat", "hay"]
+      },
+      "mutation_pairs": [],
+      "min_match_ratio": 0.85
+    },
+    "lunalight": {
+      "tokens": ["lunalight", "luna", "light", "leo", "dancer", "perfume", "serenade", "tiger", "wolf", "panther"],
+      "exclusivity": "medium",
+      "common_mistakes": {
+        "lunalight": ["luna light", "lunalite", "lunalght"],
+        "dancer": ["daner", "danc"]
+      },
+      "mutation_pairs": [["leo", "liger"]],
+      "min_match_ratio": 0.72
+    },
+    "hecahands": {
+      "tokens": ["hecahands", "henshande", "henahande", "henshands", "hecahand"],
+      "exclusivity": "high",
+      "common_mistakes": {
+        "hecahands": ["henshande", "henahande", "henshands", "hecahand", "hecahands"]
+      },
+      "mutation_pairs": [],
+      "min_match_ratio": 0.80
+    },
+    "naturia": {
+      "tokens": ["exterio", "barkion", "beast", "bark", "naturia"],
+      "exclusivity": "medium",
+      "common_mistakes": {
+        "exterio": ["exterior", "exter"],
+        "barkion": ["barkon", "bark"]
+      },
+      "mutation_pairs": [["exterio", "exterior"]],
+      "min_match_ratio": 0.75
+    },
+    "generic_synchro": {
+      "tokens": ["warrior", "dragon", "conduction", "ib", "al", "yad", "synchro"],
+      "exclusivity": "low",
+      "common_mistakes": {},
+      "mutation_pairs": [],
+      "min_match_ratio": 0.70
+    },
+    "blue_eyes": {
+      "tokens": ["blue", "eyes", "white", "dragon", "alternative", "jet", "chaos", "max"],
+      "exclusivity": "medium",
+      "common_mistakes": {
+        "alternative": ["alternativ", "alternat"],
+        "dragon": ["draon", "drag"]
+      },
+      "mutation_pairs": [],
+      "min_match_ratio": 0.75
+    }
+  }
+}

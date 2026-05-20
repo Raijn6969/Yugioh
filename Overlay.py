@@ -60,7 +60,10 @@ class MasterDuelImporter:
             "OFFSET_X": 88, "OFFSET_Y": 140,
             "CLICK_SPEED": 0.03, "SEARCH_DELAY": 0.1,
             "LANGUAGE": "en",
-            "IS_CALIBRATED": False
+            "IS_CALIBRATED": False,
+            # Skaliert kritische Wait-Zeiten für schwächere PCs.
+            # "fast" = 0.85x (high-end), "normal" = 1.0x (default), "slow" = 1.5x (alter/langsamer PC)
+            "SPEED_PROFILE": "normal"
         }
         loaded = base_config.copy()
         needs_save = True
