@@ -1,69 +1,81 @@
 """
-MATCH VALIDATOR (V50.10 - THE SUFFIX SENTINEL)
-Thema: Ausgelagerte Gehirn-Logik der Import Engine.
-       Nutzt dynamisches Längen-Delta (Skalpell) gegen Suffix-Hijacking.
-       Nutzt anatomischen Core-Bruch-Filter gegen Infix-Hijacking.
-       Intelligenter Veto-Filter verhindert Friendly Fire bei "Knight/Night".
-       Prefix-Schild für den Scramble-Filter verhindert Overlap-Fallen (Temple vs Treasures).
-       Proportionaler Fade-Out Detektor rettet abgeschnittene Scans (Siegfried).
-       Verschärfte 50%-Hürde im Suffix-Schild löst das Kewl-Tune-Paradoxon auf.
-       Base-Card Hijacking Veto (Exorzist) rettet Basis-Karten vor Boss-Monstern (Purrely).
-       NEU: Dynamischer Hijack-Bypass blockiert Kurz-Suffixe (Cue) und schützt lange Suffixe (Clovis).
+MATCH VALIDATOR
+Entscheidet, ob ein per Texterkennung gelesener Kartenname zur gesuchten Karte passt.
+  - Dynamisches Längen-Delta gegen Suffix-Hijacking (Basis-Karte vs. Boss-Monster, z.B. Purrely).
+  - Core-Bruch-Filter gegen Infix-Hijacking.
+  - Veto gegen Verwechslung von "Knight" und "Night".
+  - Prefix-Schild im Scramble-Filter gegen Überlappungs-Fallen (Temple vs Treasures).
+  - Erkennung abgeschnittener Scans (Siegfried).
+  - Suffix-Schild mit 50%-Hürde (Kewl Tune Cue vs. Synchro), lange Suffixe bleiben geschützt (Clovis).
 """
 
-import os
 from difflib import SequenceMatcher
 from collections import Counter
 from utils import clean_text
+from debug_log import dlog
 
 CROSS_CARD_THRESHOLD = 0.35
+
+
+def _night_signature(text: str) -> list:
+    """Für jedes 'night' im Text: wie viele 'k' direkt davor stehen."""
+    signature = []
+    pos = text.find("night")
+    while pos != -1:
+        k_count = 0
+        while pos - k_count > 0 and text[pos - k_count - 1] == "k":
+            k_count += 1
+        signature.append(k_count)
+        pos = text.find("night", pos + 1)
+    return signature
+
+
+def knight_night_conflict(target: str, ocr: str) -> bool:
+    """
+    True, wenn Ziel und OCR sich bei Knight/Night unterscheiden. Zählt die 'k' vor jedem
+    'night', weil ohne Leerzeichen auch 'Clockwork Night' zu 'clockworknight' wird und damit
+    'knight' enthält – Clockwork Knight ist dagegen 'clockworkknight' (zwei 'k').
+    """
+    target_sig, ocr_sig = _night_signature(target), _night_signature(ocr)
+    return any(t != o for t, o in zip(target_sig, ocr_sig))
+
 
 class MatchValidator:
     def __init__(self, card_matcher):
         self.matcher = card_matcher
 
-    def check_match(self, clean_name: str, s_c: str, log_path: str) -> tuple[bool, str]:
+    def check_match(self, clean_name: str, s_c: str) -> tuple[bool, str]:
         target = clean_text(clean_name)
         ocr = s_c
 
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"        [AUDIT] Matcher prüft Target: '{target}' vs OCR: '{ocr}'\n")
+        dlog(f"        [AUDIT] Matcher prüft Target: '{target}' vs OCR: '{ocr}'\n")
 
         if not target or not ocr:
-            with open(log_path, "a", encoding="utf-8") as f: f.write(f"        [AUDIT] -> NONE (Leer)\n")
+            dlog(f"        [AUDIT] -> NONE (Leer)\n")
             return False, "NONE"
 
         if target == ocr:
-            with open(log_path, "a", encoding="utf-8") as f: f.write(f"        [AUDIT] -> EXACT (100% Identisch)\n")
+            dlog(f"        [AUDIT] -> EXACT (100% Identisch)\n")
             return True, "EXACT"
 
         # --- INTELLIGENTES HARD VETO: KNIGHT / NIGHT ---
-        target_has_night_only = "night" in target and "knight" not in target
-        ocr_has_knight = "knight" in ocr
-        target_has_knight = "knight" in target
-        ocr_has_night_only = "night" in ocr and "knight" not in ocr
-
-        if (target_has_night_only and ocr_has_knight) or (target_has_knight and ocr_has_night_only):
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"        [AUDIT] VETO: Kritischer Knight/Night-Konflikt erkannt! Match verweigert.\n")
+        if knight_night_conflict(target, ocr):
+            dlog(f"        [AUDIT] VETO: Kritischer Knight/Night-Konflikt erkannt! Match verweigert.\n")
             return False, "NONE"
 
         # --- BASE-CARD HIJACKING VETO (Der Exorzist) ---
         if target in ocr and len(ocr) > len(target):
             max_allowed_delta = max(2, int(len(target) * 0.25))
             if (len(ocr) - len(target)) > max_allowed_delta:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"        [AUDIT] VETO: Base-Card Hijacking! '{target}' in '{ocr}' gefunden, aber OCR ist zu lang (Delta {len(ocr)-len(target)} > {max_allowed_delta}).\n")
+                dlog(f"        [AUDIT] VETO: Base-Card Hijacking! '{target}' in '{ocr}' gefunden, aber OCR ist zu lang (Delta {len(ocr)-len(target)} > {max_allowed_delta}).\n")
                 return False, "NONE"
 
         # --- TRUNCATION-ERKENNUNG: Abgeschnittene ultra-lange Namen ---
         if len(target) > len(ocr) * 1.5 and len(ocr) >= 10:
             prefix_ratio = SequenceMatcher(None, target[:len(ocr)], ocr).ratio()
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"        [AUDIT] Truncation-Check: target[:{len(ocr)}]='{target[:len(ocr)]}' vs ocr='{ocr}' ratio={prefix_ratio:.3f}\n")
+            dlog(f"        [AUDIT] Truncation-Check: target[:{len(ocr)}]='{target[:len(ocr)]}' vs ocr='{ocr}' ratio={prefix_ratio:.3f}\n")
             if prefix_ratio >= 0.85:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"        [AUDIT] -> FUZZY (TRUNCATED_PREFIX, ratio={prefix_ratio:.3f})\n")
+                dlog(f"        [AUDIT] -> FUZZY (TRUNCATED_PREFIX, ratio={prefix_ratio:.3f})\n")
                 return True, "FUZZY"
 
         # --- DYNAMISCHER STAMM-SCHILD MIT 50% HÜRDE & ABSOLUTER FADE-OUT GRENZE ---
@@ -79,8 +91,7 @@ class MatchValidator:
             if len(target_suffix) >= 2 and is_hijack_danger and len(ocr_suffix) >= (len(target_suffix) * 0.4):
                 suf_ratio = SequenceMatcher(None, target_suffix, ocr_suffix).ratio()
                 if suf_ratio < 0.50:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"        [AUDIT] VETO: Archetypen-Hijack! Suffix '{target_suffix}' vs '{ocr_suffix}' zu unterschiedlich (Ratio {suf_ratio:.2f}).\n")
+                    dlog(f"        [AUDIT] VETO: Archetypen-Hijack! Suffix '{target_suffix}' vs '{ocr_suffix}' zu unterschiedlich (Ratio {suf_ratio:.2f}).\n")
                     return False, "NONE"
 
         is_fuzzy = False
@@ -117,8 +128,7 @@ class MatchValidator:
             ratio = sm.ratio()
             is_match = self.matcher.is_exact_match(clean_name, s_c)
 
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"        [AUDIT] Ratio berechnet: {ratio:.3f}\n")
+            dlog(f"        [AUDIT] Ratio berechnet: {ratio:.3f}\n")
 
             # DER CORE-BRUCH-FILTER (Anatomische Infix-Lösung)
             has_core_break = False
@@ -132,8 +142,7 @@ class MatchValidator:
                             break
 
             if has_core_break:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"        [AUDIT] VETO: Infix-Hijacking erkannt (Core-Bruch). Blockiere Ratio-Check.\n")
+                dlog(f"        [AUDIT] VETO: Infix-Hijacking erkannt (Core-Bruch). Blockiere Ratio-Check.\n")
             else:
                 if is_match:
                     is_fuzzy = True
@@ -166,30 +175,23 @@ class MatchValidator:
                             reason = f"OCR Scramble (Char-Overlap {overlap:.0%}, Ratio {ratio:.2f}, Delta {delta})"
 
         if is_fuzzy:
-            with open(log_path, "a", encoding="utf-8") as f: f.write(f"        [AUDIT] -> FUZZY ({reason})\n")
+            dlog(f"        [AUDIT] -> FUZZY ({reason})\n")
             return True, "FUZZY"
 
-        with open(log_path, "a", encoding="utf-8") as f: f.write(f"        [AUDIT] -> ABGELEHNT\n")
+        dlog(f"        [AUDIT] -> ABGELEHNT\n")
         return False, "NONE"
 
     def evaluate_fallback(
         self, target_clean: str, first_slot_text: str,
-        last_added_ocr_clean: str, last_seen_slot_00: str, log_path: str
+        last_added_ocr_clean: str, last_seen_slot_00: str
     ) -> bool:
 
         if first_slot_text == "BLIND_CARD":
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"    [FALLBACK ACTIVE] Blind-Card erkannt. Master Duel Suche wird vertraut. Erzwinge Klick.\n")
+            dlog(f"    [FALLBACK ACTIVE] Blind-Card erkannt. Master Duel Suche wird vertraut. Erzwinge Klick.\n")
             return True
 
-        target_has_night_only = "night" in target_clean and "knight" not in target_clean
-        ocr_has_knight = "knight" in first_slot_text
-        target_has_knight = "knight" in target_clean
-        ocr_has_night_only = "night" in first_slot_text and "knight" not in first_slot_text
-
-        if (target_has_night_only and ocr_has_knight) or (target_has_knight and ocr_has_night_only):
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"    [FAILSAFE BLOCK] Fallback blockiert wegen kritischem Knight/Night-Konflikt.\n")
+        if knight_night_conflict(target_clean, first_slot_text):
+            dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen kritischem Knight/Night-Konflikt.\n")
             return False
 
         # --- DYNAMISCHER STAMM-SCHILD IM FALLBACK ---
@@ -203,8 +205,7 @@ class MatchValidator:
             if len(t_suf_fb) >= 2 and is_hijack_danger_fb and len(o_suf_fb) >= (len(t_suf_fb) * 0.4):
                 suf_ratio_fb = SequenceMatcher(None, t_suf_fb, o_suf_fb).ratio()
                 if suf_ratio_fb < 0.50:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Archetypen-Hijack (Suffix '{t_suf_fb}' vs '{o_suf_fb}', Ratio {suf_ratio_fb:.2f}).\n")
+                    dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Archetypen-Hijack (Suffix '{t_suf_fb}' vs '{o_suf_fb}', Ratio {suf_ratio_fb:.2f}).\n")
                     return False
 
         sm_fallback = SequenceMatcher(None, target_clean, first_slot_text)
@@ -220,9 +221,8 @@ class MatchValidator:
             if ec in first_slot_text and ec not in target_clean:
                 is_cross_card = True
 
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(f"    [FALLBACK-CHECK] sim={similarity:.3f} delta={delta} cross={is_cross_card} "
-                   f"last_added='{last_added_ocr_clean}' slot00='{first_slot_text}'\n")
+        dlog(f"    [FALLBACK-CHECK] sim={similarity:.3f} delta={delta} cross={is_cross_card} "
+            f"last_added='{last_added_ocr_clean}' slot00='{first_slot_text}'\n")
 
         is_stale = False
         if last_added_ocr_clean and first_slot_text == last_added_ocr_clean:
@@ -231,35 +231,29 @@ class MatchValidator:
             is_stale = True
 
         if is_stale:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write("    [FAILSAFE BLOCK] Fallback blockiert! Slot 00 zeigt noch alte Karte.\n")
+            dlog("    [FAILSAFE BLOCK] Fallback blockiert! Slot 00 zeigt noch alte Karte.\n")
             return False
         elif is_cross_card:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"    [FAILSAFE BLOCK] Fremdkarte erkannt (sim={similarity:.3f}), Fallback verweigert.\n")
+            dlog(f"    [FAILSAFE BLOCK] Fremdkarte erkannt (sim={similarity:.3f}), Fallback verweigert.\n")
             return False
 
         max_delta = max(2, int(len(target_clean) * 0.25))
         if target_clean in first_slot_text and delta > max_delta:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Suffix-Hijacking (Delta {delta} > Limit {max_delta}).\n")
+            dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Suffix-Hijacking (Delta {delta} > Limit {max_delta}).\n")
             return False
 
         for tag, i1, i2, j1, j2 in sm_fallback.get_opcodes():
             if tag in ('insert', 'replace') and i1 > 0 and i2 < len(target_clean):
                 if (j2 - j1) >= 3 and (j2 - j1) >= (i2 - i1) + 2:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Infix-Hijacking (Core-Bruch).\n")
+                    dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Infix-Hijacking (Core-Bruch).\n")
                     return False
 
         if similarity >= 0.65:
             if len(first_slot_text) > len(target_clean) + 2 and target_clean[:3] not in first_slot_text[:5]:
-                 with open(log_path, "a", encoding="utf-8") as f:
-                     f.write(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Prefix-Mismatch (sim={similarity:.3f}).\n")
+                 dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Prefix-Mismatch (sim={similarity:.3f}).\n")
                  return False
 
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"    [FALLBACK ACTIVE] Slot 00 valid (sim={similarity:.3f} >= 0.65). Erzwinge Klick.\n")
+            dlog(f"    [FALLBACK ACTIVE] Slot 00 valid (sim={similarity:.3f} >= 0.65). Erzwinge Klick.\n")
             return True
 
         elif similarity >= 0.50 and delta <= 3:
@@ -270,18 +264,14 @@ class MatchValidator:
                 overlap = common_chars / len(target_clean)
 
                 if overlap >= 0.80:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"    [FALLBACK ACTIVE] Slot 00 OCR Scramble valid (sim={similarity:.3f}, delta={delta}, overlap={overlap:.2f}). Erzwinge Klick.\n")
+                    dlog(f"    [FALLBACK ACTIVE] Slot 00 OCR Scramble valid (sim={similarity:.3f}, delta={delta}, overlap={overlap:.2f}). Erzwinge Klick.\n")
                     return True
                 else:
-                    with open(log_path, "a", encoding="utf-8") as f:
-                        f.write(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen zu geringem Char-Overlap (overlap={overlap:.2f} < 0.80).\n")
+                    dlog(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen zu geringem Char-Overlap (overlap={overlap:.2f} < 0.80).\n")
                     return False
             else:
-                with open(log_path, "a", encoding="utf-8") as f:
-                    f.write(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen Prefix-Mismatch (Schild aktiv).\n")
+                dlog(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen Prefix-Mismatch (Schild aktiv).\n")
                 return False
         else:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(f"    [FAILSAFE BLOCK] sim={similarity:.3f} zu niedrig / Längen-Delta zu groß für Fallback.\n")
+            dlog(f"    [FAILSAFE BLOCK] sim={similarity:.3f} zu niedrig / Längen-Delta zu groß für Fallback.\n")
             return False

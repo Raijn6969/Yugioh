@@ -1,0 +1,2714 @@
+{
+ "clean_text": {
+  "Albion the Branded Dragon": "albionthebrandeddragon",
+  "Arc Rebellion Xyz Dragon": "arcrebellionxyzdragon",
+  "Artmage Academic Arcane Arts Acropolis": "artmageacademicarcaneartsacropolis",
+  "Artmage Diactorus": "artmagediactorus",
+  "Artmage Finmel": "artmagefinmel",
+  "Artmage Graflare": "artmagegraflare",
+  "Artmage Impasto -Recapture-": "artmageimpastorecapture",
+  "Artmage Litera": "artmagelitera",
+  "Artmage Masterwork -Succession-": "artmagemasterworksuccession",
+  "Artmage Non-Finito": "artmagenonfinito",
+  "Artmage Pact -Awakening-": "artmagepactawakening",
+  "Artmage Power Patron": "artmagepowerpatron",
+  "Artmage Vandalism -Assault-": "artmagevandalismassault",
+  "Artmage Varnish -Alteration-": "artmagevarnishalteration",
+  "Aschenblüte & Freudiger Frühling": "aschenbltefreudigerfrhling",
+  "Ash Blossom & Joyous Spring": "ashblossomjoyousspring",
+  "Big-Winged Berfomet": "bigwingedberfomet",
+  "Black Metal Dragon": "blackmetaldragon",
+  "Bystial Dis Pater": "bystialdispater",
+  "Bystial Druiswurm": "bystialdruiswurm",
+  "Bystial Magnamhut": "bystialmagnamhut",
+  "Chimera Fusion": "chimerafusion",
+  "Chimera the Illusion Beast": "chimeratheillusionbeast",
+  "Chimera the King of Phantom Beasts": "chimerathekingofphantombeasts",
+  "Dharc the Dark Charmer, Gloomy": "dharcthedarkcharmergloomy",
+  "Droll & Lock Bird": "drolllockbird",
+  "Ecclesia and the Dark Dragon": "ecclesiaandthedarkdragon",
+  "Effect Veiler": "effectveiler",
+  "Elfnote Fortuna": "elfnotefortuna",
+  "Elfnote Lucina": "elfnotelucina",
+  "Elfnote Power Patron": "elfnotepowerpatron",
+  "Elfnote Regina": "elfnoteregina",
+  "Elfnote Seraphim Strelitzia": "elfnoteseraphimstrelitzia",
+  "Elfnote Tinia": "elfnotetinia",
+  "Elfnotes: Rhapsodia of Madness": "elfnotesrhapsodiaofmadness",
+  "Elfnotes: Welcome Home": "elfnoteswelcomehome",
+  "Evenly Matched": "evenlymatched",
+  "Exosister Asophiel": "exosisterasophiel",
+  "Exosister Elis": "exosisterelis",
+  "Exosister Gibrine": "exosistergibrine",
+  "Exosister Irene": "exosisterirene",
+  "Exosister Kaspitell": "exosisterkaspitell",
+  "Exosister Martha": "exosistermartha",
+  "Exosister Mikailia": "exosistermikailia",
+  "Exosister Stella": "exosisterstella",
+  "Exosisters Magnifica": "exosistersmagnifica",
+  "Garura, Wings of Resonant Life": "garurawingsofresonantlife",
+  "Guardian Chimera": "guardianchimera",
+  "Hecahands": "hecahands",
+  "Hecahands Bait": "hecahandsbait",
+  "Hecahands Breus": "hecahandsbreus",
+  "Hecahands Dandalos": "hecahandsdandalos",
+  "Hecahands Gaigas": "hecahandsgaigas",
+  "Hecahands Godos": "hecahandsgodos",
+  "Hecahands Ibtel": "hecahandsibtel",
+  "Hecahands Jauzah": "hecahandsjauzah",
+  "Hecahands Mankibuel": "hecahandsmankibuel",
+  "Hecahands Xeno": "hecahandsxeno",
+  "Hecahands Yadel": "hecahandsyadel",
+  "Hieratic Dragon King of Atum": "hieraticdragonkingofatum",
+  "Hieratic Seal of the Heavenly Spheres": "hieraticsealoftheheavenlyspheres",
+  "Ib'al-Hecahands": "ibalhecahands",
+  "Illusion Gate": "illusiongate",
+  "Infinite Impermanence": "infiniteimpermanence",
+  "JJ Kewl Tune": "jjkewltune",
+  "Kashtira Fenrir": "kashtirafenrir",
+  "Kashtira Shangri-Ira": "kashtirashangriira",
+  "Kewl Tune B2B": "kewltuneb2b",
+  "Kewl Tune Clip": "kewltuneclip",
+  "Kewl Tune Crackle": "kewltunecrackle",
+  "Kewl Tune Cue": "kewltunecue",
+  "Kewl Tune Loudness War": "kewltuneloudnesswar",
+  "Kewl Tune Mix": "kewltunemix",
+  "Kewl Tune RS": "kewltuners",
+  "Kewl Tune Reco": "kewltunereco",
+  "Kewl Tune Remix": "kewltuneremix",
+  "Kewl Tune Rotary": "kewltunerotary",
+  "Kewl Tune Synchro": "kewltunesynchro",
+  "Kewl Tune Track Maker": "kewltunetrackmaker",
+  "Knightmare Phoenix": "knightmarephoenix",
+  "Königlicher Drache": "kniglicherdrache",
+  "Link Spider": "linkspider",
+  "Magistus Chorozo": "magistuschorozo",
+  "Maxx \"C\"": "maxxc",
+  "Maxx C": "maxxc",
+  "Medius the Pure": "mediusthepure",
+  "Mirror Swordknight": "mirrorswordknight",
+  "Monk of the Tenyi": "monkofthetenyi",
+  "Monster Reborn": "monsterreborn",
+  "Mudragon of the Swamp": "mudragonoftheswamp",
+  "Mulcharmy Fuwalos": "mulcharmyfuwalos",
+  "Nightmare Apprentice": "nightmareapprentice",
+  "Number 106: Giant Hand": "number106gianthand",
+  "Number 75: Bamboozling Gossip Shadow": "number75bamboozlinggossipshadow",
+  "Predaplant Dragostapelia": "predaplantdragostapelia",
+  "Primite Dragon Ether Beryl": "primitedragonetherberyl",
+  "Primite Drillbeam": "primitedrillbeam",
+  "Primite Imperial Dragon": "primiteimperialdragon",
+  "Primite Lordly Lode": "primitelordlylode",
+  "Primite Roar": "primiteroar",
+  "Raider's Knight": "raidersknight",
+  "Raigeki": "raigeki",
+  "Red-Eyes Black Dragon": "redeyesblackdragon",
+  "Red-Eyes Black Meteor Dragon": "redeyesblackmeteordragon",
+  "Red-Eyes Darkness Metal Dragon": "redeyesdarknessmetaldragon",
+  "Red-Eyes Flare Metal Dragon": "redeyesflaremetaldragon",
+  "Redox, Dragon Ruler of Boulders": "redoxdragonrulerofboulders",
+  "S:P Little Knight": "splittleknight",
+  "Seventh Tachyon": "seventhtachyon",
+  "Spectral, Dragon Ruler of Flickers": "spectraldragonrulerofflickers",
+  "Stellar Wind Wolfrayet": "stellarwindwolfrayet",
+  "Super Polymerization": "superpolymerization",
+  "Swordsoul Blackout": "swordsoulblackout",
+  "Swordsoul Emergence": "swordsoulemergence",
+  "Swordsoul Grandmaster - Chixiao": "swordsoulgrandmasterchixiao",
+  "Swordsoul Sacred Summit": "swordsoulsacredsummit",
+  "Swordsoul Sinister Sovereign - Qixing Longyuan": "swordsoulsinistersovereignqixinglongyuan",
+  "Swordsoul Strategist Longyuan": "swordsoulstrategistlongyuan",
+  "Swordsoul Supreme Sovereign - Chengying": "swordsoulsupremesovereignchengying",
+  "Swordsoul of Mo Ye": "swordsoulofmoye",
+  "Swordsoul of Taia": "swordsouloftaia",
+  "Tempest, Dragon Ruler of Storms": "tempestdragonrulerofstorms",
+  "Tenyi Spirit - Adhara": "tenyispiritadhara",
+  "Tenyi Spirit - Ashuna": "tenyispiritashuna",
+  "Tenyi Spirit - Vishuda": "tenyispiritvishuda",
+  "The Dragon that Devours the Dogma": "thedragonthatdevoursthedogma",
+  "The Fallen & The Virtuous": "thefallenthevirtuous",
+  "Triple Tactics Talent": "tripletacticstalent",
+  "Underworld Goddess of the Closed World": "underworldgoddessoftheclosedworld",
+  "Weißer Drache mit eiskaltem Blick": "weierdrachemiteiskaltemblick",
+  "Yad'al-Hecahands": "yadalhecahands"
+ },
+ "check_match": [
+  [
+   "albionthebrandeddragon",
+   "lalbionthebrandeddragor",
+   true,
+   "FUZZY"
+  ],
+  [
+   "arcrebellionxyzdragon",
+   "arcrebellionxyzdragon",
+   true,
+   "EXACT"
+  ],
+  [
+   "ashblossomjoyousspring",
+   "ashblossomjoyousspr",
+   true,
+   "FUZZY"
+  ],
+  [
+   "blackmetaldragon",
+   "blackmetaldragon",
+   true,
+   "EXACT"
+  ],
+  [
+   "blackmetaldragon",
+   "lredeyesblackfullmetal",
+   false,
+   "NONE"
+  ],
+  [
+   "dharcthedarkcharmergloomy",
+   "dharethedarkcharmer",
+   true,
+   "FUZZY"
+  ],
+  [
+   "dharcthedarkcharmergloomy",
+   "dharethedarkcharmerc",
+   true,
+   "FUZZY"
+  ],
+  [
+   "dimensionshifter",
+   "dimensionshifter",
+   true,
+   "EXACT"
+  ],
+  [
+   "drolllockbird",
+   "drolllockbird",
+   true,
+   "EXACT"
+  ],
+  [
+   "ecclesiaandthedarkdragon",
+   "lecclesiaandthedarp",
+   true,
+   "FUZZY"
+  ],
+  [
+   "ecclesiaandthedarkdragon",
+   "thedragonthatdevourstl",
+   false,
+   "NONE"
+  ],
+  [
+   "effectveiler",
+   "leffectveiler",
+   true,
+   "FUZZY"
+  ],
+  [
+   "evenlymatched",
+   "evenlymatched",
+   true,
+   "EXACT"
+  ],
+  [
+   "garurawingsofresonantlife",
+   "garurawingsofresonant",
+   true,
+   "FUZZY"
+  ],
+  [
+   "hecahands",
+   "hecahandsbait",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsbreus",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsdandalos",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsgaigas",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsgodos",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsibtel",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsjauzah",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsmankibuel",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandstartaros",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsxeno",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsyadel",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "ibalhecahands",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "thehiddenhecahands",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "yadalhecahands",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahandsbreus",
+   "hecahandsbreus",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsdandalos",
+   "hecahandsdandalos",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsgaigas",
+   "hecahandsgaigas",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsibtel",
+   "hecahandsibtel",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsjauzah",
+   "hecahandsjauzah",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsmankibuel",
+   "hecahandsmankibuel",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandstartaros",
+   "hecahandstartaros",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsxeno",
+   "hecahandsxeno",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsyadel",
+   "hecahandsyadel",
+   true,
+   "EXACT"
+  ],
+  [
+   "hereticalphoboscovos",
+   "hereticalphoboscovos",
+   true,
+   "EXACT"
+  ],
+  [
+   "hieraticdragonkingofatum",
+   "lhieraticdragonkingofat",
+   true,
+   "FUZZY"
+  ],
+  [
+   "hieraticsealoftheheavenlyspheres",
+   "lhieraticsealoftheheavel",
+   true,
+   "FUZZY"
+  ],
+  [
+   "ibalhecahands",
+   "ibalhecahands",
+   true,
+   "EXACT"
+  ],
+  [
+   "illusiongate",
+   "azaminahliasilvia",
+   false,
+   "NONE"
+  ],
+  [
+   "illusiongate",
+   "illusiongate",
+   true,
+   "EXACT"
+  ],
+  [
+   "illusiongate",
+   "lhereticalphoboscovos",
+   false,
+   "NONE"
+  ],
+  [
+   "illusiongate",
+   "tllusionofchaos",
+   false,
+   "NONE"
+  ],
+  [
+   "infiniteimpermanence",
+   "linfiniteimpermanence",
+   true,
+   "FUZZY"
+  ],
+  [
+   "ipmasquerena",
+   "icpmasquerena",
+   true,
+   "FUZZY"
+  ],
+  [
+   "jongleurghoulillusionist",
+   "jongleurghoulillusionist",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtiraariseheart",
+   "lkashtiraariseheart",
+   true,
+   "FUZZY"
+  ],
+  [
+   "kashtirabirth",
+   "kashtirabirth",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtirafenrir",
+   "kashtirafenrir",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtirafenrir",
+   "lkashtirafenrir",
+   true,
+   "FUZZY"
+  ],
+  [
+   "kashtirariseheart",
+   "kashtirariseheart",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtirashangriira",
+   "lkashtiraariseheart",
+   false,
+   "NONE"
+  ],
+  [
+   "kashtirashangriira",
+   "lkashtirashangritra",
+   true,
+   "FUZZY"
+  ],
+  [
+   "kashtirashangriira",
+   "pressuredplanetwraitsotl",
+   false,
+   "NONE"
+  ],
+  [
+   "kashtiratheosis",
+   "kashtiratheosis",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtiraunicorn",
+   "kashtiraunicorn",
+   true,
+   "EXACT"
+  ],
+  [
+   "knightmarephoenix",
+   "knightmarephoenix",
+   true,
+   "EXACT"
+  ],
+  [
+   "linkspider",
+   "linkspider",
+   true,
+   "EXACT"
+  ],
+  [
+   "magistuschorozo",
+   "magistuschorozo",
+   true,
+   "EXACT"
+  ],
+  [
+   "maxxc",
+   "lartmagemasterworksuc",
+   false,
+   "NONE"
+  ],
+  [
+   "maxxc",
+   "lmaxxc",
+   true,
+   "FUZZY"
+  ],
+  [
+   "maxxc",
+   "maxxcc",
+   true,
+   "FUZZY"
+  ],
+  [
+   "mediusthepure",
+   "mediusthepure",
+   true,
+   "EXACT"
+  ],
+  [
+   "monsterreborn",
+   "monsterreborn",
+   true,
+   "EXACT"
+  ],
+  [
+   "mudragonoftheswamp",
+   "mudragonoftheswamp",
+   true,
+   "EXACT"
+  ],
+  [
+   "mulcharmyfuwalos",
+   "mulcharmyfuwalos",
+   true,
+   "EXACT"
+  ],
+  [
+   "number106gianthand",
+   "limberc106giantredhar",
+   false,
+   "NONE"
+  ],
+  [
+   "number106gianthand",
+   "number106gianthand",
+   true,
+   "EXACT"
+  ],
+  [
+   "number106gianthand",
+   "numberc106giantredt",
+   false,
+   "NONE"
+  ],
+  [
+   "number11bigeye",
+   "number11bigeye",
+   true,
+   "EXACT"
+  ],
+  [
+   "predaplantdragostapelia",
+   "lgarurawingsofresonant",
+   false,
+   "NONE"
+  ],
+  [
+   "predaplantdragostapelia",
+   "predaplantdragostapelia",
+   true,
+   "EXACT"
+  ],
+  [
+   "pressuredplanetwraitsoth",
+   "pressuredplanetwraitsotl",
+   true,
+   "FUZZY"
+  ],
+  [
+   "primitedragonetherberyl",
+   "primitedragonetherbery",
+   true,
+   "FUZZY"
+  ],
+  [
+   "primitedrillbeam",
+   "primitedrillbeam",
+   true,
+   "EXACT"
+  ],
+  [
+   "primiteimperialdragon",
+   "primiteimperialdragon",
+   true,
+   "EXACT"
+  ],
+  [
+   "primitelordlylode",
+   "primitelordlylode",
+   true,
+   "EXACT"
+  ],
+  [
+   "primitelordlylode",
+   "primitelordlylodea",
+   true,
+   "FUZZY"
+  ],
+  [
+   "raidersknight",
+   "lecclesiaandthedarb",
+   false,
+   "NONE"
+  ],
+  [
+   "raidersknight",
+   "lraidersknight",
+   true,
+   "FUZZY"
+  ],
+  [
+   "raigeki",
+   "lraigeki",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redeyesblackdragon",
+   "lredeyesblackdragon",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redeyesblackmeteordragon",
+   "lmeteorblackcometdragc",
+   false,
+   "NONE"
+  ],
+  [
+   "redeyesblackmeteordragon",
+   "lredeyesblackmeteordr",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redeyesdarknessmetaldragon",
+   "lredeyesdarknessmatal",
+   false,
+   "NONE"
+  ],
+  [
+   "redeyesflaremetaldragon",
+   "lredeyesflaremetaldrax",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redoxdragonrulerofboulders",
+   "lredoxdragonrulerofba",
+   true,
+   "FUZZY"
+  ],
+  [
+   "saintazamina",
+   "azamina",
+   true,
+   "FUZZY"
+  ],
+  [
+   "saintazamina",
+   "saintazamina",
+   true,
+   "EXACT"
+  ],
+  [
+   "saryujaskulldread",
+   "saryujaskulldread",
+   true,
+   "EXACT"
+  ],
+  [
+   "seamonsteroftheseus",
+   "seamonsteroftheseus",
+   true,
+   "EXACT"
+  ],
+  [
+   "seventhtachyon",
+   "lseventhtachyon",
+   true,
+   "FUZZY"
+  ],
+  [
+   "spectraldragonrulerofflickers",
+   "spectraldragonrulerofi",
+   true,
+   "FUZZY"
+  ],
+  [
+   "splittleknight",
+   "splittleknight",
+   true,
+   "EXACT"
+  ],
+  [
+   "superpolymerization",
+   "superpolymerization",
+   true,
+   "EXACT"
+  ],
+  [
+   "superstarslayertyphonskycrisis",
+   "superstarslayertyphod",
+   true,
+   "FUZZY"
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "inpestdragonrulerofstor",
+   true,
+   "FUZZY"
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "pestdragonrulerofstorn",
+   true,
+   "FUZZY"
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "tempestdragonrulerof",
+   true,
+   "FUZZY"
+  ],
+  [
+   "thedragonthatdevoursthedogma",
+   "thedragonthatdevourst",
+   true,
+   "FUZZY"
+  ],
+  [
+   "thefallenthevirtuous",
+   "thefallenthevirtuous",
+   true,
+   "EXACT"
+  ],
+  [
+   "tripletacticstalent",
+   "tripletacticstalent",
+   true,
+   "EXACT"
+  ],
+  [
+   "tripletacticstalent",
+   "triptetacticstalent",
+   true,
+   "FUZZY"
+  ],
+  [
+   "underworldgoddessoftheclosedworld",
+   "lunderworldgoddessofthe",
+   true,
+   "FUZZY"
+  ],
+  [
+   "yadalhecahands",
+   "yadalhecahands",
+   true,
+   "EXACT"
+  ]
+ ],
+ "check_match_with_overrule": [
+  [
+   "albionthebrandeddragon",
+   "lalbionthebrandeddragor",
+   true,
+   "FUZZY"
+  ],
+  [
+   "arcrebellionxyzdragon",
+   "arcrebellionxyzdragon",
+   true,
+   "EXACT"
+  ],
+  [
+   "ashblossomjoyousspring",
+   "ashblossomjoyousspr",
+   true,
+   "FUZZY"
+  ],
+  [
+   "blackmetaldragon",
+   "blackmetaldragon",
+   true,
+   "EXACT"
+  ],
+  [
+   "blackmetaldragon",
+   "lredeyesblackfullmetal",
+   false,
+   "NONE"
+  ],
+  [
+   "dharcthedarkcharmergloomy",
+   "dharethedarkcharmer",
+   true,
+   "FUZZY"
+  ],
+  [
+   "dharcthedarkcharmergloomy",
+   "dharethedarkcharmerc",
+   true,
+   "FUZZY"
+  ],
+  [
+   "dimensionshifter",
+   "dimensionshifter",
+   true,
+   "EXACT"
+  ],
+  [
+   "drolllockbird",
+   "drolllockbird",
+   true,
+   "EXACT"
+  ],
+  [
+   "ecclesiaandthedarkdragon",
+   "lecclesiaandthedarp",
+   true,
+   "FUZZY"
+  ],
+  [
+   "ecclesiaandthedarkdragon",
+   "thedragonthatdevourstl",
+   false,
+   "NONE"
+  ],
+  [
+   "effectveiler",
+   "leffectveiler",
+   true,
+   "FUZZY"
+  ],
+  [
+   "evenlymatched",
+   "evenlymatched",
+   true,
+   "EXACT"
+  ],
+  [
+   "garurawingsofresonantlife",
+   "garurawingsofresonant",
+   true,
+   "FUZZY"
+  ],
+  [
+   "hecahands",
+   "hecahandsbait",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsbreus",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsdandalos",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsgaigas",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsgodos",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsibtel",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsjauzah",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsmankibuel",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandstartaros",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsxeno",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "hecahandsyadel",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "ibalhecahands",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "thehiddenhecahands",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahands",
+   "yadalhecahands",
+   false,
+   "NONE"
+  ],
+  [
+   "hecahandsbreus",
+   "hecahandsbreus",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsdandalos",
+   "hecahandsdandalos",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsgaigas",
+   "hecahandsgaigas",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsibtel",
+   "hecahandsibtel",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsjauzah",
+   "hecahandsjauzah",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsmankibuel",
+   "hecahandsmankibuel",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandstartaros",
+   "hecahandstartaros",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsxeno",
+   "hecahandsxeno",
+   true,
+   "EXACT"
+  ],
+  [
+   "hecahandsyadel",
+   "hecahandsyadel",
+   true,
+   "EXACT"
+  ],
+  [
+   "hereticalphoboscovos",
+   "hereticalphoboscovos",
+   true,
+   "EXACT"
+  ],
+  [
+   "hieraticdragonkingofatum",
+   "lhieraticdragonkingofat",
+   true,
+   "FUZZY"
+  ],
+  [
+   "hieraticsealoftheheavenlyspheres",
+   "lhieraticsealoftheheavel",
+   true,
+   "FUZZY"
+  ],
+  [
+   "ibalhecahands",
+   "ibalhecahands",
+   true,
+   "EXACT"
+  ],
+  [
+   "illusiongate",
+   "azaminahliasilvia",
+   false,
+   "NONE"
+  ],
+  [
+   "illusiongate",
+   "illusiongate",
+   true,
+   "EXACT"
+  ],
+  [
+   "illusiongate",
+   "lhereticalphoboscovos",
+   false,
+   "NONE"
+  ],
+  [
+   "illusiongate",
+   "tllusionofchaos",
+   false,
+   "NONE"
+  ],
+  [
+   "infiniteimpermanence",
+   "linfiniteimpermanence",
+   true,
+   "FUZZY"
+  ],
+  [
+   "ipmasquerena",
+   "icpmasquerena",
+   true,
+   "FUZZY"
+  ],
+  [
+   "jongleurghoulillusionist",
+   "jongleurghoulillusionist",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtiraariseheart",
+   "lkashtiraariseheart",
+   true,
+   "FUZZY"
+  ],
+  [
+   "kashtirabirth",
+   "kashtirabirth",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtirafenrir",
+   "kashtirafenrir",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtirafenrir",
+   "lkashtirafenrir",
+   true,
+   "FUZZY"
+  ],
+  [
+   "kashtirariseheart",
+   "kashtirariseheart",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtirashangriira",
+   "lkashtiraariseheart",
+   false,
+   "NONE"
+  ],
+  [
+   "kashtirashangriira",
+   "lkashtirashangritra",
+   true,
+   "FUZZY"
+  ],
+  [
+   "kashtirashangriira",
+   "pressuredplanetwraitsotl",
+   false,
+   "NONE"
+  ],
+  [
+   "kashtiratheosis",
+   "kashtiratheosis",
+   true,
+   "EXACT"
+  ],
+  [
+   "kashtiraunicorn",
+   "kashtiraunicorn",
+   true,
+   "EXACT"
+  ],
+  [
+   "knightmarephoenix",
+   "knightmarephoenix",
+   true,
+   "EXACT"
+  ],
+  [
+   "linkspider",
+   "linkspider",
+   true,
+   "EXACT"
+  ],
+  [
+   "magistuschorozo",
+   "magistuschorozo",
+   true,
+   "EXACT"
+  ],
+  [
+   "maxxc",
+   "lartmagemasterworksuc",
+   false,
+   "NONE"
+  ],
+  [
+   "maxxc",
+   "lmaxxc",
+   true,
+   "FUZZY"
+  ],
+  [
+   "maxxc",
+   "maxxcc",
+   true,
+   "FUZZY"
+  ],
+  [
+   "mediusthepure",
+   "mediusthepure",
+   true,
+   "EXACT"
+  ],
+  [
+   "monsterreborn",
+   "monsterreborn",
+   true,
+   "EXACT"
+  ],
+  [
+   "mudragonoftheswamp",
+   "mudragonoftheswamp",
+   true,
+   "EXACT"
+  ],
+  [
+   "mulcharmyfuwalos",
+   "mulcharmyfuwalos",
+   true,
+   "EXACT"
+  ],
+  [
+   "number106gianthand",
+   "limberc106giantredhar",
+   false,
+   "NONE"
+  ],
+  [
+   "number106gianthand",
+   "number106gianthand",
+   true,
+   "EXACT"
+  ],
+  [
+   "number106gianthand",
+   "numberc106giantredt",
+   false,
+   "NONE"
+  ],
+  [
+   "number11bigeye",
+   "number11bigeye",
+   true,
+   "EXACT"
+  ],
+  [
+   "predaplantdragostapelia",
+   "lgarurawingsofresonant",
+   false,
+   "NONE"
+  ],
+  [
+   "predaplantdragostapelia",
+   "predaplantdragostapelia",
+   true,
+   "EXACT"
+  ],
+  [
+   "pressuredplanetwraitsoth",
+   "pressuredplanetwraitsotl",
+   true,
+   "FUZZY"
+  ],
+  [
+   "primitedragonetherberyl",
+   "primitedragonetherbery",
+   true,
+   "FUZZY"
+  ],
+  [
+   "primitedrillbeam",
+   "primitedrillbeam",
+   true,
+   "EXACT"
+  ],
+  [
+   "primiteimperialdragon",
+   "primiteimperialdragon",
+   true,
+   "EXACT"
+  ],
+  [
+   "primitelordlylode",
+   "primitelordlylode",
+   true,
+   "EXACT"
+  ],
+  [
+   "primitelordlylode",
+   "primitelordlylodea",
+   true,
+   "FUZZY"
+  ],
+  [
+   "raidersknight",
+   "lecclesiaandthedarb",
+   false,
+   "NONE"
+  ],
+  [
+   "raidersknight",
+   "lraidersknight",
+   true,
+   "FUZZY"
+  ],
+  [
+   "raigeki",
+   "lraigeki",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redeyesblackdragon",
+   "lredeyesblackdragon",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redeyesblackmeteordragon",
+   "lmeteorblackcometdragc",
+   false,
+   "NONE"
+  ],
+  [
+   "redeyesblackmeteordragon",
+   "lredeyesblackmeteordr",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redeyesdarknessmetaldragon",
+   "lredeyesdarknessmatal",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redeyesflaremetaldragon",
+   "lredeyesflaremetaldrax",
+   true,
+   "FUZZY"
+  ],
+  [
+   "redoxdragonrulerofboulders",
+   "lredoxdragonrulerofba",
+   true,
+   "FUZZY"
+  ],
+  [
+   "saintazamina",
+   "azamina",
+   true,
+   "FUZZY"
+  ],
+  [
+   "saintazamina",
+   "saintazamina",
+   true,
+   "EXACT"
+  ],
+  [
+   "saryujaskulldread",
+   "saryujaskulldread",
+   true,
+   "EXACT"
+  ],
+  [
+   "seamonsteroftheseus",
+   "seamonsteroftheseus",
+   true,
+   "EXACT"
+  ],
+  [
+   "seventhtachyon",
+   "lseventhtachyon",
+   true,
+   "FUZZY"
+  ],
+  [
+   "spectraldragonrulerofflickers",
+   "spectraldragonrulerofi",
+   true,
+   "FUZZY"
+  ],
+  [
+   "splittleknight",
+   "splittleknight",
+   true,
+   "EXACT"
+  ],
+  [
+   "superpolymerization",
+   "superpolymerization",
+   true,
+   "EXACT"
+  ],
+  [
+   "superstarslayertyphonskycrisis",
+   "superstarslayertyphod",
+   true,
+   "FUZZY"
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "inpestdragonrulerofstor",
+   true,
+   "FUZZY"
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "pestdragonrulerofstorn",
+   true,
+   "FUZZY"
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "tempestdragonrulerof",
+   true,
+   "FUZZY"
+  ],
+  [
+   "thedragonthatdevoursthedogma",
+   "thedragonthatdevourst",
+   true,
+   "FUZZY"
+  ],
+  [
+   "thefallenthevirtuous",
+   "thefallenthevirtuous",
+   true,
+   "EXACT"
+  ],
+  [
+   "tripletacticstalent",
+   "tripletacticstalent",
+   true,
+   "EXACT"
+  ],
+  [
+   "tripletacticstalent",
+   "triptetacticstalent",
+   true,
+   "FUZZY"
+  ],
+  [
+   "underworldgoddessoftheclosedworld",
+   "lunderworldgoddessofthe",
+   true,
+   "FUZZY"
+  ],
+  [
+   "yadalhecahands",
+   "yadalhecahands",
+   true,
+   "EXACT"
+  ]
+ ],
+ "evaluate_fallback": [
+  [
+   "albionthebrandeddragon",
+   "lalbionthebrandeddragor",
+   true
+  ],
+  [
+   "arcrebellionxyzdragon",
+   "arcrebellionxyzdragon",
+   true
+  ],
+  [
+   "ashblossomjoyousspring",
+   "ashblossomjoyousspr",
+   true
+  ],
+  [
+   "blackmetaldragon",
+   "blackmetaldragon",
+   true
+  ],
+  [
+   "blackmetaldragon",
+   "lredeyesblackfullmetal",
+   false
+  ],
+  [
+   "dharcthedarkcharmergloomy",
+   "dharethedarkcharmer",
+   true
+  ],
+  [
+   "dharcthedarkcharmergloomy",
+   "dharethedarkcharmerc",
+   true
+  ],
+  [
+   "dimensionshifter",
+   "dimensionshifter",
+   true
+  ],
+  [
+   "drolllockbird",
+   "drolllockbird",
+   true
+  ],
+  [
+   "ecclesiaandthedarkdragon",
+   "lecclesiaandthedarp",
+   true
+  ],
+  [
+   "ecclesiaandthedarkdragon",
+   "thedragonthatdevourstl",
+   false
+  ],
+  [
+   "effectveiler",
+   "leffectveiler",
+   true
+  ],
+  [
+   "evenlymatched",
+   "evenlymatched",
+   true
+  ],
+  [
+   "garurawingsofresonantlife",
+   "garurawingsofresonant",
+   true
+  ],
+  [
+   "hecahands",
+   "hecahandsbait",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsbreus",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsdandalos",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsgaigas",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsgodos",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsibtel",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsjauzah",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsmankibuel",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandstartaros",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsxeno",
+   false
+  ],
+  [
+   "hecahands",
+   "hecahandsyadel",
+   false
+  ],
+  [
+   "hecahands",
+   "ibalhecahands",
+   false
+  ],
+  [
+   "hecahands",
+   "thehiddenhecahands",
+   false
+  ],
+  [
+   "hecahands",
+   "yadalhecahands",
+   false
+  ],
+  [
+   "hecahandsbreus",
+   "hecahandsbreus",
+   true
+  ],
+  [
+   "hecahandsdandalos",
+   "hecahandsdandalos",
+   true
+  ],
+  [
+   "hecahandsgaigas",
+   "hecahandsgaigas",
+   true
+  ],
+  [
+   "hecahandsibtel",
+   "hecahandsibtel",
+   true
+  ],
+  [
+   "hecahandsjauzah",
+   "hecahandsjauzah",
+   true
+  ],
+  [
+   "hecahandsmankibuel",
+   "hecahandsmankibuel",
+   true
+  ],
+  [
+   "hecahandstartaros",
+   "hecahandstartaros",
+   true
+  ],
+  [
+   "hecahandsxeno",
+   "hecahandsxeno",
+   true
+  ],
+  [
+   "hecahandsyadel",
+   "hecahandsyadel",
+   true
+  ],
+  [
+   "hereticalphoboscovos",
+   "hereticalphoboscovos",
+   true
+  ],
+  [
+   "hieraticdragonkingofatum",
+   "lhieraticdragonkingofat",
+   true
+  ],
+  [
+   "hieraticsealoftheheavenlyspheres",
+   "lhieraticsealoftheheavel",
+   true
+  ],
+  [
+   "ibalhecahands",
+   "ibalhecahands",
+   true
+  ],
+  [
+   "illusiongate",
+   "azaminahliasilvia",
+   false
+  ],
+  [
+   "illusiongate",
+   "illusiongate",
+   true
+  ],
+  [
+   "illusiongate",
+   "lhereticalphoboscovos",
+   false
+  ],
+  [
+   "illusiongate",
+   "tllusionofchaos",
+   false
+  ],
+  [
+   "infiniteimpermanence",
+   "linfiniteimpermanence",
+   true
+  ],
+  [
+   "ipmasquerena",
+   "icpmasquerena",
+   true
+  ],
+  [
+   "jongleurghoulillusionist",
+   "jongleurghoulillusionist",
+   true
+  ],
+  [
+   "kashtiraariseheart",
+   "lkashtiraariseheart",
+   true
+  ],
+  [
+   "kashtirabirth",
+   "kashtirabirth",
+   true
+  ],
+  [
+   "kashtirafenrir",
+   "kashtirafenrir",
+   true
+  ],
+  [
+   "kashtirafenrir",
+   "lkashtirafenrir",
+   true
+  ],
+  [
+   "kashtirariseheart",
+   "kashtirariseheart",
+   true
+  ],
+  [
+   "kashtirashangriira",
+   "lkashtiraariseheart",
+   false
+  ],
+  [
+   "kashtirashangriira",
+   "lkashtirashangritra",
+   true
+  ],
+  [
+   "kashtirashangriira",
+   "pressuredplanetwraitsotl",
+   false
+  ],
+  [
+   "kashtiratheosis",
+   "kashtiratheosis",
+   true
+  ],
+  [
+   "kashtiraunicorn",
+   "kashtiraunicorn",
+   true
+  ],
+  [
+   "knightmarephoenix",
+   "knightmarephoenix",
+   true
+  ],
+  [
+   "linkspider",
+   "linkspider",
+   true
+  ],
+  [
+   "magistuschorozo",
+   "magistuschorozo",
+   true
+  ],
+  [
+   "maxxc",
+   "lartmagemasterworksuc",
+   false
+  ],
+  [
+   "maxxc",
+   "lmaxxc",
+   true
+  ],
+  [
+   "maxxc",
+   "maxxcc",
+   true
+  ],
+  [
+   "mediusthepure",
+   "mediusthepure",
+   true
+  ],
+  [
+   "monsterreborn",
+   "monsterreborn",
+   true
+  ],
+  [
+   "mudragonoftheswamp",
+   "mudragonoftheswamp",
+   true
+  ],
+  [
+   "mulcharmyfuwalos",
+   "mulcharmyfuwalos",
+   true
+  ],
+  [
+   "number106gianthand",
+   "limberc106giantredhar",
+   false
+  ],
+  [
+   "number106gianthand",
+   "number106gianthand",
+   true
+  ],
+  [
+   "number106gianthand",
+   "numberc106giantredt",
+   false
+  ],
+  [
+   "number11bigeye",
+   "number11bigeye",
+   true
+  ],
+  [
+   "predaplantdragostapelia",
+   "lgarurawingsofresonant",
+   false
+  ],
+  [
+   "predaplantdragostapelia",
+   "predaplantdragostapelia",
+   true
+  ],
+  [
+   "pressuredplanetwraitsoth",
+   "pressuredplanetwraitsotl",
+   true
+  ],
+  [
+   "primitedragonetherberyl",
+   "primitedragonetherbery",
+   true
+  ],
+  [
+   "primitedrillbeam",
+   "primitedrillbeam",
+   true
+  ],
+  [
+   "primiteimperialdragon",
+   "primiteimperialdragon",
+   true
+  ],
+  [
+   "primitelordlylode",
+   "primitelordlylode",
+   true
+  ],
+  [
+   "primitelordlylode",
+   "primitelordlylodea",
+   true
+  ],
+  [
+   "raidersknight",
+   "lecclesiaandthedarb",
+   false
+  ],
+  [
+   "raidersknight",
+   "lraidersknight",
+   true
+  ],
+  [
+   "raigeki",
+   "lraigeki",
+   true
+  ],
+  [
+   "redeyesblackdragon",
+   "lredeyesblackdragon",
+   true
+  ],
+  [
+   "redeyesblackmeteordragon",
+   "lmeteorblackcometdragc",
+   false
+  ],
+  [
+   "redeyesblackmeteordragon",
+   "lredeyesblackmeteordr",
+   true
+  ],
+  [
+   "redeyesdarknessmetaldragon",
+   "lredeyesdarknessmatal",
+   false
+  ],
+  [
+   "redeyesflaremetaldragon",
+   "lredeyesflaremetaldrax",
+   true
+  ],
+  [
+   "redoxdragonrulerofboulders",
+   "lredoxdragonrulerofba",
+   true
+  ],
+  [
+   "saintazamina",
+   "azamina",
+   true
+  ],
+  [
+   "saintazamina",
+   "saintazamina",
+   true
+  ],
+  [
+   "saryujaskulldread",
+   "saryujaskulldread",
+   true
+  ],
+  [
+   "seamonsteroftheseus",
+   "seamonsteroftheseus",
+   true
+  ],
+  [
+   "seventhtachyon",
+   "lseventhtachyon",
+   true
+  ],
+  [
+   "spectraldragonrulerofflickers",
+   "spectraldragonrulerofi",
+   true
+  ],
+  [
+   "splittleknight",
+   "splittleknight",
+   true
+  ],
+  [
+   "superpolymerization",
+   "superpolymerization",
+   true
+  ],
+  [
+   "superstarslayertyphonskycrisis",
+   "superstarslayertyphod",
+   true
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "inpestdragonrulerofstor",
+   true
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "pestdragonrulerofstorn",
+   true
+  ],
+  [
+   "tempestdragonrulerofstorms",
+   "tempestdragonrulerof",
+   true
+  ],
+  [
+   "thedragonthatdevoursthedogma",
+   "thedragonthatdevourst",
+   true
+  ],
+  [
+   "thefallenthevirtuous",
+   "thefallenthevirtuous",
+   true
+  ],
+  [
+   "tripletacticstalent",
+   "tripletacticstalent",
+   true
+  ],
+  [
+   "tripletacticstalent",
+   "triptetacticstalent",
+   true
+  ],
+  [
+   "underworldgoddessoftheclosedworld",
+   "lunderworldgoddessofthe",
+   true
+  ],
+  [
+   "yadalhecahands",
+   "yadalhecahands",
+   true
+  ]
+ ],
+ "batch_groups": {
+  "artmage": [
+   "Artmage Academic Arcane Arts Acropolis",
+   "Artmage Diactorus",
+   "Artmage Finmel",
+   "Artmage Graflare",
+   "Artmage Impasto -Recapture-",
+   "Artmage Litera",
+   "Artmage Masterwork -Succession-",
+   "Artmage Non-Finito",
+   "Artmage Pact -Awakening-",
+   "Artmage Power Patron",
+   "Artmage Vandalism -Assault-",
+   "Artmage Varnish -Alteration-"
+  ],
+  "bystial": [
+   "Bystial Dis Pater",
+   "Bystial Druiswurm",
+   "Bystial Magnamhut"
+  ],
+  "chimera": [
+   "Chimera Fusion",
+   "Chimera the Illusion Beast",
+   "Chimera the King of Phantom Beasts"
+  ],
+  "elfnote": [
+   "Elfnote Fortuna",
+   "Elfnote Lucina",
+   "Elfnote Power Patron",
+   "Elfnote Regina",
+   "Elfnote Seraphim Strelitzia",
+   "Elfnote Tinia",
+   "Elfnotes: Rhapsodia of Madness",
+   "Elfnotes: Welcome Home"
+  ],
+  "exosister": [
+   "Exosister Asophiel",
+   "Exosister Elis",
+   "Exosister Gibrine",
+   "Exosister Irene",
+   "Exosister Kaspitell",
+   "Exosister Martha",
+   "Exosister Mikailia",
+   "Exosister Stella",
+   "Exosisters Magnifica"
+  ],
+  "hecahand": [
+   "Hecahands",
+   "Hecahands Bait",
+   "Hecahands Breus",
+   "Hecahands Dandalos",
+   "Hecahands Gaigas",
+   "Hecahands Godos",
+   "Hecahands Ibtel",
+   "Hecahands Jauzah",
+   "Hecahands Mankibuel",
+   "Hecahands Xeno",
+   "Hecahands Yadel"
+  ],
+  "kewl tune": [
+   "Kewl Tune B2B",
+   "Kewl Tune Clip",
+   "Kewl Tune Crackle",
+   "Kewl Tune Cue",
+   "Kewl Tune Loudness War",
+   "Kewl Tune Mix",
+   "Kewl Tune RS",
+   "Kewl Tune Reco",
+   "Kewl Tune Remix",
+   "Kewl Tune Rotary",
+   "Kewl Tune Synchro",
+   "Kewl Tune Track Maker"
+  ],
+  "primite": [
+   "Primite Dragon Ether Beryl",
+   "Primite Drillbeam",
+   "Primite Imperial Dragon",
+   "Primite Lordly Lode",
+   "Primite Roar"
+  ],
+  "swordsoul": [
+   "Swordsoul Blackout",
+   "Swordsoul Emergence",
+   "Swordsoul Grandmaster - Chixiao",
+   "Swordsoul Sacred Summit",
+   "Swordsoul Sinister Sovereign - Qixing Longyuan",
+   "Swordsoul Strategist Longyuan",
+   "Swordsoul Supreme Sovereign - Chengying",
+   "Swordsoul of Mo Ye",
+   "Swordsoul of Taia"
+  ],
+  "tenyi spirit": [
+   "Tenyi Spirit - Adhara",
+   "Tenyi Spirit - Ashuna",
+   "Tenyi Spirit - Vishuda"
+  ]
+ },
+ "deck": [
+  [
+   "1000",
+   "Albion the Branded Dragon",
+   1
+  ],
+  [
+   "1001",
+   "Arc Rebellion Xyz Dragon",
+   2
+  ],
+  [
+   "1002",
+   "Artmage Academic Arcane Arts Acropolis",
+   3
+  ],
+  [
+   "1003",
+   "Artmage Diactorus",
+   1
+  ],
+  [
+   "1004",
+   "Artmage Finmel",
+   2
+  ],
+  [
+   "1005",
+   "Artmage Graflare",
+   3
+  ],
+  [
+   "1006",
+   "Artmage Impasto -Recapture-",
+   1
+  ],
+  [
+   "1007",
+   "Artmage Litera",
+   2
+  ],
+  [
+   "1008",
+   "Artmage Masterwork -Succession-",
+   3
+  ],
+  [
+   "1009",
+   "Artmage Non-Finito",
+   1
+  ],
+  [
+   "1010",
+   "Artmage Pact -Awakening-",
+   2
+  ],
+  [
+   "1011",
+   "Artmage Power Patron",
+   3
+  ],
+  [
+   "1012",
+   "Artmage Vandalism -Assault-",
+   1
+  ],
+  [
+   "1013",
+   "Artmage Varnish -Alteration-",
+   2
+  ],
+  [
+   "1014",
+   "Aschenblüte & Freudiger Frühling",
+   3
+  ],
+  [
+   "1015",
+   "Ash Blossom & Joyous Spring",
+   1
+  ],
+  [
+   "1016",
+   "Big-Winged Berfomet",
+   2
+  ],
+  [
+   "1017",
+   "Black Metal Dragon",
+   3
+  ],
+  [
+   "1018",
+   "Bystial Dis Pater",
+   1
+  ],
+  [
+   "1019",
+   "Bystial Druiswurm",
+   2
+  ],
+  [
+   "1020",
+   "Bystial Magnamhut",
+   3
+  ],
+  [
+   "1021",
+   "Chimera Fusion",
+   1
+  ],
+  [
+   "1022",
+   "Chimera the Illusion Beast",
+   2
+  ],
+  [
+   "1023",
+   "Chimera the King of Phantom Beasts",
+   3
+  ],
+  [
+   "1024",
+   "Dharc the Dark Charmer, Gloomy",
+   1
+  ],
+  [
+   "1025",
+   "Droll & Lock Bird",
+   2
+  ],
+  [
+   "1026",
+   "Ecclesia and the Dark Dragon",
+   3
+  ],
+  [
+   "1027",
+   "Effect Veiler",
+   1
+  ],
+  [
+   "1028",
+   "Elfnote Fortuna",
+   2
+  ],
+  [
+   "1029",
+   "Elfnote Lucina",
+   3
+  ],
+  [
+   "1030",
+   "Elfnote Power Patron",
+   1
+  ],
+  [
+   "1031",
+   "Elfnote Regina",
+   2
+  ],
+  [
+   "1032",
+   "Elfnote Seraphim Strelitzia",
+   3
+  ],
+  [
+   "1033",
+   "Elfnote Tinia",
+   1
+  ],
+  [
+   "1034",
+   "Elfnotes: Rhapsodia of Madness",
+   2
+  ],
+  [
+   "1035",
+   "Elfnotes: Welcome Home",
+   3
+  ],
+  [
+   "1036",
+   "Evenly Matched",
+   1
+  ],
+  [
+   "1037",
+   "Exosister Asophiel",
+   2
+  ],
+  [
+   "1038",
+   "Exosister Elis",
+   3
+  ],
+  [
+   "1039",
+   "Exosister Gibrine",
+   1
+  ],
+  [
+   "1040",
+   "Exosister Irene",
+   2
+  ],
+  [
+   "1041",
+   "Exosister Kaspitell",
+   3
+  ],
+  [
+   "1042",
+   "Exosister Martha",
+   1
+  ],
+  [
+   "1043",
+   "Exosister Mikailia",
+   2
+  ],
+  [
+   "1044",
+   "Exosister Stella",
+   3
+  ],
+  [
+   "1045",
+   "Exosisters Magnifica",
+   1
+  ],
+  [
+   "1046",
+   "Garura, Wings of Resonant Life",
+   2
+  ],
+  [
+   "1047",
+   "Guardian Chimera",
+   3
+  ],
+  [
+   "1048",
+   "Hecahands",
+   1
+  ],
+  [
+   "1049",
+   "Hecahands Bait",
+   2
+  ],
+  [
+   "1050",
+   "Hecahands Breus",
+   3
+  ],
+  [
+   "1051",
+   "Hecahands Dandalos",
+   1
+  ],
+  [
+   "1052",
+   "Hecahands Gaigas",
+   2
+  ],
+  [
+   "1053",
+   "Hecahands Godos",
+   3
+  ],
+  [
+   "1054",
+   "Hecahands Ibtel",
+   1
+  ],
+  [
+   "1055",
+   "Hecahands Jauzah",
+   2
+  ],
+  [
+   "1056",
+   "Hecahands Mankibuel",
+   3
+  ],
+  [
+   "1057",
+   "Hecahands Xeno",
+   1
+  ],
+  [
+   "1058",
+   "Hecahands Yadel",
+   2
+  ],
+  [
+   "1059",
+   "Hieratic Dragon King of Atum",
+   3
+  ],
+  [
+   "1060",
+   "Hieratic Seal of the Heavenly Spheres",
+   1
+  ],
+  [
+   "1061",
+   "Ib'al-Hecahands",
+   2
+  ],
+  [
+   "1062",
+   "Illusion Gate",
+   3
+  ],
+  [
+   "1063",
+   "Infinite Impermanence",
+   1
+  ],
+  [
+   "1064",
+   "JJ Kewl Tune",
+   2
+  ],
+  [
+   "1065",
+   "Kashtira Fenrir",
+   3
+  ],
+  [
+   "1066",
+   "Kashtira Shangri-Ira",
+   1
+  ],
+  [
+   "1067",
+   "Kewl Tune B2B",
+   2
+  ],
+  [
+   "1068",
+   "Kewl Tune Clip",
+   3
+  ],
+  [
+   "1069",
+   "Kewl Tune Crackle",
+   1
+  ],
+  [
+   "1070",
+   "Kewl Tune Cue",
+   2
+  ],
+  [
+   "1071",
+   "Kewl Tune Loudness War",
+   3
+  ],
+  [
+   "1072",
+   "Kewl Tune Mix",
+   1
+  ],
+  [
+   "1073",
+   "Kewl Tune RS",
+   2
+  ],
+  [
+   "1074",
+   "Kewl Tune Reco",
+   3
+  ],
+  [
+   "1075",
+   "Kewl Tune Remix",
+   1
+  ],
+  [
+   "1076",
+   "Kewl Tune Rotary",
+   2
+  ],
+  [
+   "1077",
+   "Kewl Tune Synchro",
+   3
+  ],
+  [
+   "1078",
+   "Kewl Tune Track Maker",
+   1
+  ],
+  [
+   "1079",
+   "Knightmare Phoenix",
+   2
+  ],
+  [
+   "1080",
+   "Königlicher Drache",
+   3
+  ],
+  [
+   "1081",
+   "Link Spider",
+   1
+  ],
+  [
+   "1082",
+   "Magistus Chorozo",
+   2
+  ],
+  [
+   "1083",
+   "Maxx \"C\"",
+   3
+  ],
+  [
+   "1084",
+   "Maxx C",
+   1
+  ],
+  [
+   "1085",
+   "Medius the Pure",
+   2
+  ],
+  [
+   "1086",
+   "Mirror Swordknight",
+   3
+  ],
+  [
+   "1087",
+   "Monk of the Tenyi",
+   1
+  ],
+  [
+   "1088",
+   "Monster Reborn",
+   2
+  ],
+  [
+   "1089",
+   "Mudragon of the Swamp",
+   3
+  ],
+  [
+   "1090",
+   "Mulcharmy Fuwalos",
+   1
+  ],
+  [
+   "1091",
+   "Nightmare Apprentice",
+   2
+  ],
+  [
+   "1092",
+   "Number 106: Giant Hand",
+   3
+  ],
+  [
+   "1093",
+   "Number 75: Bamboozling Gossip Shadow",
+   1
+  ],
+  [
+   "1094",
+   "Predaplant Dragostapelia",
+   2
+  ],
+  [
+   "1095",
+   "Primite Dragon Ether Beryl",
+   3
+  ],
+  [
+   "1096",
+   "Primite Drillbeam",
+   1
+  ],
+  [
+   "1097",
+   "Primite Imperial Dragon",
+   2
+  ],
+  [
+   "1098",
+   "Primite Lordly Lode",
+   3
+  ],
+  [
+   "1099",
+   "Primite Roar",
+   1
+  ],
+  [
+   "1100",
+   "Raider's Knight",
+   2
+  ],
+  [
+   "1101",
+   "Raigeki",
+   3
+  ],
+  [
+   "1102",
+   "Red-Eyes Black Dragon",
+   1
+  ],
+  [
+   "1103",
+   "Red-Eyes Black Meteor Dragon",
+   2
+  ],
+  [
+   "1104",
+   "Red-Eyes Darkness Metal Dragon",
+   3
+  ],
+  [
+   "1105",
+   "Red-Eyes Flare Metal Dragon",
+   1
+  ],
+  [
+   "1106",
+   "Redox, Dragon Ruler of Boulders",
+   2
+  ],
+  [
+   "1107",
+   "S:P Little Knight",
+   3
+  ],
+  [
+   "1108",
+   "Seventh Tachyon",
+   1
+  ],
+  [
+   "1109",
+   "Spectral, Dragon Ruler of Flickers",
+   2
+  ],
+  [
+   "1110",
+   "Stellar Wind Wolfrayet",
+   3
+  ],
+  [
+   "1111",
+   "Super Polymerization",
+   1
+  ],
+  [
+   "1112",
+   "Swordsoul Blackout",
+   2
+  ],
+  [
+   "1113",
+   "Swordsoul Emergence",
+   3
+  ],
+  [
+   "1114",
+   "Swordsoul Grandmaster - Chixiao",
+   1
+  ],
+  [
+   "1115",
+   "Swordsoul Sacred Summit",
+   2
+  ],
+  [
+   "1116",
+   "Swordsoul Sinister Sovereign - Qixing Longyuan",
+   3
+  ],
+  [
+   "1117",
+   "Swordsoul Strategist Longyuan",
+   1
+  ],
+  [
+   "1118",
+   "Swordsoul Supreme Sovereign - Chengying",
+   2
+  ],
+  [
+   "1119",
+   "Swordsoul of Mo Ye",
+   3
+  ],
+  [
+   "1120",
+   "Swordsoul of Taia",
+   1
+  ],
+  [
+   "1121",
+   "Tempest, Dragon Ruler of Storms",
+   2
+  ],
+  [
+   "1122",
+   "Tenyi Spirit - Adhara",
+   3
+  ],
+  [
+   "1123",
+   "Tenyi Spirit - Ashuna",
+   1
+  ],
+  [
+   "1124",
+   "Tenyi Spirit - Vishuda",
+   2
+  ],
+  [
+   "1125",
+   "The Dragon that Devours the Dogma",
+   3
+  ],
+  [
+   "1126",
+   "The Fallen & The Virtuous",
+   1
+  ],
+  [
+   "1127",
+   "Triple Tactics Talent",
+   2
+  ],
+  [
+   "1128",
+   "Underworld Goddess of the Closed World",
+   3
+  ],
+  [
+   "1129",
+   "Weißer Drache mit eiskaltem Blick",
+   1
+  ],
+  [
+   "1130",
+   "Yad'al-Hecahands",
+   2
+  ]
+ ]
+}

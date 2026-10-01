@@ -1,0 +1,15 @@
+# Laufzeit-Abhängigkeiten (Versionen wie im getesteten .venv)
+# Installieren:  python -m pip install -r requirements.txt
+mss==10.2.0
+numpy==2.4.4
+opencv-python==4.13.0.92
+pillow==12.2.0
+PyAutoGUI==0.9.54
+pyperclip==1.11.0
+pytesseract==0.3.13
+pywin32==311
+requests==2.34.1
+
+# Nicht per pip: Tesseract-OCR liegt als Ordner "Tesseract-OCR" neben Overlay.py
+# (tesseract.exe + tessdata\eng.traineddata; für deutsche Master-Duel-Clients zusätzlich
+# tessdata\deu.traineddata).

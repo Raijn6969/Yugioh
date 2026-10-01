@@ -1,9 +1,8 @@
 """
-CORE DIAGNOSTICS ENGINE (V26.1 - JSON-CONFIGURED ARCHETYPE SYSTEM)
-Thema: Vollständig konfigurierbare Archetypen-Profile statt Hardcoding.
-        Substring-Matching mit Längenbeschränkung gegen False-Positives.
-        NEU: Angepasster GhostTracker (>14) um lange Archetypen wie
-             "Radiant Typhoon" nicht fälschlicherweise abzubrechen (MST-Fix).
+CARD ENGINE
+Wortweiser Kartennamen-Abgleich mit konfigurierbaren Archetypen-Profilen
+(archetypes_config.json) statt fest verdrahteter Sonderfälle.
+Substring-Matching mit Längenbeschränkung gegen False-Positives.
 """
 
 import re
@@ -12,7 +11,7 @@ import os
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional
 
-ARCHETYPES_FILE = "archetypes_config.json"
+from app_paths import ARCHETYPES_FILE
 
 class ArchetypeProfile:
     """Datengetriebenes Archetypen-Profil"""
@@ -266,13 +265,6 @@ class CardMatcher:
         clean_s_words = [sw for sw in s_words if len(sw) >= 3 or sw in t_words]
 
         for tw in t_words:
-            # Korrekturversuch via Common-Mistakes
-            norm_tw = tw
-            if archetype:
-                correction = archetype.get_correction(tw)
-                if correction:
-                    norm_tw = correction
-
             has_match = any(self._token_matches(tw, sw) for sw in clean_s_words)
 
             if has_match:
@@ -313,61 +305,3 @@ class CardMatcher:
                 return False
 
         return coverage >= min_coverage
-
-
-class GhostTracker:
-    """Verfolgt UI-Geisterkarten mit Archetypen-Bewusstsein"""
-
-    def __init__(self):
-        self.current_origin_slot = 0
-        self.last_slot_text = ""
-        self.db = ArchetypeDatabase()
-
-    def track_slot(self, slot: int, current_scan_clean: str) -> bool:
-        """Prüft ob aktueller Slot ein Geist des Originals ist"""
-        if slot == 0:
-            self.current_origin_slot = 0
-            self.last_slot_text = current_scan_clean
-            return False
-
-        if not current_scan_clean or not self.last_slot_text:
-            self.current_origin_slot = slot
-            self.last_slot_text = current_scan_clean
-            return False
-
-        # Mutations-Check
-        if self.db.is_mutation(
-            self.last_slot_text.split(),
-            current_scan_clean.split()
-        ):
-            self.current_origin_slot = slot
-            self.last_slot_text = current_scan_clean
-            return False
-
-        # Sequence-Matching
-        sm = SequenceMatcher(None, self.last_slot_text, current_scan_clean)
-        ratio = sm.ratio()
-
-        is_ghost = False
-        if ratio > 0.95 or current_scan_clean == self.last_slot_text:
-            is_ghost = True
-        else:
-            match = sm.find_longest_match(
-                0, len(self.last_slot_text),
-                0, len(current_scan_clean)
-            )
-            # FIX FÜR MYSTICAL SPACE TYPHOON:
-            # Toleranz für extrem lange Archetypen-Stämme erhöht (von >= 10 auf > 14).
-            if match and match.size > 14:
-                is_ghost = True
-
-        if is_ghost:
-            self.last_slot_text = current_scan_clean
-            return True
-
-        self.current_origin_slot = slot
-        self.last_slot_text = current_scan_clean
-        return False
-
-    def get_origin(self) -> int:
-        return self.current_origin_slot

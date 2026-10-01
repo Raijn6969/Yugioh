@@ -20,6 +20,10 @@ dist/
 
 # Runtime files (per-user, regenerated at runtime)
 md_debug.log
+md_debug.*.log
+md_resume.json
+*.tmp
+md_config.json.defekt.bak
 md_config.json
 md_card_cache.json
 card_positions_cache.json
@@ -27,3 +31,4 @@ problem_cards.json
 
 # Bundled OCR binary (91 MB — distribute separately)
 Tesseract-OCR/
+md_startup_error.log

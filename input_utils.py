@@ -1,21 +1,23 @@
 """
-INPUT UTILS (V1.5 - NO BACKSPACE)
+Suchbegriff in die Master-Duel-Suchleiste schreiben (per Zwischenablage, ohne Backspace-Tippen).
 """
 import time
-import ctypes
 import pyperclip
 import pyautogui
 
-pyautogui.PAUSE = 0.0
+import win_api
+
 
 def focus_master_duel():
-    hwnd = ctypes.windll.user32.FindWindowW(None, "MASTER DUEL")
+    # Import hier, weil window_automation beim Laden pyautogui konfiguriert
+    from window_automation import find_md_window
+    hwnd = find_md_window()
     if hwnd:
-        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        win_api.set_foreground_window(hwnd)
         time.sleep(0.05)
 
 
-def type_card_name(automator, clean_name: str, config: dict, speed_buffer: float):
+def type_card_name(automator, clean_name: str, config: dict):
     # 1. Zwischenablage laden
     for _ in range(3):
         try:
@@ -30,7 +32,7 @@ def type_card_name(automator, clean_name: str, config: dict, speed_buffer: float
     # 3. Klick in Suchleiste
     x, y = config["SEARCH_BAR"]
     automator.iron_grip_click(x, y)
-    time.sleep(0.05 + speed_buffer)
+    time.sleep(0.05)
 
     # 4. Alles markieren (STRG+A)
     pyautogui.hotkey('ctrl', 'a')
@@ -40,4 +42,4 @@ def type_card_name(automator, clean_name: str, config: dict, speed_buffer: float
     pyautogui.hotkey('ctrl', 'v')
 
     # 6. Render-Delay (Minimal gehalten)
-    time.sleep(0.01 + speed_buffer)
+    time.sleep(0.01)
