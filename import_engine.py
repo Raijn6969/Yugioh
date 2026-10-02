@@ -23,6 +23,8 @@ from utils import (clean_text, sanitize_name, parse_clipboard, fetch_card_names,
 from card_engine import CardMatcher
 from window_automation import WindowAutomator, get_md_window_size
 from deck_counter import DeckCounter
+from card_db import CardDB, load_card_db
+import md_layout
 import resume_state
 import vision_engine
 import win_api
@@ -176,6 +178,8 @@ class DeckImporterCore:
         self._deck_scores_for: Optional[tuple] = None
         self._deck_scores_cache: Dict[str, float] = {}
         self.deck_counter: Optional[DeckCounter] = None
+        self.extra_counter: Optional[DeckCounter] = None  # Kartenzahl des Extra Decks
+        self.card_db: Optional[CardDB] = None  # alle Karten (YGOPRODeck), für Abgleich und Kontrolle
         self._trouble = 0
         self._auto_slowed = False
         self._lag_events = 0              # Wie oft das Spiel verzögert auf Klicks reagiert hat
@@ -249,6 +253,7 @@ class DeckImporterCore:
         self._deck_clean_names = {clean_text(sanitize_name(c.name)) for c in cards_ready}
         if self.config.get("DECK_COUNT"):
             self.card_types = fetch_card_types([c.cid for c in cards_ready])
+        self.card_db = self._load_card_db()
 
         done = dict(self.resume["done"]) if self.resume else {}
         self._progress = dict(done)
@@ -298,6 +303,8 @@ class DeckImporterCore:
 
         with mss.MSS() as sct:
             self.deck_counter = self._init_deck_counter(sct, automator, expect_empty=not done)
+            if self.deck_counter:
+                self.extra_counter = self._init_extra_counter(sct, automator, expect_empty=not done)
 
             monitor, t_x, t_y = self._get_slot_geometry(0, automator)
             automator.iron_grip_click(t_x, t_y)
@@ -374,9 +381,15 @@ class DeckImporterCore:
                 if recovered:
                     self.notes.append(f"{recovered} Karte(n) wurden im zweiten Durchgang nachgeholt.")
 
+            # ── Kontrolle: Deck wie beim Export lesen und mit dem Deck-Code vergleichen ──
+            check = self._final_deck_check(sct, automator, cards_ready, last_seen_slot_00, last_added_ocr_clean)
+
         has_errors, popup_failed_cards = self._write_final_audit(
             original_counts, id_to_name_map, successfully_added
         )
+        if check is not None:
+            # Das gelesene Deck ist verlässlicher als die Buchführung über die Klicks
+            has_errors, popup_failed_cards = bool(check), check
 
         minutes, secs = divmod(int(time.perf_counter() - import_t0), 60)
         dlog(f"\n[DAUER] Import in {minutes}:{secs:02d} min abgeschlossen.")
@@ -491,18 +504,29 @@ class DeckImporterCore:
         Returns: True, wenn die Karte trotzdem unsicher ist (→ im Report markieren).
         """
         self._insert_confirmed = False
-        counter = self.deck_counter
         card_type = self.card_types.get(cid) if cid else None
-        if not counter or card_type is None or is_extra_deck_type(card_type):
+        if card_type is None:
             return stalled
-        if counter.value is None:
-            return stalled  # Stand unbekannt (zuvor nicht lesbar) → nicht prüfbar
+        extra = is_extra_deck_type(card_type)
+        counter = self.extra_counter if extra else self.deck_counter
+        other = self.deck_counter if extra else self.extra_counter
+        if not counter or counter.value is None:
+            return stalled  # nicht kalibriert / Stand unbekannt → nicht prüfbar
         expected = counter.value + amount
         got = counter.wait_for(expected, 0.8 * self.speed_mult)
         if got is not None and got < expected:
             # Auf schwachen PCs zählt das Spiel evtl. nur verspätet hoch. Erst nach einer zweiten
             # Wartezeit nachklicken: Ein Nachklick auf eine doch angekommene Karte wäre eine Kopie zu viel.
             got = counter.wait_for(expected, 0.8 * self.speed_mult)
+        if got is not None and got < expected and other and other.value is not None:
+            # Im ANDEREN Deck-Bereich angekommen → es war eine andere Karte (z.B. eine Fusion statt
+            # einer Falle). Nachklicken würde nur weitere falsche Kopien einfügen.
+            other_now = other.read()
+            if other_now is not None and other_now > other.value:
+                dlog(f"    [PRÜFUNG] '{name}' ist im {'Main' if extra else 'Extra'} Deck gelandet → falsche Karte, "
+                     f"kein Nachklicken.")
+                other.value, counter.value = other_now, got
+                return True
 
         for attempt in range(VERIFY_RETRIES):
             if got is None or got >= expected:
@@ -527,6 +551,135 @@ class DeckImporterCore:
         dlog(f"    [PRÜFUNG] '{name}': Deck zeigt {got}, erwartet {expected} → im Report markiert.")
         counter.value = got
         return True
+
+    def _init_extra_counter(self, sct, automator, expect_empty: bool) -> Optional[DeckCounter]:
+        """Kartenzahl des Extra Decks: liegt im festen Abstand unter der Main-Deck-Zahl."""
+        main_x, main_y = self.config["DECK_COUNT"]
+        ref_main, ref_extra = md_layout.REFERENCE_POINTS["DECK_COUNT"], md_layout.EXTRA_COUNT_POINT
+        point = (main_x + (ref_extra[0] - ref_main[0]) * automator.scale_x,
+                 main_y + (ref_extra[1] - ref_main[1]) * automator.scale_y)
+        counter = DeckCounter(sct, self.config, self.tesseract_cmd, automator.scale_x, automator.scale_y, point=point)
+        value = counter.read()
+        if value is None or (expect_empty and value != 0):
+            dlog(f"[PRÜFUNG] Extra-Deck-Zahl {'nicht lesbar' if value is None else f'zeigt {value} statt 0'} "
+                 f"→ Extra-Deck-Karten werden nicht nachgeprüft.")
+            return None
+        counter.value = value
+        dlog(f"[PRÜFUNG] Extra-Deck-Zählung aktiv, Startwert: {value}.")
+        return counter
+
+    def _load_card_db(self) -> Optional[CardDB]:
+        try:
+            return load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, "cyan"))
+        except Exception as e:
+            dlog(f"[KARTENLISTE] Nicht verfügbar ({e}) → ohne Abgleich mit allen Karten und ohne Kontrolle am Ende.")
+            return None
+
+    # =====================================================================
+    # KONTROLLE AM ENDE: Deck lesen (wie beim Export) und korrigieren
+    # =====================================================================
+
+    def _final_deck_check(self, sct, automator, cards_ready: List[DeckCard], last_seen_slot_00: str,
+                          last_added: str) -> Optional[List[str]]:
+        """
+        Liest das fertige Deck wie der Export und vergleicht es mit dem Deck-Code. Überzählige Karten
+        werden per Rechtsklick entfernt, fehlende erneut gesucht, danach wird noch einmal gelesen.
+        Returns: verbleibende Abweichungen fürs Hinweis-Fenster ([] = Deck stimmt genau),
+        None wenn die Kontrolle nicht möglich war.
+        """
+        from deck_export import DeckExporter, compare_deck  # hier: deck_export importiert dieses Modul
+        frame = md_layout.md_frame()
+        if self.card_db is None or frame is None or not frame.is_16_9:
+            dlog("\n[KONTROLLE] Nicht möglich (Kartenliste fehlt oder Master Duel nicht im 16:9-Format).")
+            return None
+        expected: Dict[str, int] = Counter()
+        by_key: Dict[str, DeckCard] = {}
+        for card in cards_ready:
+            key = clean_text(card.name)
+            expected[key] += card.amount
+            by_key[key] = card
+
+        exporter = DeckExporter(self.config, self.tesseract_cmd, self.status_callback, lambda **kwargs: None,
+                                frame=frame, reader=self)
+        exporter.label = "Kontrolle"
+        self._open_pool = []  # beim Nachsuchen nichts "nebenbei" einfügen
+        state = [last_seen_slot_00, last_added]
+        fixed = 0
+        for round_no in (1, 2):
+            dlog(f"\n[KONTROLLE] Deck lesen (Durchgang {round_no}).")
+            self.status_callback("Kontrolle: Deck lesen...", "cyan")
+            try:
+                zones = exporter._plan(sct, frame)
+            except RuntimeError as e:
+                dlog(f"[KONTROLLE] Abgebrochen: {e}")
+                return None
+            cards = exporter._read_cards(sct, frame, automator, self.card_db, zones)
+            too_many, too_few = compare_deck(dict(expected), cards)
+            unsure = [c for c in cards if not (c.match.cid and c.match.sure)]
+            dlog(f"[KONTROLLE] Zu viel: {too_many or '-'} | Fehlt: {too_few or '-'} | unsicher gelesen: {len(unsure)}")
+            if not too_many and not too_few:
+                break
+            if round_no == 2 or unsure:
+                # Unsicher gelesene Karten könnten genau die "fehlenden" sein → nichts automatisch ändern
+                break
+            fixed += self._fix_deck(sct, frame, automator, zones, cards, too_many, too_few, by_key, state)
+
+        if fixed:
+            self.notes.append(f"Kontrolle am Ende: {fixed} Abweichung(en) automatisch korrigiert.")
+        names = {clean_text(c.match.name): c.match.name for c in cards if c.match.name}
+        names.update({key: card.name for key, card in by_key.items()})
+        problems = [f"{names.get(k, k)} ({n}x zu viel – bitte entfernen)" for k, n in too_many.items()]
+        problems += [f"{names.get(k, k)} ({n}x fehlend)" for k, n in too_few.items()]
+        problems += [f"{c.zone} Deck, Platz {c.slot}: nicht sicher erkannt ('{c.raw_ocr.strip()}')" for c in unsure]
+        dlog(f"[KONTROLLE] Ergebnis: {'Deck stimmt genau mit dem Deck-Code überein.' if not problems else problems}")
+        return problems
+
+    def _fix_deck(self, sct, frame, automator, zones, cards, too_many: Dict[str, int], too_few: Dict[str, int],
+                  by_key: Dict[str, DeckCard], state: list) -> int:
+        """Überzählige Karten entfernen, fehlende nachsuchen. Returns: Zahl der Korrekturen."""
+        m = self.speed_mult
+        fixes = 0
+        name_region = frame.region(*md_layout.NAME_REGION)
+        layout = {"Main": (md_layout.MAIN_FIRST_CARD[1], md_layout.MAIN_ROWS),
+                  "Extra": (md_layout.EXTRA_FIRST_Y, md_layout.EXTRA_ROWS)}
+        for zone, positions, _ in zones:
+            first_y, rows = layout[zone]
+            count = len(positions)
+            budget = dict(too_many)
+            removals = []  # von hinten nach vorne: davor liegende Karten rücken dann nicht nach
+            for card in sorted((c for c in cards if c.zone == zone), key=lambda c: -c.slot):
+                key = clean_text(card.match.name)
+                if budget.get(key, 0) > 0:
+                    budget[key] -= 1
+                    removals.append((card.slot - 1, key, card.match.name))
+            for index, key, name in removals:
+                x, y = frame.point(*md_layout.deck_slot_positions(count, first_y, rows)[index])
+                # Sicherheitsprüfung: Liegt dort wirklich diese Karte?
+                automator.iron_grip_click(x, y)
+                time.sleep(0.15 * m)
+                self._last_frame_hash = ""
+                _, s_c = self._capture_and_ocr_slot(sct, name_region)
+                if clean_text(self.card_db.match(s_c, zone == "Extra").name) != key:
+                    dlog(f"    [KONTROLLE] {zone} Platz {index + 1}: '{s_c}' statt '{name}' → nicht entfernt.")
+                    continue
+                automator.iron_grip_click(x, y, button="right")
+                time.sleep(0.35 * m)
+                count -= 1
+                fixes += 1
+                dlog(f"    [KONTROLLE] '{name}' 1x entfernt ({zone} Platz {index + 1}).")
+
+        for counter in (self.deck_counter, self.extra_counter):
+            if counter:
+                counter.value = counter.read()
+        for key, missing in too_few.items():
+            card = by_key.get(key)
+            if card is None:
+                continue
+            dlog(f"    [KONTROLLE] '{card.name}' fehlt {missing}x → suche nach.")
+            found, state[0], state[1] = self._search_single_card(
+                sct, automator, DeckCard(card.cid, card.name, missing), [], state[0], state[1])
+            fixes += bool(found)
+        return fixes
 
     def _mark_done(self, cid: str, amount: int) -> None:
         """Fortschritt speichern, damit ein abgebrochener Import fortgesetzt werden kann."""
@@ -686,7 +839,7 @@ class DeckImporterCore:
             pending[sanitize_name(raw_name)] = (cid, raw_name, amount)
 
         found_cids: set = set()
-        max_y = 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
+        max_y = getattr(automator, "origin", (0, 0))[1] + 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
 
         dlog(f"\n[BATCH] Archetype-Präfix '{prefix}' | {len(group_cards)} Karten\n")
         for cn in pending:
@@ -853,10 +1006,11 @@ class DeckImporterCore:
         row, col = slot // 6, slot % 6
         target_x = self.config["FIRST_CARD"][0] + int(col * self.config.get("OFFSET_X", 88) * automator.scale_x)
         target_y = self.config["FIRST_CARD"][1] + int(row * self.config.get("OFFSET_Y", 140) * automator.scale_y)
+        # Kartenname im Detail-Panel (relativ zum Spielbereich, siehe WindowAutomator.origin)
+        ox, oy = getattr(automator, "origin", (0, 0))
         x1, y1 = int(15 * automator.scale_x), int(115 * automator.scale_y)
-
         x2, y2 = int(380 * automator.scale_x), int(155 * automator.scale_y)
-        monitor = {"top": y1, "left": x1, "width": x2 - x1, "height": y2 - y1}
+        monitor = {"top": oy + y1, "left": ox + x1, "width": x2 - x1, "height": y2 - y1}
         return monitor, target_x, target_y
 
     def _capture_and_ocr_slot(self, sct, monitor: dict) -> Tuple[str, str]:
@@ -946,6 +1100,11 @@ class DeckImporterCore:
             return None
         if knight_night_conflict(name_clean, s_c):
             return "Knight/Night-Konflikt"
+        # Ist der Text eindeutig eine andere Karte (auch eine, die gar nicht im Deck ist)?
+        # 'dracotailgulame' ähnelt 'Dracotail Flame' zu 90 %, ist aber Dracotail Gulamel.
+        real = self.card_db.identify(s_c) if self.card_db else None
+        if real and clean_text(real) != name_clean:
+            return f"laut Kartenliste '{real}'"
         if s_c in self._deck_clean_names:
             return "andere Karte aus dem Deck"
         scores = self._deck_scores(s_c)
@@ -1253,7 +1412,7 @@ class DeckImporterCore:
         wieder nach oben gescrollt, damit die nächste Suche das Raster wie gewohnt vorfindet.
         Returns: (gefunden, gelesener Text der eingefügten Zielkarte).
         """
-        max_y = 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
+        max_y = getattr(automator, "origin", (0, 0))[1] + 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
         visible = [g for g in (self._get_slot_geometry(s, automator) for s in range(MAX_GRID_SLOTS))
                    if g[2] <= max_y]
         if not visible:
@@ -1381,7 +1540,7 @@ class DeckImporterCore:
         ghost_streak = 0
         repeat_streak = 0
         target_clean = clean_text(clean_name)
-        max_y = 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
+        max_y = getattr(automator, "origin", (0, 0))[1] + 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
         grid_full = False  # Alle sichtbaren Slots zeigten Karten → Liste geht evtl. weiter
         # Was das Panel vor dieser Suche zeigte. Liest Slot 0 noch das, ist die Anzeige evtl. alt
         # → dann dort nichts nebenbei einfügen (es könnte eine ganz andere Karte angeklickt sein).

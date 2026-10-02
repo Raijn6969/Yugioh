@@ -21,11 +21,13 @@ MAIN_DECK_MAX = 60
 
 
 class DeckCounter:
-    def __init__(self, sct, config: dict, tesseract_cmd: str, scale_x: float = 1.0, scale_y: float = 1.0):
+    def __init__(self, sct, config: dict, tesseract_cmd: str, scale_x: float = 1.0, scale_y: float = 1.0,
+                 point=None):
         self.sct = sct
         self.tesseract_cmd = tesseract_cmd
         self.value: Optional[int] = None  # zuletzt bestätigter Stand
-        point = config.get("DECK_COUNT")
+        # Standard: Main Deck (Kalibrierpunkt). Für das Extra Deck wird der Punkt übergeben.
+        point = point or config.get("DECK_COUNT")
         self.enabled = bool(point)
         self.region = None
         if point:

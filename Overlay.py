@@ -30,24 +30,31 @@ except Exception:
     except Exception:
         pass
 
+from auto_calibration import auto_calibrate
 from calibration import CalibrationWizard
+from card_stats import CardStatsDB
+from deck_analysis import current_changes
+from deck_export import DeckExporter, save_ydk
+from extras_panel import ExtrasPanel
 from import_engine import DeckImporterCore
 from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
 from dark_dialog import show_message
+from dark_menu import DarkMenu
 from window_style import apply_frame
 from rounded_button import RoundedButton
 from tray import TrayIcon
 from utils import parse_clipboard
 from window_automation import get_md_window_size
+import md_layout
 import resume_state
 import win_api
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
 SPEED_PROFILES = [
-    ("fast", "Schnell", "#ffaa00", "Schnell  (starker PC)"),
+    ("fast", "Schnell", "#ffaa00", "Schnell"),
     ("normal", "Normal", "#ffffff", "Normal"),
-    ("slow", "Langsam", "#66aaff", "Langsam  (schwacher PC)"),
+    ("slow", "Langsam", "#66aaff", "Langsam"),
 ]
 
 
@@ -59,7 +66,11 @@ class MasterDuelImporter:
         self.is_visible = True  # Status für den Smart Visibility Tracker
         self._import_t0 = None  # Startzeit des laufenden Imports (für den Timer)
         self._moved = False  # Wurde das Fenster seit dem letzten Klick verschoben?
+        self._position_warning = False  # Zeigt der Status gerade die Warnung "verdeckt …"?
         self._drag_offset = None  # Mausposition im Fenster beim Start des Verschiebens
+        self.extras = None       # Extras-Menü (über der Kartenliste), None = zu
+        self.card_stats = None   # Lokale Karten-Datenbank (erst beim ersten Öffnen der Extras)
+        self._last_scan = None   # Letzter Deck-Scan der Extras (wird übernommen, wenn das Deck gleich ist)
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
         # Warteschlange, der Haupt-Thread arbeitet sie regelmäßig ab.
         self._ui_queue = queue.Queue()
@@ -156,10 +167,10 @@ class MasterDuelImporter:
 
         self.status_label = tk.Label(self.root, text="Bereit für Import", fg="#00ff00", bg="#1e1e1e",
                                      font=font_main)
-        self.status_label.pack(pady=int(4 * scale))
+        self.status_label.pack(pady=(int(3 * scale), int(1 * scale)))
 
         btn_frame = tk.Frame(self.root, bg="#1e1e1e")
-        btn_frame.pack()
+        btn_frame.pack(pady=(0, int(7 * scale)))
 
         btn_pack = dict(side=tk.LEFT, padx=int(4 * scale))
         btn_size = dict(padx=int(14 * scale), pady=int(5 * scale), radius=int(7 * scale))
@@ -168,8 +179,20 @@ class MasterDuelImporter:
                                        bg="#007acc", font=font_main, **btn_size)
         self.start_btn.pack(**btn_pack)
 
-        self.calib_btn = RoundedButton(btn_frame, text="Kalibrieren", command=self.open_calibration,
-                                       bg="#444444", font=font_sub, **btn_size)
+        self.export_btn = RoundedButton(btn_frame, text="Deck exportieren", command=self.start_export_thread,
+                                        bg="#2e7d32", font=font_main, **btn_size)
+        self.export_btn.pack(**btn_pack)
+
+        self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras,
+                                        bg="#5e35b1", font=font_main, **btn_size)
+        self.extras_btn.pack(**btn_pack)
+
+        # Kalibrieren: automatisch (ein Klick) oder von Hand mit dem Assistenten
+        self.calib_btn = RoundedButton(btn_frame, text="Kalibrieren ▾", bg="#444444", font=font_sub, **btn_size)
+        self.calib_menu = DarkMenu(self.root, font=font_sub)
+        self.calib_menu.add_command(label="Automatisch", command=self.start_auto_calibration)
+        self.calib_menu.add_command(label="Manuell (Assistent)", command=self.open_calibration)
+        self.calib_btn.config(menu=self.calib_menu)
         self.calib_btn.pack(**btn_pack)
 
         # Tempo-Auswahl ganz rechts: Button mit ▾, öffnet ein Auswahlmenü (nach oben, da das
@@ -179,13 +202,11 @@ class MasterDuelImporter:
         longest = max(tkfont.Font(font=font_sub).measure(f"Tempo: {label} ▾") for _, label, _, _ in SPEED_PROFILES)
         self.speed_btn = RoundedButton(btn_frame, bg="#444444", font=font_sub,
                                        min_width=longest + 2 * btn_size["padx"], **btn_size)
-        speed_menu = tk.Menu(self.speed_btn, tearoff=0, bg="#2b2b2b", fg="white",
-                             activebackground="#007acc", activeforeground="white",
-                             selectcolor="#00ff00", bd=0, font=font_sub)
+        self.speed_menu = DarkMenu(self.root, font=font_sub)
         for key, _, _, menu_text in SPEED_PROFILES:
-            speed_menu.add_radiobutton(label=menu_text, value=key, variable=self.speed_var,
-                                       command=self._on_speed_selected)
-        self.speed_btn.config(menu=speed_menu)
+            self.speed_menu.add_radiobutton(label=menu_text, value=key, variable=self.speed_var,
+                                            command=self._on_speed_selected)
+        self.speed_btn.config(menu=self.speed_menu)
         self.speed_btn.pack(**btn_pack)
         self._refresh_speed_button()
 
@@ -194,15 +215,17 @@ class MasterDuelImporter:
                       padx=int(9 * scale), pady=int(2 * scale), radius=int(6 * scale)
                       ).place(relx=1.0, x=-int(5 * scale), y=int(5 * scale), anchor="ne")
 
-        # Import-Dauer, dezent unten rechts (leer bis zum ersten Import)
+        # Import-Dauer, dezent oben links (leer bis zum ersten Import)
         self.timer_label = tk.Label(self.root, text="", fg="#888888", bg="#1e1e1e",
                                     font=("Helvetica", int(8 * scale)))
-        self.timer_label.place(relx=1.0, rely=1.0, anchor="se", x=-int(4 * scale), y=-int(2 * scale))
+        self.timer_label.place(x=int(10 * scale), y=int(6 * scale), anchor="nw")
 
         # Fenstergröße nach Inhalt: mindestens wie bisher, breiter falls die Buttons mehr brauchen
         self.root.update_idletasks()
         win_w = max(int(280 * scale), btn_frame.winfo_reqwidth() + int(16 * scale))
-        win_h = int(85 * scale)
+        # So flach wie möglich: Höhe nach Inhalt (Statuszeile + Buttons), damit das Overlay am
+        # unteren Rand nicht in die Kartenliste von Master Duel ragt
+        win_h = self.root.winfo_reqheight()
 
         # Position: Mittig auf der X-Achse, 0 Pixel Abstand zum unteren Rand
         x_pos = int((screen_w - win_w) / 2) + int(screen_w * 0.25)
@@ -211,11 +234,13 @@ class MasterDuelImporter:
         # Zuletzt gemerkte Position verwenden, sofern sie noch auf einem Bildschirm liegt
         saved_pos = self.config.get("WINDOW_POS")
         if self._is_position_visible(saved_pos, win_w, win_h):
-            x_pos, y_pos = int(saved_pos[0]), int(saved_pos[1])
+            x_pos, y_pos = int(saved_pos[0]), self._snap_to_bottom(int(saved_pos[1]), win_h)
 
         self.root.geometry(f"{win_w}x{win_h}+{x_pos}+{y_pos}")
         self.root.deiconify()
         apply_frame(self.root)
+        self.root.update_idletasks()
+        self._check_overlay_position()  # gemerkte Position könnte über dem Deck liegen
 
     # --- SMART VISIBILITY TRACKER ---
     def _is_md_active(self, fg_hwnd, fg_pid):
@@ -245,6 +270,8 @@ class MasterDuelImporter:
                     if self.is_visible:
                         self.root.wm_attributes("-alpha", 0.0)  # Verstecken!
                         self.is_visible = False
+                if self.extras:
+                    self.extras.set_visible(self.is_visible)
         except Exception:
             pass  # Läuft alle 300 ms; ein einzelner Fehlschlag (Fenster gerade geschlossen) ist egal
         finally:
@@ -265,8 +292,44 @@ class MasterDuelImporter:
         # Nach dem Verschieben die neue Position speichern (einmal pro Loslassen, nicht pro Pixel)
         if self._moved:
             self._moved = False
-            self.config["WINDOW_POS"] = [self.root.winfo_x(), self.root.winfo_y()]
+            snapped = self._snap_to_bottom(self.root.winfo_y(), self.root.winfo_height())
+            if snapped != self.root.winfo_y():
+                self.root.geometry(f"+{self.root.winfo_x()}+{snapped}")
+                self.root.update_idletasks()
+            self.config["WINDOW_POS"] = [self.root.winfo_x(), snapped]
             self._save_config_safely()
+            self._check_overlay_position()
+
+    def _snap_to_bottom(self, y, height):
+        """Fast am unteren Bildschirmrand → genau an den Rand (auch für Positionen vom früheren, höheren Overlay)."""
+        screen_h = self.root.winfo_screenheight()
+        snap = int(40 * max(1.0, screen_h / 1080.0))
+        bottom_gap = screen_h - (y + height)
+        return screen_h - height if 0 < bottom_gap <= snap else y
+
+    def _covered_area(self):
+        """Welchen Klickbereich von Master Duel verdeckt das Overlay? None = keinen (oder Spiel nicht offen)."""
+        frame = md_layout.md_frame()
+        if frame is None:
+            return None
+        x, y = self.root.winfo_x(), self.root.winfo_y()
+        w, h = self.root.winfo_width(), self.root.winfo_height()
+        for name, area in md_layout.CLICK_AREAS.items():
+            r = frame.region(*area)
+            if x < r["left"] + r["width"] and r["left"] < x + w and y < r["top"] + r["height"] and r["top"] < y + h:
+                return name
+        return None
+
+    def _check_overlay_position(self):
+        """Warnt im Status, wenn das Overlay dort liegt, wo Import/Export klicken (Klicks träfen das Overlay)."""
+        if self.is_running:
+            return
+        covered = self._covered_area()
+        if covered:
+            self.update_status(f"⚠ Overlay verdeckt {covered} – bitte verschieben", "#ffaa00")
+        elif self._position_warning:
+            self.update_status("Bereit für Import", "#00ff00")
+        self._position_warning = bool(covered)
 
     def _save_config_safely(self):
         try:
@@ -357,6 +420,7 @@ class MasterDuelImporter:
 
     def close(self):
         """Alles schließen: Tray-Icon, wiederkehrende Timer, Fenster."""
+        self._close_extras()
         if self.tray:
             self.tray.stop()
             self.tray = None
@@ -371,15 +435,44 @@ class MasterDuelImporter:
     def update_status(self, text, color="white"):
         self.status_label.config(text=text, fg=color)
 
+    def _set_buttons(self, state):
+        for button in (self.start_btn, self.export_btn, self.extras_btn, self.calib_btn, self.speed_btn):
+            button.config(state=state)
+
+    # --- AUTOMATISCHE KALIBRIERUNG ---
+    def start_auto_calibration(self, then=None):
+        """Kalibriert im Hintergrund (Texterkennung dauert kurz). `then`: danach ausführen, wenn es geklappt hat."""
+        self._close_extras()
+        self._set_buttons(tk.DISABLED)
+        self.update_status("Kalibriere automatisch...", "cyan")
+
+        def work():
+            new_config, message = auto_calibrate(self.config, TESSERACT_CMD)
+            self._run_on_ui(self._on_auto_calibration_done, new_config, message, then)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_auto_calibration_done(self, new_config, message, then):
+        if new_config is None:
+            # Nicht sicher genug → Assistent wie bisher
+            self.update_status("Automatisch nicht möglich", "yellow")
+            show_message(self.root, "Automatische Kalibrierung",
+                         f"{message}\n\nDer Kalibrierungs-Assistent startet jetzt.", kind="warning")
+            self.open_calibration()
+            return
+        self.on_calibration_done(new_config)
+        self.update_status(message, "#00ff00")
+        if then:
+            then()
+
     def open_calibration(self):
-        self.start_btn.config(state=tk.DISABLED)
-        self.calib_btn.config(state=tk.DISABLED)
+        self._close_extras()  # Der Assistent braucht Klicks auf die Kartenliste
+        self._set_buttons(tk.DISABLED)
         CalibrationWizard(self.root, self.config, self.on_calibration_done, self.on_calibration_cancel)
 
     def on_calibration_cancel(self):
         self.update_status("Kalibrierung abgebrochen", "yellow")
-        self.start_btn.config(state=tk.NORMAL)
-        self.calib_btn.config(state=tk.NORMAL)
+        self._set_buttons(tk.NORMAL)
 
     def on_calibration_done(self, new_config):
         self.config = new_config
@@ -390,13 +483,12 @@ class MasterDuelImporter:
             self.config["CALIBRATED_SIZE"] = list(size)
         self.save_config()
         self.update_status("Kalibrierung aktiv!", "#00ff00")
-        self.start_btn.config(state=tk.NORMAL)
-        self.calib_btn.config(state=tk.NORMAL)
+        self._set_buttons(tk.NORMAL)
 
     def start_import_thread(self):
         if not self.config.get("IS_CALIBRATED", False):
-            self.update_status("Kalibrierung nötig!", "yellow")
-            self.open_calibration()
+            # Erst automatisch versuchen und dann direkt importieren; klappt das nicht → Assistent
+            self.start_auto_calibration(then=self.start_import_thread)
             return
 
         if not self.is_running:
@@ -417,8 +509,9 @@ class MasterDuelImporter:
                     resume = None
 
             self.is_running = True
-            for button in (self.start_btn, self.calib_btn, self.speed_btn):
-                button.config(state=tk.DISABLED)
+            self._close_extras()  # Import klickt in Deck und Kartenliste
+            self._last_scan = None  # Import verändert das Deck
+            self._set_buttons(tk.DISABLED)
 
             self.timer_label.config(text="")
             self._import_t0 = None
@@ -440,8 +533,7 @@ class MasterDuelImporter:
 
     def _on_import_finished(self, success, has_errors, failed_cards, message="", notes=None):
         self.is_running = False
-        for button in (self.start_btn, self.calib_btn, self.speed_btn):
-            button.config(state=tk.NORMAL)
+        self._set_buttons(tk.NORMAL)
         # Timer anhalten und Endzeit stehen lassen
         if self._import_t0 is not None:
             self.timer_label.config(text=f"⏱ {self._format_duration(time.perf_counter() - self._import_t0)}")
@@ -464,6 +556,135 @@ class MasterDuelImporter:
             self.update_status("Abbruch / Fehler", "red")
             if message:
                 show_message(self.root, "Import abgebrochen", message, kind="error")
+
+    # --- DECK-EXPORT ---
+    def start_export_thread(self):
+        if self.is_running:
+            return
+        self.is_running = True
+        # Schon gescannt (Deck-Fenster oder letzter Export) und Deck seitdem unverändert? Dann nicht neu lesen
+        flagged = self.extras.change_reason() if self.extras else None
+        self._close_extras()
+        scan = self._last_scan if self._last_scan and not flagged and not current_changes(self._last_scan) else None
+        self._set_buttons(tk.DISABLED)
+        self.timer_label.config(text="")
+        self._import_t0 = None
+        if scan:
+            self.update_status("Deck unverändert – letzter Scan wird exportiert", "cyan")
+
+        def status_cb(text, color="white"):
+            self._run_on_ui(self.update_status, text, color)
+
+        def finish_cb(result, error=""):
+            self._run_on_ui(self._on_export_finished, result, error)
+
+        def start_cb():
+            self._run_on_ui(self._on_import_started)  # Timer läuft auch beim Export (ab Ende des Countdowns)
+
+        exporter = DeckExporter(self.config, TESSERACT_CMD, status_cb, finish_cb, start_callback=start_cb, scan=scan)
+        threading.Thread(target=exporter.execute, daemon=True).start()
+
+    def _on_export_finished(self, result, error=""):
+        self.is_running = False
+        self._set_buttons(tk.NORMAL)
+        if self._import_t0 is not None:
+            self.timer_label.config(text=f"⏱ {self._format_duration(time.perf_counter() - self._import_t0)}")
+            self._import_t0 = None
+        if result is None:
+            self.update_status("Export abgebrochen", "red")
+            show_message(self.root, "Export abgebrochen", error, kind="error")
+            return
+        if result.scan is not None:
+            self._last_scan = result.scan  # Deck-Fenster muss danach nicht neu scannen
+
+        found = len(result.cards) - result.missing
+        message = (f"{found} von {len(result.cards)} Karten erkannt "
+                   f"(Main {result.main_count}, Extra {result.extra_count}).\n"
+                   f"Die .ydk liegt in der Zwischenablage.")
+        if result.reused:
+            message += "\n(Deck unverändert – letzter Scan übernommen, nicht neu gelesen.)"
+        problems = result.problems
+        if problems:
+            message += "\n\nBitte prüfen (nicht erkannte Karten fehlen in der .ydk):"
+            self.update_status("Export mit Hinweisen", "#ffaa00")
+        else:
+            self.update_status("Deck exportiert!", "#00ff00")
+
+        def download():
+            try:
+                return f"Gespeichert: {save_ydk(result.ydk)}"
+            except OSError as e:
+                return f"Speichern fehlgeschlagen: {e}"
+
+        show_message(self.root, "Deck exportiert", message, kind="warning" if problems else "info",
+                     items=problems, actions=[("Download als .ydk", download)])
+
+
+    # --- EXTRAS (Draw-Chance & Starter) ---
+    def toggle_extras(self):
+        if self.extras:
+            self._close_extras()
+            return
+        if self.is_running:
+            return
+        if self.card_stats is None:
+            try:
+                self.card_stats = CardStatsDB()
+            except Exception as e:  # z.B. Ordner schreibgeschützt → Extras ohne Starter-Infos
+                print(f"Karten-Datenbank nicht verfügbar: {e}")
+        self.extras = ExtrasPanel(self.root, self.card_stats, TESSERACT_CMD, on_rescan=self._start_extras_scan,
+                                  on_close=self._on_extras_closed, is_active=lambda: self.is_visible,
+                                  settings=self.config, save_settings=self._save_config_safely)
+        if not (self._last_scan and self.extras.try_reuse(self._last_scan)):
+            self._start_extras_scan()
+
+    def _close_extras(self):
+        if self.extras:
+            self.extras.close()  # ruft _on_extras_closed
+
+    def _on_extras_closed(self):
+        self.extras = None
+
+    def _start_extras_scan(self):
+        if self.is_running or not self.extras:
+            return
+        self.is_running = True
+        self._set_buttons(tk.DISABLED)
+        self.extras_btn.config(state=tk.NORMAL)  # Extras lassen sich auch während des Scans schließen
+        self.extras.set_scanning()
+
+        def status_cb(text, color="white"):
+            self._run_on_ui(self._extras_status, text, color)
+
+        def finish_cb(scan=None, error=""):
+            missing = 0
+            if scan is not None and self.card_stats is not None:
+                status_cb("Karten-Stats werden nachgeschlagen …", "cyan")
+                missing = self.card_stats.ensure(c.match.cid for c in scan.cards if c.match.cid)
+            self._run_on_ui(self._on_extras_scan_done, scan, error, missing)
+
+        exporter = DeckExporter(self.config, TESSERACT_CMD, status_cb, finish_cb)
+        exporter.label = "Scan"
+        threading.Thread(target=exporter.execute_scan, daemon=True).start()
+
+    def _extras_status(self, text, color):
+        self.update_status(text, color)
+        if self.extras:
+            self.extras.set_status(text, color)
+
+    def _on_extras_scan_done(self, scan, error, missing):
+        self.is_running = False
+        self._set_buttons(tk.NORMAL)
+        if scan is not None:
+            self._last_scan = scan
+            self.update_status("Deck gescannt – Analyse bereit", "#00ff00")
+        else:
+            self.update_status("Scan abgebrochen", "red")
+        if self.extras:
+            if scan is not None:
+                self.extras.set_scan(scan, missing)
+            else:
+                self.extras.show_error(error)
 
 
 def main():

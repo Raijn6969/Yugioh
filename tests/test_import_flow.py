@@ -105,6 +105,9 @@ class FakeMasterDuel:
     def main_deck_count(self):
         return sum(n for text, n in self.deck.items() if text not in EXTRA_DECK_TEXTS)
 
+    def extra_deck_count(self):
+        return sum(n for text, n in self.deck.items() if text in EXTRA_DECK_TEXTS)
+
 
 def distinct_name(i):
     """Deutlich verschiedene Kartennamen (sonst hält die Ghost-Erkennung sie für dieselbe Karte)."""
@@ -132,12 +135,13 @@ class FakeAutomator:
 
 def make_fake_counter(game):
     class FakeDeckCounter:
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args, point=None, **kwargs):
             self.value = None
             self.enabled = True
+            self.extra = point is not None  # mit eigenem Punkt = Zahl des Extra Decks
 
         def read(self):
-            return game.main_deck_count()
+            return game.extra_deck_count() if self.extra else game.main_deck_count()
 
         def wait_for(self, expected, timeout):
             return self.read()
@@ -160,7 +164,7 @@ class ImportFlowTest(unittest.TestCase):
         for p in self.patches:
             p.stop()
 
-    def run_import(self, game, deck_count=False, resume=None, deck=DECK, row_height=10):
+    def run_import(self, game, deck_count=False, resume=None, deck=DECK, row_height=10, card_db=None):
         log_file = os.path.join(self.tmp, "md_debug.log")
         clipboard = mock.Mock()
         clipboard.paste.return_value = "ydke://DECKCODE"
@@ -185,6 +189,8 @@ class ImportFlowTest(unittest.TestCase):
                 mock.patch.object(ie, "WindowAutomator", lambda config: FakeAutomator(game)), \
                 mock.patch.object(ie, "DeckCounter", make_fake_counter(game)), \
                 mock.patch.object(ie, "LOG_FILE", log_file), \
+                mock.patch.object(ie, "load_card_db", return_value=card_db) if card_db else \
+                mock.patch.object(ie, "load_card_db", side_effect=RuntimeError("offline")), \
                 mock.patch.object(ie, "pyperclip", clipboard), \
                 mock.patch.object(ie.time, "sleep", lambda s: None if s >= 1 else _real_sleep(s)):
             core.execute_import()
@@ -235,6 +241,15 @@ class ImportFlowTest(unittest.TestCase):
         finished, log, _, _ = self.run_import(game, deck_count=True)
         self.assertEqual(game.deck[NERVA_OCR], 1)
         self.assertNotIn("nachklicken", log)
+        self.assertFalse(finished["has_errors"])
+
+    def test_lost_click_on_extra_deck_card_is_repeated(self):
+        # Arthalion-Fall: Beim Ruckler geht der Klick auf die Fusion verloren → Extra-Deck-Zahl prüft nach
+        game = FakeMasterDuel(lost_clicks={NERVA_OCR: 1})
+        finished, log, _, _ = self.run_import(game, deck_count=True)
+        self.assertEqual(game.deck[NERVA_OCR], 1)
+        self.assertIn("[PRÜFUNG] Extra-Deck-Zählung aktiv, Startwert: 0.", log)
+        self.assertIn("→ 1x nachklicken", log)
         self.assertFalse(finished["has_errors"])
 
     def test_similar_name_shown_first_is_not_taken(self):

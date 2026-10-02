@@ -5,7 +5,7 @@ Enter oder Escape.
 """
 
 import tkinter as tk
-from typing import List, Optional
+from typing import Callable, List, Optional, Sequence, Tuple
 
 from rounded_button import RoundedButton
 from window_style import apply_frame
@@ -27,11 +27,14 @@ MAX_LIST_LINES = 10  # Längere Listen bekommen eine Scrollleiste
 
 def show_message(master: tk.Misc, title: str, message: str, kind: str = "info",
                  items: Optional[List[str]] = None, notes: Optional[List[str]] = None,
-                 wait: bool = True) -> tk.Toplevel:
+                 wait: bool = True,
+                 actions: Sequence[Tuple[str, Callable[[], Optional[str]]]] = ()) -> tk.Toplevel:
     """
     Zeigt ein dunkles Hinweisfenster. `items` (z.B. fehlende Karten) erscheinen als Liste,
     `notes` als "Hinweise" darunter. Mit wait=True blockiert der Aufruf bis zum Schließen
     (wie messagebox), der Rest des Programms bleibt dabei bedienbar.
+    `actions`: zusätzliche Buttons [(Text, Funktion)] links neben OK/Schließen. Die Funktion darf
+    einen Text zurückgeben (z.B. "Gespeichert: …"), der unter den Buttons erscheint.
     """
     accent, symbol = KINDS.get(kind, KINDS["info"])
     scale = max(1.0, master.winfo_screenheight() / 1080.0)
@@ -67,10 +70,26 @@ def show_message(master: tk.Misc, title: str, message: str, kind: str = "info",
             tk.Label(body, text=f"• {note}", fg=MUTED, bg=BG, font=font, wraplength=wrap,
                      justify=tk.LEFT, anchor="w").pack(fill=tk.X, pady=1)
 
-    ok = RoundedButton(win, text="OK", command=win.destroy, bg=BUTTON, font=font_bold,
-                       padx=int(30 * scale), pady=int(5 * scale), radius=int(7 * scale))
-    ok.pack(pady=(0, int(12 * scale)))
+    buttons = tk.Frame(win, bg=BG)
+    buttons.pack(pady=(0, int(12 * scale)))
+    button_size = dict(font=font_bold, padx=int(30 * scale) if not actions else int(16 * scale),
+                       pady=int(5 * scale), radius=int(7 * scale))
+    feedback = tk.Label(win, text="", fg=MUTED, bg=BG, font=font, wraplength=wrap, justify=tk.LEFT)
+    win.action_buttons = []
+    for label, func in actions:
+        def run(func=func):
+            text = func()
+            if text:
+                feedback.config(text=text)
+                feedback.pack(padx=int(16 * scale), pady=(0, int(12 * scale)))
+        button = RoundedButton(buttons, text=label, command=run, bg="#2e7d32", **button_size)
+        button.pack(side=tk.LEFT, padx=int(5 * scale))
+        win.action_buttons.append(button)
+    ok = RoundedButton(buttons, text="Schließen" if actions else "OK", command=win.destroy,
+                       bg=BUTTON if not actions else "#444444", **button_size)
+    ok.pack(side=tk.LEFT, padx=int(5 * scale))
     win.ok_button = ok  # für Tests
+    win.feedback_label = feedback
     win.bind("<Return>", lambda e: win.destroy())
     win.bind("<Escape>", lambda e: win.destroy())
 

@@ -32,3 +32,6 @@ problem_cards.json
 # Bundled OCR binary (91 MB — distribute separately)
 Tesseract-OCR/
 md_startup_error.log
+md_card_list_*.json
+md_card_stats.db
+md_card_stats_base.db

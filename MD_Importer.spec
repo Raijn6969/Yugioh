@@ -1,11 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
 
+# Karten-Grunddatenbank für die Extras-Stats: fehlt sie oder ist sie älter als 14 Tage, wird sie
+# jetzt neu von YGOPRODeck gebaut und in die exe gepackt (Stats gehen dann ab dem ersten Start offline)
+sys.path.insert(0, SPECPATH)
+from build_card_db import TARGET as CARD_DB, ensure_fresh
+ensure_fresh()
 
 a = Analysis(
     ['overlay.py'],
     pathex=[],
     binaries=[],
-    datas=[('Tesseract-OCR', 'Tesseract-OCR')],
+    datas=[('Tesseract-OCR', 'Tesseract-OCR'), (CARD_DB, '.')],
     hiddenimports=['pystray._win32'],  # pystray lädt sein Windows-Backend erst zur Laufzeit
     hookspath=[],
     hooksconfig={},

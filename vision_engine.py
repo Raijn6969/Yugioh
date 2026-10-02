@@ -83,3 +83,15 @@ def do_ocr(image: Image.Image, tesseract_cmd: str, lang: str = "eng", whitelist:
             raise
         dlog(f"[OCR] Texterkennung brauchte länger als {OCR_TIMEOUT}s → als leer gewertet.")
         return ""
+
+def read_screen_text(sct, monitor: dict, tesseract_cmd: str, lang: str = "eng",
+                     whitelist: Optional[str] = None) -> str:
+    """Helle Schrift auf dunklem Grund (Master-Duel-Oberfläche) aus einem Bildschirmausschnitt lesen."""
+    shot = sct.grab(monitor)
+    gray = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX").convert("L")
+    inverted = Image.eval(gray, lambda p: 255 - p)
+    for image in (inverted.point(lambda p: 0 if p < 150 else 255), inverted):
+        text = do_ocr(image, tesseract_cmd, lang, whitelist)
+        if text.strip():
+            return text
+    return ""

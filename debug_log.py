@@ -23,6 +23,15 @@ def dlog(message: str) -> None:
     logger.info(message.rstrip("\n"))
 
 
+def append(path: str, message: str) -> None:
+    """Eine Zeile ans Log anhängen, auch ohne laufenden Import (z.B. Meldungen des Deck-Fensters)."""
+    try:
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(message.rstrip("\n") + "\n")
+    except OSError:
+        pass
+
+
 def start_run(path: str) -> None:
     global _handler
     end_run()

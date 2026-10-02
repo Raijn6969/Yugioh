@@ -71,9 +71,17 @@ class WindowAutomator:
     def __init__(self, config):
         self.config = config
         self.last_bot_pos = (0, 0)
+        # Linke obere Ecke des Spielbereichs: (0, 0) im Vollbild, sonst Fensterposition
+        self.origin = (0, 0)
         self.scale_x, self.scale_y = self.get_md_scale()
 
     def get_md_scale(self):
+        # Innenbereich (ohne Titelleiste/Rahmen im Fenstermodus): Daran richtet sich das Spiel aus
+        hwnd = find_md_window()
+        client = win_api.get_client_rect(hwnd) if hwnd else None
+        if client and client[2] > 0 and client[3] > 0:
+            self.origin = (client[0], client[1])
+            return client[2] / 1920, client[3] / 1080
         size = get_md_window_size()
         if size:
             return size[0] / 1920, size[1] / 1080

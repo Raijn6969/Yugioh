@@ -69,8 +69,7 @@ class OverlayTest(unittest.TestCase):
     def test_speed_selection_is_saved(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
-        menu = root.nametowidget(app.speed_btn.cget("menu"))
-        menu.invoke(2)  # Langsam
+        app.speed_menu.invoke(2)  # Langsam
         self.assertEqual(app.speed_btn.cget("text"), "Tempo: Langsam ▾")
         with open(self.config_file, encoding="utf-8") as f:
             self.assertEqual(json.load(f)["SPEED_PROFILE"], "slow")
@@ -78,12 +77,15 @@ class OverlayTest(unittest.TestCase):
     def test_window_position_remembered(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
-        root.geometry("+400+300")
+        # Position knapp innerhalb des Desktops (unabhängig von Bildschirmgröße und Skalierung)
+        vx, vy, _, _ = Overlay.win_api.virtual_screen_rect()
+        x, y = vx + 20, vy + 30
+        root.geometry(f"+{x}+{y}")
         root.update()
         app._moved = True
         app.end_move(None)
         root2, _ = self.open_app()
-        self.assertEqual((root2.winfo_x(), root2.winfo_y()), (400, 300))
+        self.assertEqual((root2.winfo_x(), root2.winfo_y()), (x, y))
 
     def test_status_and_timer_from_worker_thread(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
@@ -102,6 +104,110 @@ class OverlayTest(unittest.TestCase):
         self.assertEqual(app.status_label.cget("text"), "Import Erfolgreich!")
         self.assertEqual(app.timer_label.cget("text"), "⏱ 0:01")
         self.assertEqual(str(app.speed_btn.cget("state")), "normal")
+
+    def test_flat_and_snaps_to_bottom_edge(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        scale = max(1.0, root.winfo_screenheight() / 1080.0)
+        self.assertLess(root.winfo_height(), 70 * scale)  # flacher als früher (85)
+        screen_h, height = root.winfo_screenheight(), root.winfo_height()
+        # Position vom früheren, höheren Overlay (unten angedockt) → wieder genau am Rand
+        old_docked_y = screen_h - int(85 * scale)
+        self.assertEqual(app._snap_to_bottom(old_docked_y, height), screen_h - height)
+        self.assertEqual(app._snap_to_bottom(300, height), 300)  # mitten auf dem Bildschirm: bleibt
+
+    def test_warning_when_dropped_over_the_deck(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        frame = Overlay.md_layout.Frame(0, 0, 1920, 1080)
+        with mock.patch.object(Overlay.md_layout, "md_frame", return_value=frame):
+            for position, expected in (("+600+500", "verdeckt das Deck"), ("+1400+500", "verdeckt die Kartenliste"),
+                                       ("+40+1000", "Bereit für Import")):
+                root.geometry(position)
+                root.update()
+                app._moved = True
+                app.end_move(None)
+                self.assertIn(expected, app.status_label.cget("text"))
+
+    def open_extras(self, app, root, scan):
+        """Extras öffnen; der Scan liefert sofort `scan` (statt Master Duel zu lesen)."""
+        class FakeExporter:
+            def __init__(self, config, cmd, status_cb, finish_cb, **kwargs):
+                self.finish_cb = finish_cb
+
+            def execute_scan(self):
+                self.finish_cb(scan=scan, error="")
+
+        from card_stats import StarterInfo
+        stats = mock.Mock()
+        stats.ensure.return_value = 0
+        stats.info.return_value = None
+        stats.starter.return_value = StarterInfo(True, "sucht", False)
+        app.card_stats = stats
+        with mock.patch.object(Overlay, "DeckExporter", FakeExporter),                 mock.patch("extras_panel.DeckWatcher.start", lambda self: None):
+            app.toggle_extras()
+            self.pump(root, 0.3)
+
+    def test_extras_scan_and_close_when_import_starts(self):
+        import deck_export
+        from card_db import CardMatch
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        frame = Overlay.md_layout.Frame(0, 0, 1920, 1080)
+        cards = [deck_export.ExportedCard("Main", i + 1, "Bonfire", CardMatch("1", "Bonfire", True)) for i in range(40)]
+        zones = [("Main", Overlay.md_layout.deck_slot_positions(40, 267, 5), 10), ("Extra", [], 10)]
+        scan = deck_export.DeckScan(frame, zones, cards, {})
+        with mock.patch.object(Overlay.md_layout, "md_frame", return_value=frame):
+            self.open_extras(app, root, scan)
+            self.assertIsNotNone(app.extras)
+            self.assertIs(app._last_scan, scan)
+            self.assertEqual(app.extras.analysis.main_size, 40)
+            self.assertFalse(app.is_running)
+            # Import startet → Extras gehen zu
+            with mock.patch.object(Overlay, "parse_clipboard", return_value=None),                     mock.patch.object(Overlay.resume_state, "load_progress", return_value=None),                     mock.patch.object(Overlay, "DeckImporterCore") as core:
+                app.start_import_thread()
+                self.pump(root, 0.1)
+            core.assert_called_once()
+            self.assertIsNone(app.extras)
+            self.assertIsNone(app._last_scan)  # Import verändert das Deck → Scan verfällt
+
+    def test_export_reuses_scan_only_if_deck_unchanged(self):
+        import deck_export
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        scan = deck_export.DeckScan(Overlay.md_layout.Frame(0, 0, 1920, 1080), [], [], {})
+        passed = []
+
+        class FakeExporter:
+            def __init__(self, *args, scan=None, **kwargs):
+                passed.append(scan)
+
+            def execute(self):
+                pass
+
+        for changes, expected in ((None, scan), ("2 Karte(n) anders", None)):
+            app._last_scan, app.is_running = scan, False
+            with mock.patch.object(Overlay, "DeckExporter", FakeExporter), \
+                    mock.patch.object(Overlay, "current_changes", return_value=changes):
+                app.start_export_thread()
+            self.assertIs(passed[-1], expected)
+        # Ohne letzten Scan wird ganz normal gelesen
+        app._last_scan, app.is_running = None, False
+        with mock.patch.object(Overlay, "DeckExporter", FakeExporter), \
+                mock.patch.object(Overlay, "current_changes") as check:
+            app.start_export_thread()
+        check.assert_not_called()
+        self.assertIsNone(passed[-1])
+
+    def test_extras_button_toggles(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        with mock.patch.object(Overlay.md_layout, "md_frame", return_value=None):
+            self.open_extras(app, root, None)  # Scan schlägt fehl (z.B. Deck-Editor nicht offen)
+            self.assertIsNotNone(app.extras)
+            self.assertIn("Scan nicht möglich", app.extras.status_label.cget("text"))
+            app.extras_btn.invoke()
+            self.assertIsNone(app.extras)
 
     def test_restart_starts_new_instance_and_closes_everything(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
@@ -159,6 +265,44 @@ class DarkDialogTest(unittest.TestCase):
         self.assertTrue(any(isinstance(w, tk.Scrollbar) for w in texts[0].winfo_children()))  # > 10 Karten
         win.ok_button.invoke()
         self.assertFalse(win.winfo_exists())
+
+    def test_action_button_shows_feedback_and_keeps_dialog_open(self):
+        import dark_dialog
+        win = dark_dialog.show_message(self.root, "Deck exportiert", "Fertig", wait=False,
+                                       actions=[("Download als .ydk", lambda: "Gespeichert: C:\\x.ydk")])
+        win.action_buttons[0].invoke()
+        self.root.update()
+        self.assertEqual(win.feedback_label.cget("text"), "Gespeichert: C:\\x.ydk")
+        self.assertEqual(win.ok_button.cget("text"), "Schließen")
+        self.assertTrue(win.winfo_exists())
+        win.destroy()
+
+    def test_export_result_offers_download(self):
+        import deck_export
+        from card_db import CardMatch
+        cards = [deck_export.ExportedCard("Main", 1, "Bonfire", CardMatch("1", "Bonfire", True))]
+        result = deck_export.ExportResult("#main\n1\n", 1, 0, cards)
+        with mock.patch.object(Overlay, "show_message") as show, \
+                mock.patch.object(Overlay, "save_ydk", return_value="C:\\Downloads\\d.ydk") as save, \
+                mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None):
+            app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
+            app._on_export_finished(result, "")
+            (label, download), = show.call_args.kwargs["actions"]
+            self.assertEqual(label, "Download als .ydk")
+            self.assertIn("d.ydk", download())
+            app.close()
+        save.assert_called_once_with("#main\n1\n")
+        self.assertEqual(show.call_args.kwargs["kind"], "info")
+
+    def test_uncalibrated_start_tries_automatic_first(self):
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
+                mock.patch.object(Overlay.MasterDuelImporter, "start_auto_calibration") as auto:
+            app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
+            app.start_import_thread()
+            app.close()
+        auto.assert_called_once()
 
     def test_import_error_uses_dark_dialog(self):
         with mock.patch.object(Overlay, "show_message") as show, \
@@ -225,6 +369,49 @@ class RoundedButtonTest(unittest.TestCase):
         top = body.getpixel((50, 0))                                    # oben Mitte: Goldrand (geglättet)
         self.assertTrue(all(abs(a - b) <= 25 for a, b in zip(top, (0xc9, 0xa0, 0x2f))), top)
         self.assertEqual(body.getpixel((50, 15)), (0x00, 0x7a, 0xcc)) # innen: Button-Farbe
+
+
+@unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
+class DarkMenuTest(unittest.TestCase):
+    def setUp(self):
+        self.root = tk.Tk()
+        self.root.configure(bg="#1e1e1e")
+
+    def tearDown(self):
+        self.root.destroy()
+
+    def test_opens_above_button_with_gold_frame_and_selects(self):
+        from dark_menu import DarkMenu
+        from rounded_button import RoundedButton
+        import dark_menu
+        var = tk.StringVar(value="normal")
+        chosen = []
+        menu = DarkMenu(self.root)
+        for key in ("fast", "normal", "slow"):
+            menu.add_radiobutton(label=key, value=key, variable=var, command=lambda: chosen.append(var.get()))
+        button = RoundedButton(self.root, text="Tempo ▾", menu=menu)
+        button.pack(pady=(200, 0))
+        self.root.update()
+        with mock.patch.object(dark_menu, "apply_frame") as frame:
+            button.invoke()
+        self.root.update()
+        self.assertTrue(menu.is_open)
+        frame.assert_called_once_with(menu.window)
+        self.assertLessEqual(menu.window.winfo_rooty() + menu.window.winfo_height(), button.winfo_rooty())
+        menu.invoke(2)
+        self.assertFalse(menu.is_open)
+        self.assertEqual((var.get(), chosen), ("slow", ["slow"]))
+
+    def test_second_click_closes(self):
+        from dark_menu import DarkMenu
+        menu = DarkMenu(self.root)
+        menu.add_command(label="Automatisch", command=lambda: None)
+        button = tk.Label(self.root, text="x")
+        button.pack()
+        self.root.update()
+        menu.popup_above(button)
+        menu.popup_above(button)
+        self.assertFalse(menu.is_open)
 
 
 class AppIconTest(unittest.TestCase):

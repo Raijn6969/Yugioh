@@ -41,7 +41,7 @@ def render_body(width: int, height: int, radius: int, fill: str, border: str, ba
 class RoundedButton(tk.Label):
     def __init__(self, master, text: str = "", command=None, bg: str = "#444444", fg: str = "white",
                  font=None, border: str = GOLD, padx: int = 12, pady: int = 4, radius: int = 7,
-                 menu: Optional[tk.Menu] = None, min_width: int = 0, **_ignored):
+                 menu=None, min_width: int = 0, **_ignored):
         self._background = master.cget("bg")
         super().__init__(master, text=text, compound="center", bd=0, highlightthickness=0, padx=0, pady=0,
                          bg=self._background, cursor="hand2", font=font)
@@ -149,6 +149,8 @@ class RoundedButton(tk.Label):
 
     def _post_menu(self):
         menu = self._opts["menu"]
+        if hasattr(menu, "popup_above"):  # DarkMenu (dunkel, Goldrand)
+            return menu.popup_above(self)
         menu.update_idletasks()
         x, y = self.winfo_rootx(), self.winfo_rooty() - menu.winfo_reqheight()  # nach oben aufklappen
         try:

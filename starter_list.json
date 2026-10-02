@@ -1,0 +1,14 @@
+{
+  "_info": "Feste Starter-Einstufungen für Karten, die die Textregeln (starter_rules.py) nicht richtig erkennen. build_card_db.py schreibt sie in die Offline-Datenbank (md_card_stats_base.db). Eigene Korrekturen im Deck-Fenster haben trotzdem Vorrang. Namen wie bei YGOPRODeck (englisch).",
+  "starter": {
+    "Maliss <P> Dormouse": "bannt eine Maliss-Karte aus dem Deck, die sich dann selbst beschwört",
+    "Maliss in Underground": "bannt eine Maliss-Karte aus dem Deck, die sich dann selbst beschwört",
+    "Clown Crew Cappello": "beschwört sich per Pendel-Effekt selbst und schickt eine „Clown Crew“-Karte aus dem Deck auf den Friedhof (z.B. Finale → holt Flair)",
+    "Concours de Cuisine (Culinary Confrontation)": "beschwört 2 Pendel-Monster aus Deck/Extra Deck („Nouvelles“ + „Patissciel“)"
+  },
+  "kein_starter": {
+    "Radiant Typhoon Vision": "sucht nur Mystical Space Typhoon",
+    "Clown Crew Matinee Operatics": "die beschworenen Monster dürfen ihre Effekte nicht aktivieren – allein kein Combo-Start",
+    "Clown Crew Malabarisme": "die beschworenen Monster dürfen ihre Effekte nicht aktivieren – allein kein Combo-Start"
+  }
+}
