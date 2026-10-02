@@ -6,6 +6,7 @@ opencv-python==4.13.0.92
 pillow==12.2.0
 PyAutoGUI==0.9.54
 pyperclip==1.11.0
+pystray==0.19.5
 pytesseract==0.3.13
 pywin32==311
 requests==2.34.1

@@ -12,10 +12,13 @@ import numpy as np
 import pytesseract
 from PIL import Image
 
+from debug_log import dlog
+
 # Erlaubte Zeichen für Tesseract (Kartennamen). Für Deutsch kommen Umlaute und ß hinzu.
 _WHITELIST = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-':&,.!?/@"
 _WHITELIST_DE = _WHITELIST + "äöüÄÖÜß"
 DIGITS = "0123456789"
+OCR_TIMEOUT = 8  # Sekunden; normal dauert ein Aufruf ~0,1 s
 
 
 def check_tesseract(tesseract_cmd: str, lang: str = "eng") -> Optional[str]:
@@ -71,7 +74,12 @@ def do_ocr(image: Image.Image, tesseract_cmd: str, lang: str = "eng", whitelist:
         whitelist = _WHITELIST_DE if "deu" in lang else _WHITELIST
     custom_config = f"--oem 3 --psm 7 -c tessedit_char_whitelist={whitelist}"
 
-    # Den aufbereiteten OpenCV-Scan an Tesseract übergeben
-    raw_text = pytesseract.image_to_string(thresh, lang=lang, config=custom_config)
-
-    return raw_text
+    # Den aufbereiteten OpenCV-Scan an Tesseract übergeben. Hängt Tesseract (PC völlig
+    # ausgelastet, Virenscanner), zählt der Read als leer statt den Import einzufrieren.
+    try:
+        return pytesseract.image_to_string(thresh, lang=lang, config=custom_config, timeout=OCR_TIMEOUT)
+    except RuntimeError as e:
+        if "timeout" not in str(e).lower():
+            raise
+        dlog(f"[OCR] Texterkennung brauchte länger als {OCR_TIMEOUT}s → als leer gewertet.")
+        return ""

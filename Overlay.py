@@ -4,6 +4,7 @@ Overlay-Fenster des Master Duel Deck Importers (Start, Kalibrierung, Tempo, Time
 
 import ctypes
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox
 # Nicht entfernen, obwohl hier nicht direkt benutzt: pyautogui setzt beim Import die
 # DPI-Awareness des Prozesses. Die Import-Reihenfolge bestimmt also die DPI-Behandlung.
@@ -13,9 +14,12 @@ import queue
 import time
 import os
 import shutil
+import subprocess
+import sys
 import json
 import win32gui
 import win32process
+from PIL import ImageTk
 
 try:
     # Zwingt Windows zu echten Hardware-Pixeln. Macht manuelles DPI-Scaling überflüssig!
@@ -28,7 +32,12 @@ except Exception:
 
 from calibration import CalibrationWizard
 from import_engine import DeckImporterCore
-from app_paths import APP_VERSION, CONFIG_FILE, TESSERACT_CMD
+from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
+from app_icon import create_icon_image
+from dark_dialog import show_message
+from window_style import apply_frame
+from rounded_button import RoundedButton
+from tray import TrayIcon
 from utils import parse_clipboard
 from window_automation import get_md_window_size
 import resume_state
@@ -43,8 +52,9 @@ SPEED_PROFILES = [
 
 
 class MasterDuelImporter:
-    def __init__(self, root):
+    def __init__(self, root, tray: bool = False):
         self.root = root
+        self.tray = None
         self.is_running = False
         self.is_visible = True  # Status für den Smart Visibility Tracker
         self._import_t0 = None  # Startzeit des laufenden Imports (für den Timer)
@@ -58,6 +68,11 @@ class MasterDuelImporter:
         self.config = self.load_config()
         self._build_main_ui()
         self._process_ui_queue()
+        if tray:
+            # Menü-Aktionen kommen aus dem Tray-Thread → über die UI-Warteschlange in den Tk-Thread
+            self.tray = TrayIcon(f"MD Importer {APP_VERSION}",
+                                 on_restart=lambda: self._run_on_ui(self.restart),
+                                 on_quit=lambda: self._run_on_ui(self.close))
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
         self._check_window_focus()
@@ -117,6 +132,9 @@ class MasterDuelImporter:
     def _build_main_ui(self):
         self.root.withdraw()  # Erst nach dem Aufbau zeigen (Breite hängt vom Inhalt ab)
         self.root.title(f"MD IMPORTER {APP_VERSION}")
+        # App-Icon auch für Dialoge (Fortsetzen?, Ergebnis); Referenz halten, sonst räumt Python es weg
+        self._icon_photo = ImageTk.PhotoImage(create_icon_image(64), master=self.root)
+        self.root.iconphoto(True, self._icon_photo)
         self.root.overrideredirect(True)
         self.root.wm_attributes("-topmost", True)
         self.root.wm_attributes("-alpha", 0.95)
@@ -143,22 +161,24 @@ class MasterDuelImporter:
         btn_frame = tk.Frame(self.root, bg="#1e1e1e")
         btn_frame.pack()
 
-        btn_pack = dict(side=tk.LEFT, padx=int(4 * scale), ipadx=int(8 * scale), ipady=int(3 * scale))
+        btn_pack = dict(side=tk.LEFT, padx=int(4 * scale))
+        btn_size = dict(padx=int(14 * scale), pady=int(5 * scale), radius=int(7 * scale))
 
-        self.start_btn = tk.Button(btn_frame, text="Start Import", command=self.start_import_thread, bg="#007acc",
-                                   fg="white", bd=0, font=font_main, cursor="hand2")
+        self.start_btn = RoundedButton(btn_frame, text="Start Import", command=self.start_import_thread,
+                                       bg="#007acc", font=font_main, **btn_size)
         self.start_btn.pack(**btn_pack)
 
-        self.calib_btn = tk.Button(btn_frame, text="Kalibrieren", command=self.open_calibration, bg="#444444",
-                                   fg="white", bd=0, font=font_sub, cursor="hand2")
+        self.calib_btn = RoundedButton(btn_frame, text="Kalibrieren", command=self.open_calibration,
+                                       bg="#444444", font=font_sub, **btn_size)
         self.calib_btn.pack(**btn_pack)
 
         # Tempo-Auswahl ganz rechts: Button mit ▾, öffnet ein Auswahlmenü (nach oben, da das
         # Fenster am unteren Bildschirmrand sitzt). Die aktuelle Wahl ist im Menü markiert.
+        # Feste Breite für den längsten Eintrag, damit der Button beim Umschalten nicht springt.
         self.speed_var = tk.StringVar(value=SPEED_PROFILES[self._current_speed_index()][0])
-        self.speed_btn = tk.Menubutton(btn_frame, bg="#444444", activebackground="#5a5a5a",
-                                       bd=0, relief=tk.FLAT, font=font_sub, cursor="hand2",
-                                       direction="above", highlightthickness=0)
+        longest = max(tkfont.Font(font=font_sub).measure(f"Tempo: {label} ▾") for _, label, _, _ in SPEED_PROFILES)
+        self.speed_btn = RoundedButton(btn_frame, bg="#444444", font=font_sub,
+                                       min_width=longest + 2 * btn_size["padx"], **btn_size)
         speed_menu = tk.Menu(self.speed_btn, tearoff=0, bg="#2b2b2b", fg="white",
                              activebackground="#007acc", activeforeground="white",
                              selectcolor="#00ff00", bd=0, font=font_sub)
@@ -169,8 +189,10 @@ class MasterDuelImporter:
         self.speed_btn.pack(**btn_pack)
         self._refresh_speed_button()
 
-        tk.Button(self.root, text="X", command=self.close, bg="#cc0000", fg="white", bd=0,
-                  font=font_x).place(relx=1.0, y=0, anchor="ne", width=int(35 * scale), height=int(22 * scale))
+        # Etwas eingerückt, damit der abgerundete Goldrand im Eck frei bleibt
+        RoundedButton(self.root, text="✕", command=self.close, bg="#cc0000", border="#ff8a80", font=font_x,
+                      padx=int(9 * scale), pady=int(2 * scale), radius=int(6 * scale)
+                      ).place(relx=1.0, x=-int(5 * scale), y=int(5 * scale), anchor="ne")
 
         # Import-Dauer, dezent unten rechts (leer bis zum ersten Import)
         self.timer_label = tk.Label(self.root, text="", fg="#888888", bg="#1e1e1e",
@@ -193,6 +215,7 @@ class MasterDuelImporter:
 
         self.root.geometry(f"{win_w}x{win_h}+{x_pos}+{y_pos}")
         self.root.deiconify()
+        apply_frame(self.root)
 
     # --- SMART VISIBILITY TRACKER ---
     def _is_md_active(self, fg_hwnd, fg_pid):
@@ -315,8 +338,28 @@ class MasterDuelImporter:
         if self.is_running:
             self._after_ids["timer"] = self.root.after(250, self._tick_timer)
 
+    @staticmethod
+    def _restart_command():
+        """Befehl, der das Programm genauso neu startet, wie es gestartet wurde (.exe, .pyw oder .py)."""
+        if getattr(sys, "frozen", False):
+            return [sys.executable] + sys.argv[1:]
+        return [sys.executable, os.path.abspath(sys.argv[0])] + sys.argv[1:]
+
+    def restart(self):
+        """Neue Instanz starten und diese komplett schließen. Ein laufender Import wird abgebrochen
+        (sein Fortschritt ist gespeichert und kann beim nächsten Start fortgesetzt werden)."""
+        try:
+            subprocess.Popen(self._restart_command(), cwd=APP_DIR)
+        except OSError as e:
+            messagebox.showerror("Neustart fehlgeschlagen", str(e))
+            return
+        self.close()
+
     def close(self):
-        """Fenster schließen: erst alle wiederkehrenden Timer stoppen, dann zerstören."""
+        """Alles schließen: Tray-Icon, wiederkehrende Timer, Fenster."""
+        if self.tray:
+            self.tray.stop()
+            self.tray = None
         for after_id in self._after_ids.values():
             try:
                 self.root.after_cancel(after_id)
@@ -405,26 +448,27 @@ class MasterDuelImporter:
             self._import_t0 = None
         # Die Engine kann Einstellungen ergänzt haben (z.B. gemerkte Fenstergröße)
         self._save_config_safely()
-        notes_text = "\n\nHinweise:\n" + "\n".join(f"• {n}" for n in notes) if notes else ""
         if success:
             if failed_cards or has_errors:
                 self.update_status("Mit Lücken fertig!", "#ffaa00")
-                msg = "Der Import ist abgeschlossen, aber folgende Karten weisen eine Lücke auf und müssen manuell hinzugefügt werden:\n\n"
-                msg += "\n".join(f"• {card}" for card in failed_cards)
-                messagebox.showwarning("Deck-Audit - Fehlende Karten", msg + notes_text)
+                show_message(self.root, "Deck-Audit – bitte prüfen",
+                             "Der Import ist abgeschlossen, aber bei diesen Karten stimmt die Anzahl "
+                             "nicht oder ist unsicher. Bitte im Deck prüfen und von Hand korrigieren:",
+                             kind="warning", items=failed_cards, notes=notes)
             else:
                 self.update_status("Import Erfolgreich!", "#00ff00")
                 if notes:
-                    messagebox.showinfo("Import erfolgreich", "Alle Karten wurden importiert." + notes_text)
+                    show_message(self.root, "Import erfolgreich", "Alle Karten wurden importiert.",
+                                 kind="info", notes=notes)
         else:
             self.update_status("Abbruch / Fehler", "red")
             if message:
-                messagebox.showerror("Import abgebrochen", message)
+                show_message(self.root, "Import abgebrochen", message, kind="error")
 
 
 def main():
     root = tk.Tk()
-    MasterDuelImporter(root)
+    MasterDuelImporter(root, tray=True)
     root.mainloop()
 
 

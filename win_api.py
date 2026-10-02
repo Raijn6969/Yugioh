@@ -12,6 +12,7 @@ from ctypes import wintypes
 from typing import Optional, Tuple
 
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
+_dwmapi = ctypes.WinDLL("dwmapi")
 _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 _gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
 
@@ -25,6 +26,14 @@ def _sig(func, argtypes, restype):
 _FindWindowW = _sig(_user32.FindWindowW, [wintypes.LPCWSTR, wintypes.LPCWSTR], wintypes.HWND)
 _GetWindowRect = _sig(_user32.GetWindowRect, [wintypes.HWND, ctypes.POINTER(wintypes.RECT)], wintypes.BOOL)
 _IsWindow = _sig(_user32.IsWindow, [wintypes.HWND], wintypes.BOOL)
+_GetForegroundWindow = _sig(_user32.GetForegroundWindow, [], wintypes.HWND)
+_DwmSetWindowAttribute = _sig(_dwmapi.DwmSetWindowAttribute,
+                              [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD], ctypes.c_long)
+
+# DWM-Fensterattribute (ab Windows 11)
+DWMWA_WINDOW_CORNER_PREFERENCE = 33
+DWMWA_BORDER_COLOR = 34
+DWMWCP_ROUND = 2
 _SetForegroundWindow = _sig(_user32.SetForegroundWindow, [wintypes.HWND], wintypes.BOOL)
 _GetCursorPos = _sig(_user32.GetCursorPos, [ctypes.POINTER(wintypes.POINT)], wintypes.BOOL)
 _SetCursorPos = _sig(_user32.SetCursorPos, [ctypes.c_int, ctypes.c_int], wintypes.BOOL)
@@ -86,6 +95,16 @@ def mouse_wheel(delta: int) -> None:
 
 def is_window(hwnd: int) -> bool:
     return bool(_IsWindow(hwnd))
+
+
+def get_foreground_window() -> Optional[int]:
+    return _GetForegroundWindow() or None
+
+
+def set_dwm_attribute(hwnd: int, attribute: int, value: int) -> bool:
+    """Setzt ein DWM-Fensterattribut (DWORD). False, wenn Windows es nicht kennt (z.B. Windows 10)."""
+    data = wintypes.DWORD(value)
+    return _DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(data), ctypes.sizeof(data)) == 0
 
 
 def virtual_screen_rect() -> Tuple[int, int, int, int]:

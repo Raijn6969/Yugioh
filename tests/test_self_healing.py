@@ -70,6 +70,54 @@ class AdaptiveTempoTest(unittest.TestCase):
         self.assertFalse(core._auto_slowed)
 
 
+class PauseAfterInsertTest(unittest.TestCase):
+    def pause(self, confirmed, speed="normal"):
+        core = make_core(speed)
+        core._insert_confirmed = confirmed
+        slept = []
+        with mock.patch.object(ie.time, "sleep", slept.append):
+            core._pause_after_insert()
+        return round(slept[0], 4)
+
+    def test_shorter_only_when_deck_count_confirmed(self):
+        self.assertEqual(self.pause(False), ie.POST_ADD_PAUSE)
+        self.assertEqual(self.pause(True), ie.POST_ADD_PAUSE_CONFIRMED)
+        self.assertEqual(self.pause(True, "slow"), round(ie.POST_ADD_PAUSE_CONFIRMED * 1.5, 4))
+
+
+class LagDetectionTest(unittest.TestCase):
+    def read_twice(self, first, second):
+        core = make_core()
+        reads = iter([("", first), ("", second)])
+        core._capture_and_ocr_slot = lambda sct, monitor: next(reads)
+        automator = mock.Mock()
+        with mock.patch.object(ie.time, "sleep"):
+            _, s_c = core._read_slot(None, automator, {}, 0, 0, prev_text=first)
+        return s_c, core._lag_events
+
+    def test_other_card_after_reclick_is_lag(self):
+        self.assertEqual(self.read_twice("bonfire", "seventhtachyon"), ("seventhtachyon", 1))
+
+    def test_same_card_read_slightly_differently_is_no_lag(self):
+        # Echter Fehlalarm: ein zusätzliches 't' von der Texterkennung
+        self.assertEqual(self.read_twice("tearlamentskashtira", "ttearlamentskashtira"),
+                         ("tearlamentskashtira", 0))
+
+
+class FocusTest(unittest.TestCase):
+    def test_switches_only_when_master_duel_is_not_in_front(self):
+        import input_utils
+        with mock.patch("window_automation.find_md_window", return_value=42), \
+                mock.patch.object(input_utils.win_api, "set_foreground_window") as set_fg, \
+                mock.patch.object(input_utils.time, "sleep"):
+            with mock.patch.object(input_utils.win_api, "get_foreground_window", return_value=42):
+                input_utils.focus_master_duel()
+            set_fg.assert_not_called()
+            with mock.patch.object(input_utils.win_api, "get_foreground_window", return_value=7):
+                input_utils.focus_master_duel()
+            set_fg.assert_called_once_with(42)
+
+
 class ResumeStateTest(unittest.TestCase):
     def setUp(self):
         self.path = os.path.join(tempfile.mkdtemp(), "md_resume.json")
@@ -88,6 +136,35 @@ class ResumeStateTest(unittest.TestCase):
         resume_state.clear_progress(self.path)
         resume_state.clear_progress(self.path)  # zweimal löschen ist ok
         self.assertIsNone(resume_state.load_progress(["1"], self.path))
+
+
+class SlowDeckCountTest(unittest.TestCase):
+    """Schwacher PC: Die Deck-Zahl springt erst verspätet hoch."""
+
+    def verify(self, readings):
+        core = make_core()
+        core.card_types = {"1": "Spell Card"}
+        values = iter(readings)
+        core.deck_counter = mock.Mock(value=20, wait_for=lambda expected, timeout: next(values))
+        automator = mock.Mock()
+        unsure = core._verify_insert(automator, 0, 0, 1, "Karte", "1", stalled=False)
+        return unsure, automator.add_card_to_deck.call_count
+
+    def test_late_count_does_not_click_an_extra_copy(self):
+        self.assertEqual(self.verify([20, 21]), (False, 0))
+
+    def test_really_missing_copy_is_clicked_again(self):
+        self.assertEqual(self.verify([20, 20, 21]), (False, 1))
+
+
+class HangingOcrTest(unittest.TestCase):
+    def test_hanging_tesseract_counts_as_empty_read(self):
+        import vision_engine
+        from PIL import Image
+        timeout = RuntimeError("Tesseract process timeout")
+        with mock.patch.object(vision_engine.pytesseract, "image_to_string", side_effect=timeout) as ocr:
+            self.assertEqual(vision_engine.do_ocr(Image.new("L", (100, 20)), "tesseract.exe"), "")
+        self.assertEqual(ocr.call_args.kwargs["timeout"], vision_engine.OCR_TIMEOUT)
 
 
 class DeckCounterTest(unittest.TestCase):

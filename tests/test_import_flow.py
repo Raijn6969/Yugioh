@@ -36,10 +36,11 @@ class FakeMasterDuel:
     """Suchbegriff → Raster; Klick auf Slot → Detail-Panel; Rechtsklick → Karte im Deck."""
 
     def __init__(self, slow_searches=None, lost_clicks=None, abort_after_adds=None, grids=None,
-                 lag_after=None):
+                 lag_after=None, lost_searches=None):
         self.grid = ["splittleknight"]
         self.grids = dict(grids or {})                  # Suchtext → eigenes Raster
         self.lag_after = dict(lag_after or {})          # Panel-Text → so viele Folgeklicks hängen
+        self.lost_searches = dict(lost_searches or {})  # Suchtext → so oft kommt die Eingabe nicht an
         self.ignored_clicks = 0
         self.row_offset = 0                              # Gescrollte Zeilen (wie im Spiel: ¾ Zeile pro Raste)
         self.scrolls = []
@@ -54,6 +55,9 @@ class FakeMasterDuel:
 
     def search(self, automator, text):
         self.searches.append(text)
+        if self.lost_searches.get(text, 0) > 0:  # Eingabe verloren: Raster zeigt weiter die alte Suche
+            self.lost_searches[text] -= 1
+            return
         self.row_offset = 0  # Neue Suche → Liste beginnt oben
         if self.slow_searches.get(text, 0) > 0:
             self.slow_searches[text] -= 1
@@ -312,6 +316,17 @@ class ImportFlowTest(unittest.TestCase):
         self.assertIn("[LAG] Panel zeigte noch 'futurefusionnova'", log)
         self.assertNotIn("[NACHLAUF]", log)  # schon im ersten Durchgang gefunden
         self.assertTrue(any("verzögert auf Klicks" in n for n in finished["notes"]))
+
+    def test_lost_search_is_typed_again(self):
+        # Echter Fall: Die Suche nach Ash Blossom kam nicht an, das Raster zeigte weiter Maxx C
+        deck = {"5": ('Maxx "C"', 1, "Effect Monster"), "4": ("Ash Blossom & Joyous Spring", 3, "Tuner Monster")}
+        ash = sanitize_name("Ash Blossom & Joyous Spring")
+        game = FakeMasterDuel(lost_searches={ash: 1})
+        finished, log, _, _ = self.run_import(game, deck=deck)
+        self.assertEqual(+game.deck, Counter({"maxxc": 1, "ashblossomjoyousspring": 3}))
+        self.assertIn("[SUCHE NEU]", log)
+        self.assertNotIn("[NACHLAUF]", log)  # im ersten Durchgang gefunden
+        self.assertEqual(game.searches.count(ash), 2)
 
     def test_abort_and_resume_without_duplicates(self):
         game = FakeMasterDuel(abort_after_adds=3)

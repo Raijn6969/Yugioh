@@ -5,6 +5,9 @@ Kalibrierungs-Assistent: nimmt die Bildschirmpunkte auf, die der Import anklickt
 import tkinter as tk
 import pyautogui
 
+from rounded_button import RoundedButton
+from window_style import apply_frame
+
 
 class CalibrationWizard:
     # (Config-Schlüssel, Beschreibung, optional)
@@ -38,6 +41,7 @@ class CalibrationWizard:
         self.optional = {key for key, _, optional in self.STEPS if optional}
         self.labels = []
         self._build_ui()
+        apply_frame(self.top)  # runde Ecken + Goldrand wie das Overlay
 
     def _build_ui(self):
         header = tk.Frame(self.top, bg="#007acc", height=35)
@@ -57,14 +61,16 @@ class CalibrationWizard:
         self.info_lbl = tk.Label(self.top, text="Klicke Start und zeige mit der Maus\nauf das Ziel. (3s Timer)", fg="#aaaaaa", bg="#1e1e1e", font=("Helvetica", 10))
         self.info_lbl.pack(pady=2)
 
-        self.action_btn = tk.Button(self.top, text="Start: Suchleiste", bg="#007acc", fg="white", bd=0, font=("Helvetica", 11, "bold"), command=self.start_timer)
-        self.action_btn.pack(pady=8, ipadx=10, ipady=5)
+        self.action_btn = RoundedButton(self.top, text="Start: Suchleiste", bg="#007acc",
+                                        font=("Helvetica", 11, "bold"), command=self.start_timer, padx=12, pady=6)
+        self.action_btn.pack(pady=8)
 
         # Nur bei optionalen Schritten sichtbar
-        self.skip_btn = tk.Button(self.top, text="Überspringen", bg="#444444", fg="white", bd=0,
-                                  font=("Helvetica", 9), command=self.skip_step)
+        self.skip_btn = RoundedButton(self.top, text="Überspringen", bg="#444444",
+                                      font=("Helvetica", 9), command=self.skip_step, padx=12, pady=3)
 
-        tk.Button(self.top, text="Abbrechen", bg="#cc0000", fg="white", bd=0, font=("Helvetica", 9), command=self.cancel_wizard).pack(pady=5)
+        RoundedButton(self.top, text="Abbrechen", bg="#cc0000", border="#ff8a80", font=("Helvetica", 9),
+                      command=self.cancel_wizard, padx=12, pady=3).pack(pady=5)
         self._highlight_current_step()
 
     def _highlight_current_step(self):

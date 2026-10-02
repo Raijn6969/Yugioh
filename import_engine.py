@@ -55,6 +55,11 @@ END_REPEAT_STREAK = 3          # 4x dieselbe Karte in Folge = Ende der Ergebniss
 END_EMPTY_STREAK = 6           # So viele leere Reads in Folge = Ende der Ergebnisse
 SCROLL_NOTCHES = 4             # Mausrad-Rasten pro Seite (1 Raste ≈ ¾ Zeile → 4 Rasten = 3 Zeilen)
 MAX_SCROLL_PAGES = 3           # So oft wird höchstens weitergescrollt
+RETYPE_AFTER_READS = 4         # Zeigt Slot 0 so lange (~1,5 s) die alte Karte → Suche neu eintippen
+
+# ── Pause nach dem Einfügen (× Tempo), bevor die Maus weitermacht ──
+POST_ADD_PAUSE = 0.35            # Standard
+POST_ADD_PAUSE_CONFIRMED = 0.15  # Deck-Zählung hat bestätigt, dass das Spiel die Karte angenommen hat
 
 BLIND_CARD = "BLIND_CARD"      # Marker: Texterkennung liefert dauerhaft nichts
 
@@ -174,6 +179,7 @@ class DeckImporterCore:
         self._trouble = 0
         self._auto_slowed = False
         self._lag_events = 0              # Wie oft das Spiel verzögert auf Klicks reagiert hat
+        self._insert_confirmed = False    # Letzte Einfügung per Deck-Zählung bestätigt?
         self._grid_seen: set = set()      # Texte, die bei der aktuellen Suche im Raster gelesen wurden
         self._previous_grid: set = set()  # … und bei der vorigen Suche (siehe Schnell-Sync)
         self.notes: List[str] = []        # Hinweise für den Nutzer am Ende
@@ -484,6 +490,7 @@ class DeckImporterCore:
         Nur für Main-Deck-Karten mit bekanntem Typ (Extra-Deck-Karten ändern die Zahl nicht).
         Returns: True, wenn die Karte trotzdem unsicher ist (→ im Report markieren).
         """
+        self._insert_confirmed = False
         counter = self.deck_counter
         card_type = self.card_types.get(cid) if cid else None
         if not counter or card_type is None or is_extra_deck_type(card_type):
@@ -492,6 +499,10 @@ class DeckImporterCore:
             return stalled  # Stand unbekannt (zuvor nicht lesbar) → nicht prüfbar
         expected = counter.value + amount
         got = counter.wait_for(expected, 0.8 * self.speed_mult)
+        if got is not None and got < expected:
+            # Auf schwachen PCs zählt das Spiel evtl. nur verspätet hoch. Erst nach einer zweiten
+            # Wartezeit nachklicken: Ein Nachklick auf eine doch angekommene Karte wäre eine Kopie zu viel.
+            got = counter.wait_for(expected, 0.8 * self.speed_mult)
 
         for attempt in range(VERIFY_RETRIES):
             if got is None or got >= expected:
@@ -505,6 +516,7 @@ class DeckImporterCore:
 
         if got == expected:
             counter.value = got
+            self._insert_confirmed = True
             if stalled:
                 dlog(f"    [PRÜFUNG] '{name}' trotz Ruckler bestätigt ({got} Karten im Deck).")
             return False
@@ -574,6 +586,14 @@ class DeckImporterCore:
             dlog(f"    [RUCKLER] System-Hänger beim Einfügen von '{name}' erkannt. "
                  f"Klicks evtl. verloren.")
         return self._verify_insert(automator, x, y, amount, name, cid, stalled)
+
+    def _pause_after_insert(self) -> None:
+        """
+        Kurz warten, bevor die Maus weitermacht. Hat die Deck-Zählung bestätigt, dass das Spiel
+        die Karte angenommen hat, reicht eine kürzere Pause (das Warten auf die Zahl lief ja schon).
+        """
+        pause = POST_ADD_PAUSE_CONFIRMED if self._insert_confirmed else POST_ADD_PAUSE
+        time.sleep(pause * self.speed_mult)
 
     # =====================================================================
     # ARCHETYPE-BATCH-SCAN (V49 - Speed Boost)
@@ -698,8 +718,16 @@ class DeckImporterCore:
                 new_slot0_text = s0
                 dlog(f"    [BATCH] Slot 0 geladen nach {wait_try} Retries: '{s0}'\n")
                 break
+            # Nach ~1,5 s noch kein Ergebnis der Archetyp-Suche → Suche kam nicht an, neu eintippen
+            if wait_try == 10:
+                dlog(f"    [SUCHE NEU] Such-Prefix '{prefix_clean}' nach {wait_try} Versuchen nicht in Slot 0 "
+                     f"→ tippe '{prefix}' erneut.")
+                self._report_trouble("Suche kam nicht im Spiel an")
+                self._type_search_term(automator, prefix)
+                time.sleep(0.40 * self.speed_mult)
+                automator.iron_grip_click(x0, y0)
             # Alle 3 Retries Slot 0 erneut klicken, damit das Detail-Panel aktualisiert wird
-            if wait_try > 0 and wait_try % 3 == 0:
+            elif wait_try > 0 and wait_try % 3 == 0:
                 automator.iron_grip_click(x0, y0)
                 time.sleep(0.05 * self.speed_mult)
             time.sleep(0.125 * self.speed_mult)
@@ -785,7 +813,7 @@ class DeckImporterCore:
                 match_type = "EXACT" if ratio >= 0.99 else "FUZZY"
                 dlog(f"    [{tag}] Slot {slot:02d} '{s_c}' ==> MATCH '{key}' ({amount}x, {match_type}, ratio={ratio:.3f})\n")
                 stalled = self._add_card(automator, target_x, target_y, amount, key, cid)
-                time.sleep(0.35 * self.speed_mult)
+                self._pause_after_insert()
                 found_cids.add(cid)
                 last_added_s_c = s_c  # Panel zeigt jetzt diese Karte – für nächsten Sync merken
                 successfully_added.append({
@@ -1044,6 +1072,7 @@ class DeckImporterCore:
             if since_click < 0.20 * m:
                 time.sleep(0.20 * m - since_click)
         self._last_frame_hash = ""
+        retyped = False
 
         while retries < 15:
             raw_ocr, s_c = self._capture_and_ocr_slot(sct, monitor)
@@ -1089,6 +1118,30 @@ class DeckImporterCore:
             time.sleep(0.12 * self.speed_mult)
             retries += 1
 
+            # Zeigt das Panel nach ~1,5 s immer noch die alte Karte, ist die Suche nicht im Spiel
+            # angekommen (das Raster zeigt dann noch die Ergebnisse der vorigen Suche). Einmal neu
+            # eintippen statt bis zum Timeout zu warten und das alte Raster abzusuchen.
+            # Vorher Slot 0 noch einmal anklicken: Auf langsamen PCs lädt die Suche evtl. erst jetzt,
+            # das Panel zeigt die neue Karte aber erst nach einem Klick.
+            if retries == RETYPE_AFTER_READS and not retyped and s_c in stale_texts and not is_match:
+                automator.iron_grip_click(target_x, target_y)
+                time.sleep(0.15 * self.speed_mult)
+                self._last_frame_hash = ""
+                _, s_check = self._capture_and_ocr_slot(sct, monitor)
+                if s_check and s_check not in stale_texts:
+                    continue  # Suche ist doch da → normal weiterlesen
+                retyped = True
+                dlog(f"    [SUCHE NEU] Panel zeigt nach {time.perf_counter() - t0:.1f}s noch '{s_c}' "
+                     f"→ Suche kam nicht an, tippe '{clean_name}' erneut.")
+                self._report_trouble("Suche kam nicht im Spiel an")
+                self._type_search_term(automator, clean_name)
+                time.sleep(0.60 * self.speed_mult)
+                automator.iron_grip_click(target_x, target_y)
+                time.sleep(0.20 * self.speed_mult)
+                self._last_frame_hash = ""
+                retries = 0
+                continue
+
             if retries == 8:
                 automator.iron_grip_click(target_x, target_y)
                 time.sleep(0.10 * self.speed_mult)
@@ -1116,7 +1169,9 @@ class DeckImporterCore:
             time.sleep(0.08 * self.speed_mult)
             self._last_frame_hash = ""
             raw_retry, s_retry = self._capture_and_ocr_slot(sct, monitor)
-            if s_retry and s_retry != s_c:
+            # Nur eine wirklich andere Karte zählt als Lag, nicht dieselbe Karte mit einem
+            # anders gelesenen Buchstaben ('tearlamentskashtira' vs. 'ttearlamentskashtira')
+            if s_retry and SequenceMatcher(None, s_retry, s_c).ratio() < GHOST_RATIO:
                 dlog(f"    [LAG] Panel zeigte noch '{s_c}' – nach erneutem Klick '{s_retry}'. "
                      f"Master Duel reagiert verzögert.")
                 self._lag_events += 1
@@ -1177,7 +1232,7 @@ class DeckImporterCore:
             automator.iron_grip_click(x, y)
             time.sleep(0.15 * self.speed_mult)
         stalled = self._add_card(automator, x, y, amount, clean_name, cid)
-        time.sleep(0.350 * self.speed_mult)
+        self._pause_after_insert()
         successfully_added.append({
             "expected_clean": clean_text(clean_name),
             "expected_raw": clean_name,
@@ -1440,7 +1495,7 @@ class DeckImporterCore:
                 automator.iron_grip_click(click_x, click_y)
                 time.sleep(0.15 * self.speed_mult)
                 stalled = self._add_card(automator, click_x, click_y, amount, clean_name, cid)
-                time.sleep(0.350 * self.speed_mult)
+                self._pause_after_insert()
 
                 successfully_added.append({
                     "expected_clean": target_clean,
