@@ -1,11 +1,11 @@
 """
-Dunkles Hinweisfenster im Stil des Overlays (statt der hellen Windows-Messagebox).
-Ohne Windows-Titelleiste wie das Overlay; verschiebbar an der Kopfzeile, schließt mit OK,
-Enter oder Escape.
+Dunkle Hinweis- und Auswahlfenster im Stil des Overlays (statt der hellen Windows-Messagebox).
+Ohne Windows-Titelleiste wie das Overlay; verschiebbar an der Kopfzeile. show_message schließt mit OK,
+Enter oder Escape; ask_choice wartet auf einen der Buttons (Escape = abbrechen).
 """
 
 import tkinter as tk
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from rounded_button import RoundedButton
 from window_style import apply_frame
@@ -21,6 +21,7 @@ KINDS = {
     "info": ("#00c853", "✓"),
     "warning": ("#ffaa00", "!"),
     "error": ("#e53935", "✕"),
+    "question": ("#4fc3f7", "?"),
 }
 MAX_LIST_LINES = 10  # Längere Listen bekommen eine Scrollleiste
 
@@ -36,30 +37,8 @@ def show_message(master: tk.Misc, title: str, message: str, kind: str = "info",
     `actions`: zusätzliche Buttons [(Text, Funktion)] links neben OK/Schließen. Die Funktion darf
     einen Text zurückgeben (z.B. "Gespeichert: …"), der unter den Buttons erscheint.
     """
-    accent, symbol = KINDS.get(kind, KINDS["info"])
-    scale = max(1.0, master.winfo_screenheight() / 1080.0)
-    font = ("Helvetica", int(10 * scale))
-    font_bold = ("Helvetica", int(11 * scale), "bold")
-    wrap = int(440 * scale)
-
-    win = tk.Toplevel(master, bg=BG)
-    win.overrideredirect(True)
-    win.wm_attributes("-topmost", True)
-    win.title(title)
-
-    # Kopfzeile: Farbleiste, Symbol, Titel – zum Verschieben anfassen
-    header = tk.Frame(win, bg=PANEL)
-    header.pack(fill=tk.X)
-    tk.Frame(header, bg=accent, width=int(5 * scale)).pack(side=tk.LEFT, fill=tk.Y)
-    tk.Label(header, text=symbol, fg=accent, bg=PANEL, font=font_bold).pack(side=tk.LEFT, padx=(int(10 * scale), 4),
-                                                                          pady=int(6 * scale))
-    tk.Label(header, text=title, fg=TEXT, bg=PANEL, font=font_bold).pack(side=tk.LEFT, pady=int(6 * scale))
-    _make_draggable(win, header)
-
-    body = tk.Frame(win, bg=BG, padx=int(16 * scale), pady=int(12 * scale))
-    body.pack(fill=tk.BOTH, expand=True)
-    tk.Label(body, text=message, fg=TEXT, bg=BG, font=font, wraplength=wrap,
-             justify=tk.LEFT, anchor="w").pack(fill=tk.X)
+    accent = KINDS.get(kind, KINDS["info"])[0]
+    win, body, scale, font, font_bold, wrap = _window(master, title, message, kind)
 
     if items:
         _bullet_list(body, items, fg=TEXT, font=font, scale=scale)
@@ -93,13 +72,74 @@ def show_message(master: tk.Misc, title: str, message: str, kind: str = "info",
     win.bind("<Return>", lambda e: win.destroy())
     win.bind("<Escape>", lambda e: win.destroy())
 
+    _show(master, win, wait)
+    return win
+
+
+def ask_choice(master: tk.Misc, title: str, message: str,
+               choices: Sequence[Tuple[str, Any, str]], kind: str = "question") -> Any:
+    """
+    Dunkles Auswahlfenster (statt messagebox.askyesnocancel). `choices`: [(Button-Text, Rückgabewert, Farbe)],
+    der erste ist der Standard (Enter). Returns: Wert des gedrückten Buttons, None bei Escape/Abbrechen.
+    """
+    win, _, scale, _, font_bold, _ = _window(master, title, message, kind)
+    result = {"value": None}
+
+    def choose(value):
+        result["value"] = value
+        win.destroy()
+
+    buttons = tk.Frame(win, bg=BG)
+    buttons.pack(pady=(0, int(12 * scale)))
+    win.choice_buttons = []
+    for label, value, color in choices:
+        button = RoundedButton(buttons, text=label, command=lambda v=value: choose(v), bg=color, font=font_bold,
+                               padx=int(16 * scale), pady=int(5 * scale), radius=int(7 * scale))
+        button.pack(side=tk.LEFT, padx=int(5 * scale))
+        win.choice_buttons.append(button)  # für Tests
+    if choices:
+        win.bind("<Return>", lambda e: choose(choices[0][1]))
+    win.bind("<Escape>", lambda e: choose(None))
+    _show(master, win, wait=True)
+    return result["value"]
+
+
+def _window(master: tk.Misc, title: str, message: str, kind: str):
+    """Fenster mit Kopfzeile (Farbleiste, Symbol, Titel) und Text. Returns: win, body, scale, Schriften, Umbruch."""
+    accent, symbol = KINDS.get(kind, KINDS["info"])
+    scale = max(1.0, master.winfo_screenheight() / 1080.0)
+    font = ("Helvetica", int(10 * scale))
+    font_bold = ("Helvetica", int(11 * scale), "bold")
+    wrap = int(440 * scale)
+
+    win = tk.Toplevel(master, bg=BG)
+    win.overrideredirect(True)
+    win.wm_attributes("-topmost", True)
+    win.title(title)
+
+    # Kopfzeile: Farbleiste, Symbol, Titel – zum Verschieben anfassen
+    header = tk.Frame(win, bg=PANEL)
+    header.pack(fill=tk.X)
+    tk.Frame(header, bg=accent, width=int(5 * scale)).pack(side=tk.LEFT, fill=tk.Y)
+    tk.Label(header, text=symbol, fg=accent, bg=PANEL, font=font_bold).pack(side=tk.LEFT, padx=(int(10 * scale), 4),
+                                                                          pady=int(6 * scale))
+    tk.Label(header, text=title, fg=TEXT, bg=PANEL, font=font_bold).pack(side=tk.LEFT, pady=int(6 * scale))
+    _make_draggable(win, header)
+
+    body = tk.Frame(win, bg=BG, padx=int(16 * scale), pady=int(12 * scale))
+    body.pack(fill=tk.BOTH, expand=True)
+    tk.Label(body, text=message, fg=TEXT, bg=BG, font=font, wraplength=wrap,
+             justify=tk.LEFT, anchor="w").pack(fill=tk.X)
+    return win, body, scale, font, font_bold, wrap
+
+
+def _show(master: tk.Misc, win: tk.Toplevel, wait: bool) -> None:
     _center_on_screen(win)
     apply_frame(win)  # runde Ecken + Goldrand wie das Overlay
     win.focus_force()
     if wait:
         win.grab_set()
         master.wait_window(win)
-    return win
 
 
 def _bullet_list(parent: tk.Misc, items: List[str], fg: str, font, scale: float) -> None:

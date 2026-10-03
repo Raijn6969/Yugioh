@@ -17,13 +17,14 @@ import mss
 import pyperclip
 from PIL import Image, ImageOps
 
-from input_utils import type_card_name
-from utils import (clean_text, sanitize_name, parse_clipboard, fetch_card_names, fetch_card_types,
+from input_utils import FocusLostError, submit_search, type_card_name
+from utils import (DeckCodeError, clean_text, search_text, sanitize_name, parse_clipboard, fetch_card_names, fetch_card_types,
                    get_cached_ocr, is_extra_deck_type)
 from card_engine import CardMatcher
-from window_automation import WindowAutomator, get_md_window_size
+from window_automation import UserInterrupt, WindowAutomator, get_md_window_size
 from deck_counter import DeckCounter
-from card_db import CardDB, load_card_db
+from card_db import CardDB, CardMatch, load_card_db, ocr_fold
+from md_memory import PREMIUM_NAMES, ListScroll, MemoryUnavailable, SearchEntry
 import md_layout
 import resume_state
 import vision_engine
@@ -56,6 +57,14 @@ GRID_BOTTOM_LIMIT = 0.93       # Anteil der Bildschirmhöhe; darunter liegt kein
 END_REPEAT_STREAK = 3          # 4x dieselbe Karte in Folge = Ende der Ergebnisse (max. 3 Raritäten)
 END_EMPTY_STREAK = 6           # So viele leere Reads in Folge = Ende der Ergebnisse
 SCROLL_NOTCHES = 4             # Mausrad-Rasten pro Seite (1 Raste ≈ ¾ Zeile → 4 Rasten = 3 Zeilen)
+MAX_MEMORY_NOTCHES = 400
+# Abbrüche, die nie in den normalen Ablauf zurückfallen dürfen (Maus bewegt, Master Duel nicht mehr vorne)
+ABORTS = (UserInterrupt, FocusLostError)       # Speicher-Modus: weiter wird nicht gescrollt (≈ 13 s, ~280 Reihen)
+# Scroll-Leiste rechts neben der Kartenliste: ein Klick darauf springt sofort dorthin. Gemessen bei 1920×1080
+# (FIRST_CARD 1370/379, Abstand 88/140): Griff x 1856–1867, Leiste y 302–1003. Relativ zum kalibrierten Raster:
+SCROLLBAR_X = 5.585        # Mitte der Leiste, in Kartenabständen rechts von FIRST_CARD
+SCROLLBAR_TOP = -0.55      # Oberkante, in Reihenabständen über FIRST_CARD
+SCROLLBAR_LENGTH = 5.014   # Länge der Leiste, in Reihenabständen
 MAX_SCROLL_PAGES = 3           # So oft wird höchstens weitergescrollt
 RETYPE_AFTER_READS = 4         # Zeigt Slot 0 so lange (~1,5 s) die alte Karte → Suche neu eintippen
 
@@ -146,7 +155,8 @@ class DeckImporterCore:
         status_callback: Callable,
         finish_callback: Callable,
         start_callback: Optional[Callable] = None,
-        resume: Optional[dict] = None
+        resume: Optional[dict] = None,
+        memory: bool = False
     ):
         self.config = config
         self.tesseract_cmd = tesseract_cmd
@@ -187,6 +197,20 @@ class DeckImporterCore:
         self._grid_seen: set = set()      # Texte, die bei der aktuellen Suche im Raster gelesen wurden
         self._previous_grid: set = set()  # … und bei der vorigen Suche (siehe Schnell-Sync)
         self.notes: List[str] = []        # Hinweise für den Nutzer am Ende
+        self._search_term = ""            # Aktueller Suchbegriff (clean_text)
+        # Speicher-Modus: Karte im Detail-Panel per ID aus dem Speicher statt per Texterkennung
+        self.use_memory = memory
+        self.memory = None                # md_memory.DeckEditorMemory, solange der Speicher-Modus läuft
+        self._kid_names: Dict[int, str] = {}  # Konami-ID → Name (Deck-Karten in der Spielsprache)
+        self._kid_passcodes: Dict[int, str] = {}  # Konami-ID → Passcode (Deck-Karten: wie im Deck-Code)
+        self._deck_kids: Dict[str, int] = {}       # Passcode der Deck-Karten → Konami-ID
+        # Artworks, die nur Master Duel kennt (eigene Konami-ID): Passcode → weitere Konami-IDs der Karte
+        self._card_aliases: Dict[str, List[int]] = {}
+        self._name_passcodes: Dict[str, str] = {}  # clean_text(Name) → Passcode, um Artworks zuzuordnen
+        self._unnamed: set = set()                 # Konami-IDs ohne lesbaren Namen (nicht erneut anklicken)
+        self._scrollbar_ok: Optional[bool] = None  # Springt ein Klick auf die Scroll-Leiste? (None = ungeprüft)
+        self._stats_db = None                      # CardStatsDB, merkt gelernte Artworks für spätere Importe
+        self.final_scan = None            # Deck, wie es die Kontrolle am Ende gelesen hat (DeckScan, fürs Deck-Fenster)
 
     def execute_import(self):
         start_run(LOG_FILE)
@@ -211,6 +235,7 @@ class DeckImporterCore:
             self.finish_callback(success=False, has_errors=True, failed_cards=[], message=message)
         finally:
             self._restore_clipboard(original_clipboard)
+            self.memory = None  # Verbindung bleibt für den nächsten Import bestehen (md_memory.shared)
             end_run()
 
     @staticmethod
@@ -231,7 +256,13 @@ class DeckImporterCore:
             dlog(f"[ZWISCHENABLAGE] Konnte nicht wiederhergestellt werden: {e}")
 
     def _run_import(self):
-        card_ids = parse_clipboard()
+        try:
+            card_ids = parse_clipboard()
+        except DeckCodeError as e:
+            self.status_callback("Fehler: Deck-Code beschädigt!", "red")
+            self.finish_callback(success=False, has_errors=True, failed_cards=[],
+                                 message=f"{e}\n\nBitte den Deck-Code neu kopieren und erneut starten.")
+            return
         if not card_ids:
             self.status_callback("Fehler: Kein YDKE/YDK!", "red")
             self.finish_callback(success=False, has_errors=True, failed_cards=[],
@@ -254,6 +285,8 @@ class DeckImporterCore:
         if self.config.get("DECK_COUNT"):
             self.card_types = fetch_card_types([c.cid for c in cards_ready])
         self.card_db = self._load_card_db()
+        if self.use_memory:
+            self._setup_memory(cards_ready, id_to_name_map)
 
         done = dict(self.resume["done"]) if self.resume else {}
         self._progress = dict(done)
@@ -333,31 +366,38 @@ class DeckImporterCore:
                 if prefix and prefix not in batch_triggered:
                     batch_triggered.add(prefix)
                     group = [g for g in batch_groups[prefix] if g[0] not in self._progress]
-                    self.status_callback(f"[BATCH] {prefix[:12]}...", "magenta")
+                    if self.memory is not None:
+                        # Speicher-Modus: eine Suche, dann jede sichtbare Deck-Karte direkt anklicken.
+                        # Was dabei nicht sichtbar war, wird unten einzeln gesucht.
+                        batch_done_cids.update(self._memory_batch(automator, prefix, successfully_added))
+                    else:
+                        self.status_callback(f"[BATCH] {prefix[:12]}...", "magenta")
 
-                    # Opportunistic: alle noch offenen Karten außerhalb der Gruppe.
-                    # Der Batch kann diese direkt einfügen, falls sie in den Such-Ergebnissen
-                    # sichtbar sind (z.B. Mirror Swordknight im Chimera-Batch).
-                    opportunistic_cards = self._open_cards(exclude={c for c, _, _ in group})
+                        # Opportunistic: alle noch offenen Karten außerhalb der Gruppe.
+                        # Der Batch kann diese direkt einfügen, falls sie in den Such-Ergebnissen
+                        # sichtbar sind (z.B. Mirror Swordknight im Chimera-Batch).
+                        opportunistic_cards = self._open_cards(exclude={c for c, _, _ in group})
 
-                    found_in_batch, batch_slot0 = self._batch_scan_for_archetype(
-                        sct, automator, prefix, group, successfully_added,
-                        last_seen_slot_00=last_seen_slot_00,
-                        opportunistic_cards=opportunistic_cards
-                    )
-                    batch_done_cids.update(found_in_batch)
-                    # last_seen_slot_00 aktualisieren, damit Folge-Einzel-Scans korrekt synchen
-                    if batch_slot0:
-                        last_seen_slot_00 = batch_slot0
-                    not_found_in_batch = [c for c, _, _ in group if c not in found_in_batch]
-                    if not_found_in_batch:
-                        dlog(f"    [BATCH] {len(not_found_in_batch)} Karten fallen auf Einzel-Scan zurück.")
-                    if cid in batch_done_cids:
+                        found_in_batch, batch_slot0 = self._batch_scan_for_archetype(
+                            sct, automator, prefix, group, successfully_added,
+                            last_seen_slot_00=last_seen_slot_00,
+                            opportunistic_cards=opportunistic_cards
+                        )
+                        batch_done_cids.update(found_in_batch)
+                        # last_seen_slot_00 aktualisieren, damit Folge-Einzel-Scans korrekt synchen
+                        if batch_slot0:
+                            last_seen_slot_00 = batch_slot0
+                        not_found_in_batch = [c for c, _, _ in group if c not in found_in_batch]
+                        if not_found_in_batch:
+                            dlog(f"    [BATCH] {len(not_found_in_batch)} Karten fallen auf Einzel-Scan zurück.")
+                    if cid in batch_done_cids or cid in self._progress:
                         continue
-                    # Aktuelle Karte NICHT im Batch → normaler Scan folgt
+                    # Aktuelle Karte NICHT im Batch → einzeln suchen
 
-                found, last_seen_slot_00, last_added_ocr_clean = self._search_single_card(
-                    sct, automator, card, successfully_added, last_seen_slot_00, last_added_ocr_clean)
+                found = self._memory_search_card(automator, card, successfully_added) if self.memory else None
+                if found is None:  # normaler Ablauf (ohne Speicher oder Karte nicht direkt erreichbar)
+                    found, last_seen_slot_00, last_added_ocr_clean = self._search_single_card(
+                        sct, automator, card, successfully_added, last_seen_slot_00, last_added_ocr_clean)
                 if not found:
                     failed.append(card)
 
@@ -408,7 +448,459 @@ class DeckImporterCore:
                     f"Kalibrieren den 6. Punkt setzen.")
         resume_state.clear_progress()
         self.finish_callback(success=True, has_errors=has_errors, failed_cards=popup_failed_cards,
-                             notes=self.notes)
+                             notes=self.notes, scan=self.final_scan)
+
+    # ── Speicher-Modus: Karten direkt anspringen statt Platz für Platz zu lesen ──
+    def _memory_search_card(self, automator, card: DeckCard, successfully_added: List) -> Optional[bool]:
+        """
+        Eine Karte suchen, ihre Plätze in den Suchergebnissen aus dem Speicher lesen und direkt anklicken.
+        Returns: True = eingefügt, None = hier nicht möglich → normaler Ablauf für diese Karte.
+        """
+        kid = self._deck_kids.get(card.cid)
+        if kid is None:
+            return None
+        clean_name = sanitize_name(card.name)
+        self.status_callback(f"-> {clean_name[:15]}", "cyan")
+        dlog(f"\n[SUCHE] '{clean_name}' (ID: {card.cid}, Konami-ID {kid}, Erwartet: {card.amount}x) – per Speicher")
+        before = self._progress.get(card.cid, 0)
+        try:
+            entries = self._memory_search(automator, clean_name)
+            plan = self._memory_plan(automator, entries, card)
+            if plan is None:
+                return None
+            return self._memory_insert_plan(automator, plan, card, successfully_added) or None
+        except ABORTS:
+            raise
+        except (OSError, MemoryUnavailable) as e:
+            self._memory_failed(e)
+        except Exception as e:  # unerwarteter Fehler: nicht den ganzen Import abbrechen
+            self._memory_error(e)
+        # Schon (teilweise) eingefügt → nicht noch einmal normal suchen (Kopien zu viel), die Kontrolle prüft
+        return True if self._progress.get(card.cid, 0) > before else None
+
+    def _memory_batch(self, automator, prefix: str, successfully_added: List) -> set:
+        """
+        Sammelsuche: einmal nach dem Archetyp suchen und jede noch offene Deck-Karte aus den Ergebnissen direkt
+        anklicken – auch Karten anderer Gruppen; weiter unten liegende werden hingescrollt (von oben nach unten).
+        Returns: eingefügte Passcodes.
+        """
+        dlog(f"\n[BATCH] Sammelsuche '{prefix}' – per Speicher")
+        self.status_callback(f"[BATCH] {prefix[:12]}...", "magenta")
+        done = set()
+        open_cards = [c for c in self._open_pool if c.cid not in self._progress]
+        try:
+            entries = self._memory_search(automator, prefix)
+            visible = self._visible_slots(automator)
+            self._memory_identify(automator, entries)
+            positions = {c.cid: self._memory_position(entries, c.cid) for c in open_cards}
+            positions = {cid: index for cid, index in positions.items() if index is not None}
+            found = sorted((c for c in open_cards if c.cid in positions), key=lambda c: positions[c.cid])
+            shown = [f"{sanitize_name(c.name)} (Platz {positions[c.cid]})" for c in found
+                     if positions[c.cid] < visible]
+            hidden = [f"{sanitize_name(c.name)} (Platz {positions[c.cid]})" for c in found
+                      if positions[c.cid] >= visible]
+            dlog(f"    [BATCH] Sichtbar ({len(shown)}): {', '.join(shown) or '-'}")
+            if hidden:
+                dlog(f"    [BATCH] Weiter unten (> Platz {visible - 1}, wird hingescrollt): {', '.join(hidden)}")
+            for card in found:
+                if card.cid in self._progress:
+                    continue
+                dlog(f"\n[BATCH] '{sanitize_name(card.name)}' (Konami-ID {self._deck_kids.get(card.cid)}, "
+                     f"Erwartet: {card.amount}x)")
+                self.status_callback(f"-> {sanitize_name(card.name)[:15]} [BATCH]", "magenta")
+                plan = self._memory_plan(automator, entries, card)
+                if plan and self._memory_insert_plan(automator, plan, card, successfully_added):
+                    done.add(card.cid)
+        except ABORTS:
+            raise
+        except (OSError, MemoryUnavailable) as e:
+            self._memory_failed(e)
+        except Exception as e:  # unerwarteter Fehler: Rest einzeln suchen
+            self._memory_error(e)
+        # Auch nach einem Fehler: schon (teilweise) eingefügte Karten nicht noch einmal suchen
+        done.update(c.cid for c in open_cards if c.cid in self._progress)
+        dlog(f"    [BATCH] Ergebnis: {len(done)} Karte(n) direkt eingefügt.")
+        return done
+
+    def _memory_search(self, automator, term: str) -> List[SearchEntry]:
+        """Suchbegriff eintippen und die neuen Suchergebnisse (Anzeige-Reihenfolge) abwarten."""
+        m = self.speed_mult
+        t0 = time.perf_counter()
+        before = self.memory.search_list_address()
+        self._begin_search(automator, term)
+        typed = time.perf_counter() - t0
+        # Getippt ist noch nicht gesucht: Master Duel wendet die Suche erst beim Abschicken an → Enter
+        submit_search()
+        done, waited = self._memory_wait_results(before, 1.0 * m)
+        how = "Enter"
+        if not done:
+            # Enter nicht angekommen: wie im normalen Ablauf mit einem Klick in die Kartenliste abschicken
+            _, x, y = self._get_slot_geometry(0, automator)
+            automator.iron_grip_click(x, y)
+            done, more = self._memory_wait_results(before, 1.5 * m)
+            how, waited = "Klick auf Platz 0", waited + more
+        entries = self.memory.search_entries()
+        dlog(f"    [SPEICHER] Suche '{search_text(term)}': getippt in {typed:.2f}s, abgeschickt per {how}, "
+             f"{len(entries)} Ergebnisse nach {waited:.2f}s" + ("" if done else " – Liste hat nicht gewechselt!"))
+        return entries
+
+    def _memory_wait_results(self, before: int, timeout: float) -> Tuple[bool, float]:
+        """
+        Warten, bis das Spiel die Ergebnisliste getauscht hat (neue Adresse) und die Kartenliste genauso viele
+        Karten anzeigt. Returns: (fertig?, gewartete Sekunden).
+        """
+        from md_memory import wait_for
+        t0 = time.perf_counter()
+        state = wait_for(lambda: (self.memory.search_list_address(), self.memory.grid_count(),
+                                  len(self.memory.search_results())),
+                         lambda s: s[0] != before and s[1] == s[2], timeout=timeout, interval=0.02)
+        return state[0] != before and state[1] == state[2], time.perf_counter() - t0
+
+    def _kids_of(self, cid: str) -> List[int]:
+        """Alle Konami-IDs einer Deck-Karte: die von YGOPRODeck und die nur in Master Duel bekannten Artworks."""
+        kid = self._deck_kids.get(cid)
+        return ([kid] if kid is not None else []) + self._card_aliases.get(cid, [])
+
+    def _memory_position(self, entries: List[SearchEntry], cid: str) -> Optional[int]:
+        """Erster Platz in den Suchergebnissen, an dem die Karte liegt (irgendein Artwork, irgendeine Ausführung)."""
+        kids = set(self._kids_of(cid))
+        return next((i for i, entry in enumerate(entries) if entry.kid in kids), None)
+
+    def _memory_plan(self, automator, entries: List[SearchEntry],
+                     card: DeckCard) -> Optional[List[Tuple[int, SearchEntry, int]]]:
+        """
+        Welche Plätze wie oft einfügen: [(Platz, Eintrag, Kopien)] – liegt einer weiter unten, wird beim Einfügen
+        hingescrollt. Zuerst, was der Spieler besitzt – Alt-Arts vor dem Original, jeweils Royal vor Shiny vor
+        normal –, je höchstens so oft wie vorhanden; was fehlt, kommt in normaler Ausführung dazu
+        (möglichst Original-Artwork). Unbekannte Konami-IDs im sichtbaren Raster könnten Alt-Arts der Karte
+        sein → werden erst benannt: alle, wenn die Karte sonst gar nicht in den Ergebnissen ist, sonst nur die,
+        die der Spieler besitzt. None = nicht in den Ergebnissen → normaler Ablauf.
+        """
+        def candidates():
+            kids = set(self._kids_of(card.cid))
+            return [(i, entry) for i, entry in enumerate(entries) if entry.kid in kids]
+
+        found = candidates()
+        if self._memory_identify(automator, entries, owned_only=bool(found)):
+            found = candidates()
+        if not found:
+            dlog(f"    [SPEICHER] Nicht in den {len(entries)} Suchergebnissen → normaler Ablauf.")
+            return None
+        original = self._deck_kids.get(card.cid)
+        plan, remaining = [], card.amount
+        for index, entry in sorted(found, key=lambda c: (c[1].kid == original, -c[1].premium, c[0])):
+            take = min(max(entry.owned, 0), remaining)
+            if take:
+                plan.append([index, entry, take])
+                remaining -= take
+        if remaining:
+            # Nicht (genug) im Besitz: normale Ausführung im Original-Artwork; gibt es das nicht, dasselbe
+            # Artwork wie schon geplant, sonst das erste (nicht besessene Alt-Arts nur, wenn es nicht anders geht)
+            normal = [c for c in found if c[1].premium == 1] or found
+            planned = {p[0] for p in plan}
+            index, entry = next((c for c in normal if c[1].kid == original),
+                                next((c for c in normal if c[0] in planned), normal[0]))
+            part = next((p for p in plan if p[0] == index), None)
+            if part:
+                part[2] += remaining
+            else:
+                plan.append([index, entry, remaining])
+        if len(plan) > 1 or plan[0][1].premium != 1 or plan[0][1].kid != original:
+            dlog("    [SPEICHER] Auswahl: " + ", ".join(
+                f"{copies}x {PREMIUM_NAMES.get(entry.premium, entry.premium)}"
+                f"{'' if entry.kid == original else ' Alt-Art'} (Platz {index}, {entry.owned} im Besitz)"
+                for index, entry, copies in plan))
+        return [tuple(p) for p in plan]
+
+    def _memory_identify(self, automator, entries: List[SearchEntry], owned_only: bool = False) -> bool:
+        """
+        Unbekannte Konami-IDs im sichtbaren Raster (z.B. Artworks, die nur Master Duel kennt) anklicken und ihren
+        Namen aus dem Detail-Panel lesen; gelernte bleiben gespeichert. `owned_only`: nur Karten, die der Spieler
+        besitzt. Returns: ob dabei eine Karte zugeordnet wurde.
+        """
+        from md_memory import wait_for
+        scroll = self._list_scroll()
+        unknown = {}
+        for i in self._memory_visible_range(automator, scroll, len(entries)):
+            entry = entries[i]
+            if (entry.kid and entry.kid not in self._kid_names and entry.kid not in self._unnamed
+                    and (entry.owned > 0 or not owned_only)):
+                unknown.setdefault(entry.kid, i)
+        if not unknown:
+            return False
+        dlog(f"    [SPEICHER] {len(unknown)} unbekannte Konami-ID(s) im Raster (andere Artworks?) → anklicken und "
+             f"Namen lesen: {', '.join(f'{kid} (Platz {i})' for kid, i in unknown.items())}")
+        learned = False
+        for kid, index in unknown.items():
+            x, y = self._memory_point(automator, index, scroll)
+            automator.iron_grip_click(x, y)
+            if wait_for(self.memory.shown_card, lambda v: v == kid, timeout=1.0 * self.speed_mult) != kid:
+                dlog(f"    [SPEICHER] Platz {index}: Anzeige wechselt nicht zu {kid} → übersprungen.")
+                continue
+            learned = self._learn_kid(kid) is not None or learned
+        return learned
+
+    def _learn_kid(self, kid: int) -> Optional[str]:
+        """
+        Konami-ID der angezeigten Karte, die keiner bekannten Karte zugeordnet ist, über den angezeigten Namen
+        zuordnen (Master Duel hat eigene Artworks, z.B. 3 Polymerization). Returns: Passcode oder None.
+        """
+        try:
+            name = self.memory.shown_name()
+        except Exception as e:
+            dlog(f"    [SPEICHER] Name zu Konami-ID {kid} nicht lesbar ({e}).")
+            name = ""
+        if not name:
+            self._unnamed.add(kid)
+            return None
+        self._kid_names[kid] = name
+        cid = self._name_passcodes.get(clean_text(name))
+        if cid is None:
+            self._unnamed.add(kid)
+            dlog(f"    [SPEICHER] Konami-ID {kid} ist '{name}' – keiner bekannten Karte zuzuordnen.")
+            return None
+        self._kid_passcodes[kid] = cid
+        if cid in self._deck_kids and kid not in self._kids_of(cid):
+            self._card_aliases.setdefault(cid, []).append(kid)
+        if self._stats_db is not None:
+            try:
+                self._stats_db.learn_konami_alias(kid, cid)
+            except Exception as e:
+                dlog(f"    [SPEICHER] Artwork nicht gespeichert ({e}).")
+        dlog(f"    [SPEICHER] Konami-ID {kid} ist '{name}' (anderes Artwork, Passcode {cid}) – gemerkt.")
+        return cid
+
+    def _memory_insert_plan(self, automator, plan: List[Tuple[int, SearchEntry, int]], card: DeckCard,
+                            successfully_added: List) -> bool:
+        """Alle geplanten Plätze einfügen. Returns: ob mindestens einer geklappt hat."""
+        inserted = False
+        for index, entry, copies in plan:
+            inserted = self._memory_insert_at(automator, index, entry, copies, card, successfully_added) or inserted
+        return inserted
+
+    def _memory_insert_at(self, automator, index: int, entry: SearchEntry, copies: int, card: DeckCard,
+                          successfully_added: List) -> bool:
+        """Platz anklicken, per ID bestätigen, einfügen und per Speicher prüfen, ob alle Kopien angekommen sind."""
+        from md_memory import wait_for
+        m = self.speed_mult
+        kid, wanted = entry.kid, (entry.kid, entry.premium)
+        clean_name = sanitize_name(card.name)
+        for attempt in range(2):
+            point = self._memory_scroll_to(automator, index)
+            if point is None:
+                dlog("    [SPEICHER] → normaler Ablauf.")
+                return False
+            x, y = point
+            t0 = time.perf_counter()
+            automator.iron_grip_click(x, y)
+            shown = wait_for(lambda: (self.memory.shown_card(), self.memory.shown_premium()),
+                             lambda v: v == wanted, timeout=1.0 * m)
+            if shown == wanted:
+                dlog(f"    [SPEICHER] Platz {index:02d} angeklickt, Anzeige bestätigt nach "
+                     f"{time.perf_counter() - t0:.2f}s.")
+                break
+            dlog(f"    [SPEICHER] Platz {index} zeigt {self._kid_names.get(shown[0], shown[0])} "
+                 f"({PREMIUM_NAMES.get(shown[1], shown[1])}) statt der Karte.")
+            # Kartenliste war evtl. noch nicht aktualisiert → Position neu lesen und noch einmal klicken
+            index = self._memory_entry_index(self.memory.search_entries(), entry)
+            if attempt or index is None:
+                dlog("    [SPEICHER] → normaler Ablauf.")
+                return False
+        in_deck = self._memory_deck_count(kid)
+        t0 = time.perf_counter()
+        # Kein erneutes Anklicken und keine feste Pause wie im normalen Ablauf: Die Karte ist gerade angeklickt
+        # und bestätigt, und ob sie angekommen ist, steht im Deck (Speicher) – weiter, sobald sie dort ist.
+        stalled = self._add_card(automator, x, y, copies, clean_name)
+        self._mark_done(card.cid, self._progress.get(card.cid, 0) + copies)
+        successfully_added.append({"expected_clean": clean_text(clean_name), "expected_raw": clean_name,
+                                   "actual_ocr": clean_name, "amount": copies, "is_fallback": False,
+                                   "stall_suspect": stalled})
+        target = in_deck + copies
+        now = wait_for(lambda: self._memory_deck_count(kid), lambda n: n >= target, timeout=1.5 * m)
+        dlog(f"    [SPEICHER] Eingefügt: {now - in_deck}/{copies} im Deck nach {time.perf_counter() - t0:.2f}s.")
+        if now < target:
+            if self.memory.shown_card() != kid:  # nie blind nachklicken: es könnte eine andere Karte sein
+                dlog(f"    [SPEICHER] Nur {now - in_deck} von {copies} angekommen, Anzeige zeigt eine andere "
+                     f"Karte → nicht nachklicken (Kontrolle am Ende prüft).")
+                successfully_added[-1]["stall_suspect"] = True
+                return True
+            dlog(f"    [SPEICHER] Nur {now - in_deck} von {copies} angekommen → {target - now}x nachklicken.")
+            automator.add_card_to_deck(x, y, target - now)
+            now = wait_for(lambda: self._memory_deck_count(kid), lambda n: n >= target, timeout=1.5 * m)
+            successfully_added[-1]["stall_suspect"] = now < target
+        return True
+
+    @staticmethod
+    def _memory_entry_index(entries: List[SearchEntry], entry: SearchEntry) -> Optional[int]:
+        """Platz dieser Karte in dieser Ausführung in den Suchergebnissen."""
+        wanted = (entry.kid, entry.premium)
+        return next((i for i, e in enumerate(entries) if (e.kid, e.premium) == wanted), None)
+
+    # ── Scrollen im Speicher-Modus: Scroll-Stand aus dem Speicher → Bildschirmposition jeder Karte ──
+    def _list_scroll(self) -> ListScroll:
+        """
+        Scroll-Stand der Kartenliste, auf die Liste begrenzt: Nach einer neuen Suche mit weniger Ergebnissen kann
+        noch der alte Stand drinstehen (echter Fall: 315 bei 1 Ergebnis, Liste gar nicht scrollbar).
+        """
+        scroll = self.memory.list_scroll()
+        return scroll._replace(position=min(max(scroll.position, 0.0), scroll.maximum))
+
+    def _memory_point(self, automator, index: int, scroll: Optional[ListScroll] = None) -> Optional[Tuple[int, int]]:
+        """
+        Bildschirmposition von Platz `index` beim aktuellen Scroll-Stand; None = gerade nicht (gut) sichtbar.
+        Reihenabstand: kalibrierter Abstand in Pixeln ↔ Reihenhöhe der Liste in Einheiten des Spiels.
+        """
+        scroll = scroll or self._list_scroll()
+        row, col = divmod(index, scroll.columns)
+        pitch = self.config.get("OFFSET_Y", 140) * automator.scale_y
+        first_x, first_y = self.config["FIRST_CARD"]
+        x = first_x + int(col * self.config.get("OFFSET_X", 88) * automator.scale_x)
+        y = first_y + round((row * scroll.row_height - scroll.position) / scroll.row_height * pitch)
+        bottom = getattr(automator, "origin", (0, 0))[1] + 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
+        if y < first_y - 0.25 * pitch or y > bottom:  # oben angeschnitten bzw. unter dem Raster
+            return None
+        return x, y
+
+    def _memory_visible_range(self, automator, scroll: ListScroll, count: int) -> range:
+        """Plätze, die beim Scroll-Stand `scroll` zu sehen sind."""
+        top = int(scroll.position // scroll.row_height)
+        first = next((row for row in range(max(0, top - 1), top + 3)
+                      if self._memory_point(automator, row * scroll.columns, scroll)), None)
+        if first is None:
+            return range(0)
+        last = first
+        while self._memory_point(automator, (last + 1) * scroll.columns, scroll):
+            last += 1
+        return range(first * scroll.columns, min(count, (last + 1) * scroll.columns))
+
+    def _memory_scroll_to(self, automator, index: int) -> Optional[Tuple[int, int]]:
+        """
+        Platz `index` ins Bild holen, so dass seine Reihe die zweite sichtbare wird: weiter weg erst per Klick auf
+        die Scroll-Leiste (springt sofort), den Rest mit Mausrad-Rasten; nach jedem Schritt den echten
+        Scroll-Stand lesen und nachjustieren. Returns: Bildschirmposition.
+        """
+        scroll = self._list_scroll()
+        point = self._memory_point(automator, index, scroll)
+        if point is not None:
+            return point
+        row = index // scroll.columns
+        goal = min(max(0.0, (row - 1) * scroll.row_height), scroll.maximum)
+        t0, total, jumps = time.perf_counter(), 0, 0
+        if self._scrollbar_ok is not False:
+            scroll, jumps = self._memory_scrollbar_jump(
+                automator, scroll, goal, lambda s: self._memory_point(automator, index, s) is not None)
+        for _ in range(3):
+            point = self._memory_point(automator, index, scroll)
+            if point is not None:
+                dlog(f"    [SPEICHER] Platz {index} (Reihe {row}) hingescrollt: {jumps} Klick(s) auf die Scroll-Leiste,"
+                     f" {total:+d} Raste(n), Position {scroll.position:.0f} nach {time.perf_counter() - t0:.2f}s.")
+                return point
+            notches = round((goal - scroll.position) / scroll.wheel_step)
+            if notches == 0 or abs(total) + abs(notches) > MAX_MEMORY_NOTCHES:
+                break
+            # Maus über die Kartenliste (Mitte des Rasters), dann scrollen: Rad nach unten = negativ
+            _, ax, ay = self._get_slot_geometry(14, automator)
+            automator.scroll(ax, ay, -notches)
+            total += notches
+            start = scroll.position
+            scroll = self._memory_wait_scroll(start, min(max(0.0, start + notches * scroll.wheel_step),
+                                                         scroll.maximum))
+        point = self._memory_point(automator, index, scroll)
+        if point is not None:
+            return point
+        dlog(f"    [SPEICHER] Platz {index} (Reihe {row}) nicht ins Bild zu holen (Position {scroll.position:.0f}, "
+             f"Ziel {goal:.0f}, {jumps} Klick(s) auf die Leiste, {total:+d} Raste(n)).")
+        return None
+
+    def _memory_scrollbar_jump(self, automator, scroll: ListScroll, goal: float,
+                               visible: Callable[[ListScroll], bool]) -> Tuple[ListScroll, int]:
+        """
+        Auf die Scroll-Leiste klicken, wo der Griff für `goal` sitzen würde – Master Duel springt sofort dorthin
+        (ohne Gleiten, mit der Griffmitte an die Klickstelle). Griff = Sichtbereich / Listenlänge der Leiste.
+        Läge der Klick auf dem Griff selbst (bewegt nichts, kurze Strecke), knapp daneben klicken – aber nur,
+        wenn die Karte danach sichtbar ist (`visible`). Danach den echten Stand lesen und einmal nachklicken.
+        Bewegt sich beim ersten Klick nichts, wird ab dann nur noch das Mausrad benutzt.
+        Returns: (Scroll-Stand, Anzahl Klicks).
+        """
+        if scroll.maximum <= 0:
+            return scroll, 0  # Liste passt ganz ins Bild: keine Leiste
+        pitch = self.config.get("OFFSET_Y", 140) * automator.scale_y
+        first_x, first_y = self.config["FIRST_CARD"]
+        x = first_x + round(SCROLLBAR_X * self.config.get("OFFSET_X", 88) * automator.scale_x)
+        top = first_y + SCROLLBAR_TOP * pitch
+        length = SCROLLBAR_LENGTH * pitch
+        handle = length * scroll.view_height / (scroll.maximum + scroll.view_height)
+
+        def handle_top(position: float) -> float:
+            return top + position / scroll.maximum * (length - handle)
+
+        def landing(click_y: float) -> float:
+            """Scroll-Stand, wenn die Griffmitte an click_y springt."""
+            return min(max(0.0, (click_y - top - handle / 2) / (length - handle) * scroll.maximum), scroll.maximum)
+
+        y = handle_top(goal) + handle / 2
+        clicks = 0
+        for attempt in range(2):
+            y = min(max(y, top + 2), top + length - 2)
+            grip = handle_top(scroll.position)
+            if grip <= y <= grip + handle:
+                # Klick träfe den Griff selbst (bewegt nichts): knapp daneben, falls die Karte dann sichtbar ist
+                y = grip + handle + 2 if goal > scroll.position else grip - 2
+                if not (top < y < top + length and visible(scroll._replace(position=landing(y)))):
+                    break  # → Rest per Mausrad
+            start = scroll.position
+            automator.iron_grip_click(x, round(y))
+            clicks += 1
+            scroll = self._memory_wait_scroll(start, goal)
+            if abs(scroll.position - start) < 1:
+                if self._scrollbar_ok is None:
+                    self._scrollbar_ok = False
+                    dlog(f"    [SPEICHER] Klick auf die Scroll-Leiste ({x}, {round(y)}) hat nichts bewegt → ab jetzt "
+                         f"nur Mausrad.")
+                break
+            self._scrollbar_ok = True
+            if visible(scroll):
+                break
+            y += (goal - scroll.position) / scroll.maximum * (length - handle)  # Abweichung in Pixel der Leiste
+        return scroll, clicks
+
+    def _memory_wait_scroll(self, start: float, expected: float) -> ListScroll:
+        """
+        Warten, bis die Kartenliste nach dem Scrollen da ist: Das Spiel gleitet zur Zielposition und wird dabei
+        immer langsamer – fast am Ziel (`expected`, ≈ 3 Pixel) reicht zum Klicken. Sonst warten, bis sie steht;
+        steht sie noch auf `start`, erst kurz abwarten, ob sie losgleitet (sonst würde zu früh nachjustiert).
+        """
+        m = self.speed_mult
+        t0 = time.perf_counter()
+        last = self._list_scroll()
+        while time.perf_counter() - t0 < 3.0 * m:
+            if abs(last.position - expected) < 3.0:
+                return last
+            time.sleep(0.03)
+            current = self._list_scroll()
+            moved = abs(current.position - start) >= 0.5
+            if abs(current.position - last.position) < 0.5 and (moved or time.perf_counter() - t0 > 0.3 * m):
+                return current
+            last = current
+        return last
+
+    def _memory_error(self, error: Exception) -> None:
+        """Unerwarteter Fehler im Speicher-Modus: protokollieren, diese Karte(n) im normalen Ablauf."""
+        dlog(f"    [SPEICHER] Fehler: {error!r} → normaler Ablauf.\n{traceback.format_exc()}")
+
+    def _memory_failed(self, error: Exception) -> None:
+        dlog(f"    [SPEICHER] Ausgefallen ({error}) → weiter mit Texterkennung.")
+        self.notes.append(f"Speicher-Modus während des Imports ausgefallen ({error}) – Rest per Texterkennung.")
+        self.memory = None
+
+    def _memory_deck_count(self, kid: int) -> int:
+        main, extra = self.memory.deck()
+        return main.count(kid) + extra.count(kid)
+
+    def _visible_slots(self, automator) -> int:
+        """So viele Plätze der Kartenliste sind ohne Scrollen sichtbar."""
+        max_y = getattr(automator, "origin", (0, 0))[1] + 1080 * automator.scale_y * GRID_BOTTOM_LIMIT
+        return sum(1 for s in range(MAX_GRID_SLOTS) if self._get_slot_geometry(s, automator)[2] <= max_y)
 
     def _search_single_card(self, sct, automator, card: DeckCard, successfully_added,
                             last_seen_slot_00: str, last_added_ocr_clean: str) -> Tuple[bool, str, str]:
@@ -587,9 +1079,9 @@ class DeckImporterCore:
         Returns: verbleibende Abweichungen fürs Hinweis-Fenster ([] = Deck stimmt genau),
         None wenn die Kontrolle nicht möglich war.
         """
-        from deck_export import DeckExporter, compare_deck  # hier: deck_export importiert dieses Modul
+        from deck_export import DeckExporter, DeckScan, compare_deck  # hier: deck_export importiert dieses Modul
         frame = md_layout.md_frame()
-        if self.card_db is None or frame is None or not frame.is_16_9:
+        if (self.card_db is None and self.memory is None) or frame is None or not frame.is_16_9:
             dlog("\n[KONTROLLE] Nicht möglich (Kartenliste fehlt oder Master Duel nicht im 16:9-Format).")
             return None
         expected: Dict[str, int] = Counter()
@@ -608,12 +1100,23 @@ class DeckImporterCore:
         for round_no in (1, 2):
             dlog(f"\n[KONTROLLE] Deck lesen (Durchgang {round_no}).")
             self.status_callback("Kontrolle: Deck lesen...", "cyan")
+            # Maus neben das Deck: Eine hervorgehobene Karte gehört nicht in die Vergleichsbilder fürs Deck-Fenster
+            self._park_cursor(automator, frame)
+            # Speicher-Modus: Deck direkt aus dem Speicher (ohne Klicks), Bildschirm nur fürs Kartenraster
+            memory_deck = self._memory_deck()
             try:
-                zones = exporter._plan(sct, frame)
+                zones = exporter._plan(sct, frame, counts=tuple(map(len, memory_deck)) if memory_deck else None)
             except RuntimeError as e:
                 dlog(f"[KONTROLLE] Abgebrochen: {e}")
                 return None
-            cards = exporter._read_cards(sct, frame, automator, self.card_db, zones)
+            if memory_deck:
+                dlog("[KONTROLLE] Deck aus dem Speicher gelesen (ohne Klicks).")
+                cards = self._memory_cards(memory_deck)
+            else:
+                cards = exporter._read_cards(sct, frame, automator, self.card_db, zones)
+            # Gelesenes Deck gilt als Scan: Das Deck-Fenster und der Export müssen danach nicht neu lesen
+            self.final_scan = DeckScan(frame, zones, cards, exporter.signatures, memory_deck)
+            self._park_cursor(automator, frame)
             too_many, too_few = compare_deck(dict(expected), cards)
             unsure = [c for c in cards if not (c.match.cid and c.match.sure)]
             dlog(f"[KONTROLLE] Zu viel: {too_many or '-'} | Fehlt: {too_few or '-'} | unsicher gelesen: {len(unsure)}")
@@ -633,6 +1136,12 @@ class DeckImporterCore:
         problems += [f"{c.zone} Deck, Platz {c.slot}: nicht sicher erkannt ('{c.raw_ocr.strip()}')" for c in unsure]
         dlog(f"[KONTROLLE] Ergebnis: {'Deck stimmt genau mit dem Deck-Code überein.' if not problems else problems}")
         return problems
+
+    @staticmethod
+    def _park_cursor(automator, frame) -> None:
+        win_api.set_cursor_pos(*frame.point(*md_layout.PARK_POINT))
+        automator.last_bot_pos = win_api.get_cursor_pos()  # eigene Bewegung, kein Abbruch
+        time.sleep(0.2)
 
     def _fix_deck(self, sct, frame, automator, zones, cards, too_many: Dict[str, int], too_few: Dict[str, int],
                   by_key: Dict[str, DeckCard], state: list) -> int:
@@ -717,11 +1226,12 @@ class DeckImporterCore:
             time.sleep(0.15)
 
     def _type_search_term(self, automator: WindowAutomator, clean_name: str):
-        type_card_name(automator, clean_name, self.config)
+        type_card_name(automator, search_text(clean_name), self.config)
 
     def _begin_search(self, automator: WindowAutomator, term: str) -> None:
         """Neue Suche starten; merkt sich, welche Karten das bisherige Raster zeigte."""
         self._previous_grid, self._grid_seen = self._grid_seen, set()
+        self._search_term = clean_text(search_text(term))
         self._type_search_term(automator, term)
 
     def _add_card(self, automator: WindowAutomator, x: int, y: int, amount: int, name: str,
@@ -771,56 +1281,72 @@ class DeckImporterCore:
         """Normalisiert ein Wort für Archetype-Vergleiche: 'exosisters' → 'exosister'."""
         return w[:-1] if (w.endswith('s') and len(w) > 4) else w
 
+    @staticmethod
+    def _name_words(name: str) -> List[str]:
+        """Wörter eines Namens (klein); Teile in spitzen Klammern bleiben als eigenes Token ("<p>")."""
+        return re.findall(r"<[^>]*>|[^\W\d_]+", name.lower())
+
     def _compute_batch_groups(self, cards_ready: List) -> Dict[str, List]:
         """
-        Erkennt Karten-Gruppen die denselben Archetype-Präfix teilen.
-        Nur Gruppen mit >= 3 Karten und einem Präfix >= 6 Zeichen werden gebündelt.
+        Erkennt Karten-Gruppen, die denselben Archetype-Präfix teilen (Sammelsuche statt einzeln suchen).
+        Nur Gruppen mit >= 3 Karten und einem Suchbegriff >= 6 Zeichen werden gebündelt – mit Sonderzeichen
+        reichen 3 ("d/d" für D/D und D/D/D, "u.a."), die machen ihn eindeutig genug.
 
-        Plural-Normalisierung: "exosisters" fällt in denselben Bucket wie "exosister".
-        Präfix-Berechnung: wortweise (mit Leerzeichen!) damit der Search-Term korrekt ist,
-        z.B. "kewl tune" statt "kewltune". Plural-Varianten werden beim Wort-Vergleich
-        normalisiert, sodass "exosisters magnifica" mit "exosister martha" grouped wird.
+        Jeder Wort-Präfix jeder Karte ist ein Kandidat ("sky", "sky striker", "sky striker mecha", …). Genommen
+        wird der Präfix mit den meisten Karten (bei Gleichstand der längere, er sucht genauer), dann geht es mit
+        den übrigen Karten weiter. So stört z.B. "Red Reboot" die Gruppe "red eyes" nicht, und kurze erste
+        Wörter wie "Sky" (Striker) zählen auch.
 
-        Returns: {prefix_str: [(cid, raw_name, amount), ...]}
+        Plural-Normalisierung: "exosisters magnifica" kommt in dieselbe Gruppe wie "exosister martha".
+        Suchbegriff = echter Namensanfang (mit Leerzeichen und Bindestrichen), z.B. "kewl tune" statt "kewltune"
+        und "red-eyes" statt "red eyes" (findet sonst auch "Hund-red Eyes Dragon" u.ä. → mehr fremde Treffer).
+        Ein einzelnes allgemeines Wort ("dark", "schwarzer") ist kein Archetyp.
+
+        Returns: {prefix_str: [(cid, raw_name, amount), ...]} (in der Reihenfolge des Decks)
         """
         MIN_GROUP_SIZE = 3
         MIN_PREFIX_CHARS = 6
+        MIN_SPECIAL_PREFIX_CHARS = 3  # Suchbegriff mit Sonderzeichen ("d/d")
 
-        # Schritt 1: Nach normalisiertem ersten Wort gruppieren
-        # Plural-Behandlung: "exosisters" → Bucket "exosister" (trailing 's' entfernen)
-        first_word_groups: Dict[str, List] = {}
-        for cid, raw_name, amount in cards_ready:
-            words = re.findall(r'[^\W\d_]+', raw_name.lower())
-            if not words:
-                continue
-            first = words[0]
-            if len(first) < 4 or first in self._BATCH_NOISE:
-                continue
-            bucket_key = self._normalize_word(first)
-            first_word_groups.setdefault(bucket_key, []).append((cid, raw_name, amount))
+        # Schritt 1: Alle Wort-Präfixe (normalisiert) → {Kartenindex: echter Namensanfang bis zu diesem Wort}
+        candidates: Dict[tuple, Dict[int, str]] = {}
+        for index, card in enumerate(cards_ready):
+            name = card[1].lower()
+            spans = list(re.finditer(r"<[^>]*>|[^\W\d_]+", name))  # wie _name_words, mit Position
+            for n in range(1, len(spans) + 1):
+                if spans[n - 1].group().startswith("<"):
+                    break  # spitze Klammern ("<P>") findet die Suche nicht
+                key = tuple(self._normalize_word(m.group()) for m in spans[:n])
+                candidates.setdefault(key, {})[index] = name[:spans[n - 1].end()]
 
-        # Schritt 2: Längsten gemeinsamen Wort-Präfix bestimmen (mit Plural-Normalisierung)
-        # Wort-Level (nicht Zeichen-Level!) damit der Such-Term Leerzeichen enthält.
-        result: Dict[str, List] = {}
-        for bucket_key, group in first_word_groups.items():
-            if len(group) < MIN_GROUP_SIZE:
-                continue
+        def term(key: tuple, members: List[int]) -> str:
+            # Die kürzere echte Form: "exosister" steckt auch in "exosisters" ("maliss" bleibt "maliss")
+            return min((candidates[key][i] for i in members), key=len)
 
-            all_word_lists = [re.findall(r'[^\W\d_]+', raw.lower()) for _, raw, _ in group]
-            prefix_words = []
-            for word_tuple in zip(*all_word_lists):
-                # Normalisierte Menge: "exosisters" und "exosister" gelten als gleich
-                normalized = {self._normalize_word(w) for w in word_tuple}
-                if len(normalized) == 1:
-                    prefix_words.append(next(iter(normalized)))
-                else:
-                    break
+        def usable(key: tuple, members: List[int]) -> bool:
+            if len(members) < MIN_GROUP_SIZE:
+                return False
+            text = term(key, members)
+            if len(text) < (MIN_SPECIAL_PREFIX_CHARS if re.search(r"[^\w\s]", text) else MIN_PREFIX_CHARS):
+                return False
+            return len(key) > 1 or not any(candidates[key][i] in self._BATCH_NOISE for i in members)
 
-            prefix = ' '.join(prefix_words)
-            if len(prefix) >= MIN_PREFIX_CHARS:
-                result[prefix] = group
+        # Schritt 2: Gierig die größte Gruppe nehmen, ihre Karten entfernen, weiter mit dem Rest
+        taken: set = set()
+        chosen = []
+        while True:
+            best = None
+            for key, cards in candidates.items():
+                members = [i for i in cards if i not in taken]
+                if usable(key, members) and (best is None or (len(members), len(key)) > (len(best[1]), len(best[0]))):
+                    best = (key, members)
+            if best is None:
+                break
+            taken.update(best[1])
+            chosen.append(best)
 
-        return result
+        chosen.sort(key=lambda group: min(group[1]))
+        return {term(key, members): [cards_ready[i] for i in members] for key, members in chosen}
 
     def _batch_scan_for_archetype(
         self, sct, automator, prefix: str, group_cards: List, successfully_added: List,
@@ -1013,7 +1539,87 @@ class DeckImporterCore:
         monitor = {"top": oy + y1, "left": ox + x1, "width": x2 - x1, "height": y2 - y1}
         return monitor, target_x, target_y
 
+    def _setup_memory(self, cards_ready: List[DeckCard], id_to_name_map: Dict[str, str]) -> None:
+        """Speicher-Modus vorbereiten. Klappt etwas nicht, läuft der Import normal mit Texterkennung."""
+        self.status_callback("Speicher-Modus: lese Master Duel...", "cyan")
+        try:
+            from card_stats import CardStatsDB
+            import md_memory
+            db = CardStatsDB()
+            kids = db.konami_ids(c.cid for c in cards_ready)
+            missing = [c.name for c in cards_ready if c.cid not in kids]
+            if missing:
+                raise RuntimeError(f"keine Konami-ID für {', '.join(missing[:3])}")
+            names = db.konami_names()
+            # Deck-Karten unter demselben Namen wie bei der Suche (Spielsprache), sonst englisch
+            names.update({kids[cid]: name for cid, name in id_to_name_map.items() if cid in kids})
+            passcodes = db.konami_passcodes()
+            passcodes.update({kid: cid for cid, kid in kids.items()})
+            aliases: Dict[str, List[int]] = {}
+            for kid, cid in passcodes.items():  # früher gelernte Artworks der Deck-Karten
+                if cid in kids and kid != kids[cid]:
+                    aliases.setdefault(cid, []).append(kid)
+                    names[kid] = names.get(kids[cid], names.get(kid, ""))
+            self._name_passcodes = {clean_text(name): passcodes[kid] for kid, name in names.items()
+                                    if kid in passcodes and name}
+            self._name_passcodes.update({clean_text(names[kid]): cid for cid, kid in kids.items() if kid in names})
+            t0 = time.perf_counter()
+            memory = md_memory.shared()  # meist schon beim Start des Overlays im Hintergrund aufgebaut
+            memory.find_editor()
+            self.memory, self._kid_names, self._kid_passcodes, self._deck_kids = memory, names, passcodes, kids
+            self._card_aliases, self._stats_db = aliases, db
+            self.card_types = {}  # Einfügen wird über den Speicher geprüft, nicht über die Kartenzahl (Texterkennung)
+            dlog(f"[SPEICHER] Aktiv: Deck-Editor gefunden ({time.perf_counter() - t0:.2f}s). Karten werden per "
+                 f"ID aus dem Speicher gelesen statt per Texterkennung.")
+        except Exception as e:
+            dlog(f"[SPEICHER] Nicht möglich ({e}) → Import mit Texterkennung.")
+            self.notes.append(f"Speicher-Modus nicht möglich ({e}) – der Import lief mit Texterkennung.")
+
+    def _memory_deck(self) -> Optional[Tuple[List[int], List[int]]]:
+        """(Main, Extra) als Konami-IDs aus dem Speicher; None = Speicher-Modus nicht (mehr) verfügbar."""
+        if self.memory is None:
+            return None
+        try:
+            return self.memory.deck()
+        except Exception as e:
+            dlog(f"[SPEICHER] Deck nicht lesbar ({e}) → Kontrolle per Texterkennung.")
+            self.memory = None
+            return None
+
+    def _memory_cards(self, deck: Tuple[List[int], List[int]]) -> list:
+        """Deck aus dem Speicher als ExportedCard-Liste (Reihenfolge wie in der Anzeige), ohne Klicks."""
+        from deck_export import ExportedCard
+        cards = []
+        for zone, ids in zip(("Main", "Extra"), deck):
+            for slot, kid in enumerate(ids, start=1):
+                name = self._kid_names.get(kid, f"Karte {kid}")
+                cid = self._kid_passcodes.get(kid)
+                note = "" if cid else f"Konami-ID {kid} unbekannt"
+                cards.append(ExportedCard(zone, slot, name, CardMatch(cid, name, cid is not None, note)))
+                dlog(f"    [SPEICHER] {zone} #{slot:02d} → {name} ({kid})")
+        return cards
+
+    def _read_memory_slot(self) -> Optional[Tuple[str, str]]:
+        """Angezeigte Karte aus dem Speicher als (Name, clean_text). None = Speicher-Modus fällt aus."""
+        try:
+            kid = self.memory.shown_card()
+        except Exception as e:  # z.B. Editor geschlossen, Spiel beendet
+            dlog(f"[SPEICHER] Lesen fehlgeschlagen ({e}) → weiter mit Texterkennung.")
+            self.notes.append(f"Speicher-Modus während des Imports ausgefallen ({e}) – Rest per Texterkennung.")
+            self.memory = None
+            return None
+        if kid and kid not in self._kid_names and kid not in self._unnamed:
+            self._learn_kid(kid)
+        name = sanitize_name(self._kid_names.get(kid, f"Karte {kid}" if kid else ""))
+        s_c = clean_text(name)
+        self._last_frame_hash, self._last_raw_ocr, self._last_clean_ocr = f"mem:{kid}", name, s_c
+        return name, s_c
+
     def _capture_and_ocr_slot(self, sct, monitor: dict) -> Tuple[str, str]:
+        if self.memory is not None:
+            read = self._read_memory_slot()
+            if read is not None:
+                return read
         sct_img = sct.grab(monitor)
         img = Image.frombytes("RGB", sct_img.size, sct_img.bgra, "raw", "BGRX").convert('L')
         img_inverted = ImageOps.invert(img)
@@ -1057,6 +1663,9 @@ class DeckImporterCore:
 
     def _check_match_with_overrule(self, clean_name, s_c) -> Tuple[bool, str]:
         """Validator-Entscheidung plus Overrule für abgeschnittene ultra-lange Namen."""
+        if self.memory is not None:  # Speicher liefert den vollständigen Namen → nur exakt zählt
+            exact = s_c == clean_text(clean_name)
+            return exact, "EXACT" if exact else "NONE"
         is_match, match_type = self.validator.check_match(clean_name, s_c)
 
         # --- OVERRULE FÜR ABGESCHNITTENE ULTRA-LANGE NAMEN ---
@@ -1104,7 +1713,10 @@ class DeckImporterCore:
         # 'dracotailgulame' ähnelt 'Dracotail Flame' zu 90 %, ist aber Dracotail Gulamel.
         real = self.card_db.identify(s_c) if self.card_db else None
         if real and clean_text(real) != name_clean:
-            return f"laut Kartenliste '{real}'"
+            if not self._cut_off_target(name_clean, s_c, clean_text(real)):
+                return f"laut Kartenliste '{real}'"
+            dlog(f"        [KEIN VETO] '{s_c}' ist der abgeschnittene Anfang von '{name_clean}'; "
+                 f"'{real}' kann bei der Suche '{self._search_term}' nicht erscheinen.")
         if s_c in self._deck_clean_names:
             return "andere Karte aus dem Deck"
         scores = self._deck_scores(s_c)
@@ -1113,6 +1725,19 @@ class DeckImporterCore:
         if better and better[0] > own + BETTER_MATCH_MARGIN:
             return f"passt besser zu '{better[1]}' ({better[0]:.2f} statt {own:.2f})"
         return None
+
+    def _cut_off_target(self, name_clean: str, s_c: str, other_clean: str) -> bool:
+        """
+        Liest das Panel den abgeschnittenen Namen der gesuchten Karte, der zufällig genau eine andere Karte ist?
+        ("Wynn the Wind Charmer, Verdant" wird zu "Wynn the Wind Charmer".) Nur dann, wenn die andere Karte
+        bei dieser Suche gar nicht erscheinen kann (Suchbegriff steht nicht in ihrem Namen).
+        """
+        term = self._search_term
+        if not term or term in other_clean:
+            return False
+        texts = [s_c] + ([s_c[1:]] if s_c.startswith("l") and len(s_c) > 1 else [])  # 'l' = Symbol-Artefakt
+        target = ocr_fold(name_clean)
+        return any(len(t) < len(target) and target.startswith(ocr_fold(t)) for t in texts)
 
     def _deck_scores(self, s_c: str) -> Dict[str, float]:
         """name_score des gelesenen Texts für jede Deck-Karte (für denselben Text nur einmal berechnet)."""
@@ -1127,6 +1752,8 @@ class DeckImporterCore:
         _rank_candidates ohne Namen, die laut _wrong_card_reason sicher nicht passen. Geprüft wird
         nur, was die Schwelle erreicht – nur solche Kandidaten können eingefügt werden.
         """
+        if self.memory is not None:  # Speicher-Modus: vollständige Namen → nur exakte Treffer
+            return [(name, 1.0, False) for name in names if clean_text(name) == s_c]
         result = []
         for name, ratio, truncated in self._rank_candidates(names, s_c):
             reason = self._wrong_card_reason(clean_text(name), s_c) if ratio >= threshold else None

@@ -4,6 +4,8 @@ Liest das Deck, das gerade im Deck-Editor von Master Duel offen ist, und macht d
 Jede Karte im Main und Extra Deck wird mit links angeklickt (zeigt nur die Details, verändert
 das Deck nicht), der Name im Detail-Panel per Texterkennung gelesen und über die Kartenliste
 von YGOPRODeck einer Karten-ID zugeordnet.
+Lesemethode "Speicher" (memory=True): Die Karten-IDs kommen ohne Klicks aus dem Speicher von Master Duel
+(nur lesend); nur unbekannte Artworks werden einmal angeklickt und über ihren Namen zugeordnet.
 """
 
 import os
@@ -22,12 +24,13 @@ import vision_engine
 import win_api
 from app_paths import APP_VERSION, LOG_FILE
 from auto_calibration import deck_editor_visible, read_deck_count
-from card_db import CardMatch, load_card_db
+from card_db import CardDB, CardMatch, load_card_db
 from debug_log import dlog, end_run, start_run
 from import_engine import DeckImporterCore
-from input_utils import focus_master_duel
+from md_memory import MemoryUnavailable
+from input_utils import FocusLostError, focus_master_duel
 from utils import clean_text
-from window_automation import WindowAutomator
+from window_automation import UserInterrupt, WindowAutomator
 
 LAYOUT_MISS_SHARE = 0.10  # Liegt an mehr Kartenplätzen keine Karte, stimmt das Raster nicht
 MAX_COPIES = 3
@@ -47,6 +50,7 @@ class DeckScan(NamedTuple):
     zones: list                 # [(Name, Referenz-Positionen, Spalten)]
     cards: List[ExportedCard]
     signatures: dict            # {(Zone, Index): Mini-Abbild der Kartenmitte}
+    kids: Optional[tuple] = None  # (Main, Extra) als Konami-IDs, wenn aus dem Speicher gelesen (exakte Prüfung)
 
 
 class ExportResult(NamedTuple):
@@ -183,7 +187,8 @@ def check_layout(mask: np.ndarray, frame: md_layout.Frame, zones) -> Optional[st
 class DeckExporter:
     def __init__(self, config: dict, tesseract_cmd: str, status_callback: Callable,
                  finish_callback: Callable, frame: Optional[md_layout.Frame] = None, reader=None,
-                 start_callback: Optional[Callable] = None, scan: Optional[DeckScan] = None):
+                 start_callback: Optional[Callable] = None, scan: Optional[DeckScan] = None,
+                 memory: bool = False):
         self.config = config
         self.tesseract_cmd = tesseract_cmd
         self.status_callback = status_callback
@@ -193,6 +198,7 @@ class DeckExporter:
         self.label = "Export"  # Statusanzeige ("Kontrolle" bei der Prüfung nach dem Import, "Analyse")
         self.signatures: dict = {}  # Mini-Abbilder der Karten beim Einlesen (siehe _plan)
         self.reuse = scan           # Deck seit diesem Scan unverändert → Export ohne neues Lesen
+        self.memory = memory        # Lesemethode "Speicher": Deck aus dem Speicher statt per Texterkennung
         # Texterkennung und Ruckler-Erkennung genau wie beim Import
         self.reader = reader or DeckImporterCore(config, tesseract_cmd, status_callback, lambda **kwargs: None)
 
@@ -219,9 +225,6 @@ class DeckExporter:
             end_run()
 
     def scan(self) -> DeckScan:
-        problem = vision_engine.check_tesseract(self.tesseract_cmd, "eng")
-        if problem:
-            raise RuntimeError(problem)
         frame = self.frame or md_layout.md_frame()
         if frame is None:
             raise RuntimeError("Master Duel wurde nicht gefunden. Bitte das Spiel starten und ein Deck "
@@ -229,6 +232,19 @@ class DeckExporter:
         if not frame.is_16_9:
             raise RuntimeError(f"Das Deck-Lesen braucht Master Duel im 16:9-Format "
                                f"(gerade {frame.width}×{frame.height}).")
+        if self.memory:
+            try:
+                return self._scan_memory(frame)
+            except (UserInterrupt, FocusLostError):
+                raise
+            except Exception as e:  # z.B. Editor zu, Spiel beendet, unerwartete Daten → wie bisher per Texterkennung
+                if not isinstance(e, (OSError, MemoryUnavailable)):
+                    dlog(traceback.format_exc())
+                dlog(f"[SPEICHER] Deck nicht lesbar ({e}) → Texterkennung.")
+                self.status_callback("Speicher nicht lesbar – Texterkennung", "yellow")
+        problem = vision_engine.check_tesseract(self.tesseract_cmd, "eng")
+        if problem:
+            raise RuntimeError(problem)
 
         self.status_callback("Kartenliste…", "cyan")
         db = load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, "cyan"))
@@ -254,6 +270,69 @@ class DeckExporter:
             win_api.set_cursor_pos(*frame.point(*md_layout.PARK_POINT))
         return DeckScan(frame, zones, cards, self.signatures)
 
+    def _scan_memory(self, frame: md_layout.Frame) -> DeckScan:
+        """Deck aus dem Speicher (ohne Klicks); der Bildschirm wird nur fürs Kartenraster gebraucht."""
+        import md_memory
+        from card_stats import CardStatsDB
+        self.status_callback(f"{self.label}: lese Speicher…", "cyan")
+        memory = md_memory.shared()  # meist schon beim Start des Overlays im Hintergrund aufgebaut
+        memory.find_editor()
+        deck = memory.deck()
+        stats = CardStatsDB()
+        names, passcodes = stats.konami_names(), stats.konami_passcodes()
+        if self.start_callback:
+            self.start_callback()
+        dlog(f"[SPEICHER] Deck aus dem Speicher: Main {len(deck[0])}, Extra {len(deck[1])}")
+        with mss.MSS() as sct:
+            # Maus neben das Deck: Eine hervorgehobene Karte gehört nicht in die Vergleichsbilder
+            win_api.set_cursor_pos(*frame.point(*md_layout.PARK_POINT))
+            time.sleep(0.2)
+            zones = self._plan(sct, frame, counts=tuple(map(len, deck)))
+        cards, clicker = [], None
+        for (zone, positions, _), ids in zip(zones, deck):
+            for i, kid in enumerate(ids):
+                if kid not in passcodes:
+                    clicker = clicker or self._memory_clicker()
+                    self._identify_artwork(memory, stats, clicker, frame.point(*positions[i]), kid, zone,
+                                           names, passcodes)
+                cid, name = passcodes.get(kid), names.get(kid, f"Karte {kid}")
+                note = "" if cid else f"Konami-ID {kid} unbekannt"
+                cards.append(ExportedCard(zone, i + 1, name, CardMatch(cid, name, cid is not None, note)))
+                dlog(f"    [SPEICHER] {zone} #{i + 1:02d} → {name} ({kid}){'' if cid else ' UNBEKANNT'}")
+        if clicker:
+            win_api.set_cursor_pos(*frame.point(*md_layout.PARK_POINT))
+        return DeckScan(frame, zones, cards, self.signatures, (list(deck[0]), list(deck[1])))
+
+    def _memory_clicker(self) -> Tuple[WindowAutomator, CardDB]:
+        """Zum Anklicken unbekannter Artworks: Master Duel nach vorne, Kartenliste für die Namen."""
+        db = load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, "cyan"))
+        automator = WindowAutomator(self.config)
+        focus_master_duel()
+        time.sleep(0.15)
+        return automator, db
+
+    def _identify_artwork(self, memory, stats, clicker, point: Tuple[int, int], kid: int, zone: str,
+                          names: Dict[int, str], passcodes: Dict[int, str]) -> None:
+        """
+        Unbekannte Konami-ID (Artwork, das nur Master Duel kennt): Karte anklicken (zeigt nur die Details),
+        Namen aus dem Detail-Panel lesen und zuordnen. Gelernte Artworks bleiben gespeichert.
+        """
+        from md_memory import wait_for
+        automator, db = clicker
+        automator.iron_grip_click(*point)
+        if wait_for(memory.shown_card, lambda v: v == kid, timeout=1.0) != kid:
+            dlog(f"    [SPEICHER] Konami-ID {kid}: Anzeige wechselt nicht → nicht zuzuordnen.")
+            return
+        name = memory.shown_name()
+        match = db.match(clean_text(name), extra=(zone == "Extra"))
+        if not (match.cid and match.sure):
+            dlog(f"    [SPEICHER] Konami-ID {kid} ist '{name}' – keiner Karte sicher zuzuordnen.")
+            names[kid] = name
+            return
+        names[kid], passcodes[kid] = match.name, match.cid
+        stats.learn_konami_alias(kid, match.cid)
+        dlog(f"    [SPEICHER] Konami-ID {kid} ist '{name}' (anderes Artwork, Passcode {match.cid}) – gemerkt.")
+
     def _run(self) -> ExportResult:
         reused = self.reuse is not None
         if reused:
@@ -270,14 +349,18 @@ class DeckExporter:
         self.status_callback("Deck exportiert!", "#00ff00")
         return result
 
-    def _plan(self, sct, frame: md_layout.Frame) -> List[Tuple[str, list, int]]:
-        """Kartenzahlen lesen und die Kartenplätze berechnen (und prüfen)."""
-        if not deck_editor_visible(sct, frame, self.tesseract_cmd):
-            raise RuntimeError("Deck-Editor nicht erkannt. Bitte in Master Duel ein Deck zum Bearbeiten "
-                               "öffnen und den Export erneut starten.")
-        main_n = read_deck_count(sct, frame, md_layout.REFERENCE_POINTS["DECK_COUNT"], self.tesseract_cmd)
-        extra_n = read_deck_count(sct, frame, md_layout.EXTRA_COUNT_POINT, self.tesseract_cmd)
-        dlog(f"[EXPORT] Kartenzahl gelesen: Main {main_n}, Extra {extra_n}")
+    def _plan(self, sct, frame: md_layout.Frame, counts: Optional[Tuple[int, int]] = None) -> List[Tuple[str, list, int]]:
+        """Kartenzahlen lesen und die Kartenplätze berechnen (und prüfen). counts: Zahlen schon bekannt (Speicher)."""
+        if counts is not None:
+            main_n, extra_n = counts
+            dlog(f"[EXPORT] Kartenzahl aus dem Speicher: Main {main_n}, Extra {extra_n}")
+        else:
+            if not deck_editor_visible(sct, frame, self.tesseract_cmd):
+                raise RuntimeError("Deck-Editor nicht erkannt. Bitte in Master Duel ein Deck zum Bearbeiten "
+                                   "öffnen und den Export erneut starten.")
+            main_n = read_deck_count(sct, frame, md_layout.REFERENCE_POINTS["DECK_COUNT"], self.tesseract_cmd)
+            extra_n = read_deck_count(sct, frame, md_layout.EXTRA_COUNT_POINT, self.tesseract_cmd)
+            dlog(f"[EXPORT] Kartenzahl gelesen: Main {main_n}, Extra {extra_n}")
 
         panel = frame.region(*md_layout.DECK_PANEL)
         shot = sct.grab(panel)

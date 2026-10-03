@@ -5,7 +5,6 @@ Overlay-Fenster des Master Duel Deck Importers (Start, Kalibrierung, Tempo, Time
 import ctypes
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import messagebox
 # Nicht entfernen, obwohl hier nicht direkt benutzt: pyautogui setzt beim Import die
 # DPI-Awareness des Prozesses. Die Import-Reihenfolge bestimmt also die DPI-Behandlung.
 import pyautogui  # noqa: F401
@@ -35,20 +34,23 @@ from calibration import CalibrationWizard
 from card_stats import CardStatsDB
 from deck_analysis import current_changes
 from deck_export import DeckExporter, save_ydk
-from extras_panel import ExtrasPanel
+from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
 from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
-from dark_dialog import show_message
+from dark_dialog import ask_choice, show_message
 from dark_menu import DarkMenu
 from window_style import apply_frame
 from rounded_button import RoundedButton
 from tray import TrayIcon
-from utils import parse_clipboard
+from utils import DeckCodeError, parse_clipboard
 from window_automation import get_md_window_size
 import md_layout
+import md_memory
 import resume_state
 import win_api
+
+MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
 SPEED_PROFILES = [
@@ -71,6 +73,8 @@ class MasterDuelImporter:
         self.extras = None       # Extras-Menü (über der Kartenliste), None = zu
         self.card_stats = None   # Lokale Karten-Datenbank (erst beim ersten Öffnen der Extras)
         self._last_scan = None   # Letzter Deck-Scan der Extras (wird übernommen, wenn das Deck gleich ist)
+        self._memory_thread = None    # Vorladen für den Speicher-Modus (läuft im Hintergrund)
+        self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
         # Warteschlange, der Haupt-Thread arbeitet sie regelmäßig ab.
         self._ui_queue = queue.Queue()
@@ -79,6 +83,9 @@ class MasterDuelImporter:
         self.config = self.load_config()
         self._build_main_ui()
         self._process_ui_queue()
+        if self.config.get(READ_METHOD_KEY) not in READ_METHODS:
+            # Erster Start: Lesemethode wählen lassen (danach in den Optionen des Deck-Fensters umschaltbar)
+            self._after_ids["read_method"] = self.root.after(300, self._ask_read_method)
         if tray:
             # Menü-Aktionen kommen aus dem Tray-Thread → über die UI-Warteschlange in den Tk-Thread
             self.tray = TrayIcon(f"MD Importer {APP_VERSION}",
@@ -120,12 +127,12 @@ class MasterDuelImporter:
                     shutil.copyfile(CONFIG_FILE, backup)
                 except Exception:
                     backup = "(Sicherung fehlgeschlagen)"
-                messagebox.showwarning(
-                    "Konfiguration beschädigt",
+                show_message(
+                    self.root, "Konfiguration beschädigt",
                     f"{CONFIG_FILE} konnte nicht gelesen werden:\n{e}\n\n"
                     f"Die Datei wurde NICHT überschrieben. Sicherung: {backup}\n\n"
                     "Bitte den Fehler in der Datei korrigieren und neu starten "
-                    "oder neu kalibrieren."
+                    "oder neu kalibrieren.", kind="warning"
                 )
 
         self.config = loaded
@@ -175,11 +182,12 @@ class MasterDuelImporter:
         btn_pack = dict(side=tk.LEFT, padx=int(4 * scale))
         btn_size = dict(padx=int(14 * scale), pady=int(5 * scale), radius=int(7 * scale))
 
-        self.start_btn = RoundedButton(btn_frame, text="Start Import", command=self.start_import_thread,
+        # Lesemethode (Speicher oder Texterkennung) steht in den Optionen des Deck-Fensters
+        self.start_btn = RoundedButton(btn_frame, text="Importieren", command=self.start_import_thread,
                                        bg="#007acc", font=font_main, **btn_size)
         self.start_btn.pack(**btn_pack)
 
-        self.export_btn = RoundedButton(btn_frame, text="Deck exportieren", command=self.start_export_thread,
+        self.export_btn = RoundedButton(btn_frame, text="Exportieren", command=self.start_export_thread,
                                         bg="#2e7d32", font=font_main, **btn_size)
         self.export_btn.pack(**btn_pack)
 
@@ -262,7 +270,10 @@ class MasterDuelImporter:
                 my_pid = os.getpid()
 
                 # Soll sichtbar sein, wenn Master Duel offen ist ODER du gerade das Overlay selbst anklickst
-                if fg_pid == my_pid or self._is_md_active(fg_hwnd, fg_pid):
+                md_active = fg_pid != my_pid and self._is_md_active(fg_hwnd, fg_pid)
+                if md_active and self._use_memory():
+                    self._preload_memory()
+                if fg_pid == my_pid or md_active:
                     if not self.is_visible:
                         self.root.wm_attributes("-alpha", 0.95)
                         self.is_visible = True
@@ -276,6 +287,41 @@ class MasterDuelImporter:
             pass  # Läuft alle 300 ms; ein einzelner Fehlschlag (Fenster gerade geschlossen) ist egal
         finally:
             self._after_ids["focus"] = self.root.after(300, self._check_window_focus)
+
+    # --- LESEMETHODE: Speicher (nur lesend) oder Texterkennung ---
+    def _use_memory(self) -> bool:
+        return self.config.get(READ_METHOD_KEY) == "memory"
+
+    def _ask_read_method(self):
+        """Beim ersten Start fragen, wie Karten gelesen werden sollen (gilt für Import, Deck-Scan und Export)."""
+        self._after_ids.pop("read_method", None)
+        choice = ask_choice(
+            self.root, "Wie sollen Karten gelesen werden?",
+            "Speicher lesen (empfohlen): Der Importer liest die Karten-IDs direkt aus Master Duel – schneller "
+            "und ohne Lesefehler. Es wird nur gelesen, am Spiel wird nichts verändert. Konami erlaubt so etwas "
+            "nicht ausdrücklich (wie bei Trackern, z.B. untapped.gg) – Nutzung auf eigenes Risiko.\n\n"
+            "Texterkennung: Der Importer liest die Kartennamen vom Bildschirm – langsamer, aber ganz ohne "
+            "Zugriff auf das Spiel.\n\n"
+            "Gilt für Import, Deck-Scan und Export. Umschalten: Deck → Optionen.",
+            [("Speicher lesen", "memory", "#007acc"), ("Texterkennung", "ocr", "#444444")])
+        if choice is None:
+            return  # nichts gewählt: Texterkennung, beim nächsten Start wird wieder gefragt
+        self.config[READ_METHOD_KEY] = choice
+        self._save_config_safely()
+        self.update_status(f"Lesemethode: {READ_METHODS[choice]}", "#00ff00")
+
+    def _preload_memory(self):
+        """
+        Speicher-Modus schon vorbereiten, sobald Master Duel läuft (Hintergrund-Thread, nur lesend).
+        Der Import muss dann nicht erst warten; die Verbindung gilt, solange das Spiel läuft.
+        """
+        if md_memory.is_ready() or (self._memory_thread is not None and self._memory_thread.is_alive()):
+            return
+        if time.monotonic() - self._memory_preload_at < MEMORY_RETRY:
+            return
+        self._memory_preload_at = time.monotonic()
+        self._memory_thread = threading.Thread(target=md_memory.preload, daemon=True)
+        self._memory_thread.start()
 
     # --- FENSTER LOGIK ---
     def start_move(self, event):
@@ -301,11 +347,14 @@ class MasterDuelImporter:
             self._check_overlay_position()
 
     def _snap_to_bottom(self, y, height):
-        """Fast am unteren Bildschirmrand → genau an den Rand (auch für Positionen vom früheren, höheren Overlay)."""
+        """
+        Fast am unteren Bildschirmrand → genau an den Rand: knapp darüber losgelassen und auch knapp darunter
+        (ragt ein Stück über den Rand hinaus). Gilt auch für Positionen vom früheren, höheren Overlay.
+        """
         screen_h = self.root.winfo_screenheight()
         snap = int(40 * max(1.0, screen_h / 1080.0))
-        bottom_gap = screen_h - (y + height)
-        return screen_h - height if 0 < bottom_gap <= snap else y
+        bottom_gap = screen_h - (y + height)  # negativ = ragt unten über den Rand
+        return screen_h - height if abs(bottom_gap) <= snap else y
 
     def _covered_area(self):
         """Welchen Klickbereich von Master Duel verdeckt das Overlay? None = keinen (oder Spiel nicht offen)."""
@@ -414,7 +463,7 @@ class MasterDuelImporter:
         try:
             subprocess.Popen(self._restart_command(), cwd=APP_DIR)
         except OSError as e:
-            messagebox.showerror("Neustart fehlgeschlagen", str(e))
+            show_message(self.root, "Neustart fehlgeschlagen", str(e), kind="error")
             return
         self.close()
 
@@ -485,23 +534,31 @@ class MasterDuelImporter:
         self.update_status("Kalibrierung aktiv!", "#00ff00")
         self._set_buttons(tk.NORMAL)
 
-    def start_import_thread(self):
+    def start_import_thread(self, memory=None):
+        """memory=True: Karten per ID aus dem Speicher lesen (nur lesend); None = wie in den Optionen eingestellt."""
+        if memory is None:
+            memory = self._use_memory()
         if not self.config.get("IS_CALIBRATED", False):
             # Erst automatisch versuchen und dann direkt importieren; klappt das nicht → Assistent
-            self.start_auto_calibration(then=self.start_import_thread)
+            self.start_auto_calibration(then=lambda: self.start_import_thread(memory=memory))
             return
 
         if not self.is_running:
             # Abgebrochener Import mit demselben Deck-Code? Dann Fortsetzen anbieten.
-            resume = resume_state.load_progress(parse_clipboard())
+            try:
+                resume = resume_state.load_progress(parse_clipboard())
+            except DeckCodeError:
+                resume = None  # Der Import meldet den beschädigten Code selbst
             if resume:
-                answer = messagebox.askyesnocancel(
-                    "Import fortsetzen?",
+                answer = ask_choice(
+                    self.root, "Import fortsetzen?",
                     f"Der letzte Import mit diesem Deck wurde abgebrochen "
                     f"({len(resume['done'])} Karten waren schon eingefügt, {resume['saved_at']}).\n\n"
-                    "Ja = dort weitermachen (Deck wird NICHT geleert – es darf seit dem Abbruch "
-                    "nicht verändert worden sein)\n"
-                    "Nein = neu starten (Deck wird geleert)")
+                    "Fortsetzen: dort weitermachen – das Deck wird NICHT geleert (es darf seit dem Abbruch "
+                    "nicht verändert worden sein).\n"
+                    "Neu starten: Deck wird geleert und komplett neu importiert.",
+                    [("Fortsetzen", True, "#007acc"), ("Neu starten", False, "#ef6c00"),
+                     ("Abbrechen", None, "#444444")])
                 if answer is None:
                     return
                 if not answer:
@@ -521,18 +578,20 @@ class MasterDuelImporter:
             def status_cb(text, color="white"):
                 self._run_on_ui(self.update_status, text, color)
 
-            def finish_cb(success, has_errors, failed_cards, message="", notes=None):
-                self._run_on_ui(self._on_import_finished, success, has_errors, failed_cards, message, notes)
+            def finish_cb(success, has_errors, failed_cards, message="", notes=None, scan=None):
+                self._run_on_ui(self._on_import_finished, success, has_errors, failed_cards, message, notes, scan)
 
             def start_cb():
                 self._run_on_ui(self._on_import_started)
 
             core = DeckImporterCore(self.config, TESSERACT_CMD, status_cb, finish_cb,
-                                    start_callback=start_cb, resume=resume)
+                                    start_callback=start_cb, resume=resume, memory=memory)
             threading.Thread(target=core.execute_import, daemon=True).start()
 
-    def _on_import_finished(self, success, has_errors, failed_cards, message="", notes=None):
+    def _on_import_finished(self, success, has_errors, failed_cards, message="", notes=None, scan=None):
         self.is_running = False
+        if scan is not None:
+            self._last_scan = scan  # Die Kontrolle am Ende hat das Deck gelesen → gilt als gescannt
         self._set_buttons(tk.NORMAL)
         # Timer anhalten und Endzeit stehen lassen
         if self._import_t0 is not None:
@@ -581,7 +640,8 @@ class MasterDuelImporter:
         def start_cb():
             self._run_on_ui(self._on_import_started)  # Timer läuft auch beim Export (ab Ende des Countdowns)
 
-        exporter = DeckExporter(self.config, TESSERACT_CMD, status_cb, finish_cb, start_callback=start_cb, scan=scan)
+        exporter = DeckExporter(self.config, TESSERACT_CMD, status_cb, finish_cb, start_callback=start_cb, scan=scan,
+                                memory=self._use_memory())
         threading.Thread(target=exporter.execute, daemon=True).start()
 
     def _on_export_finished(self, result, error=""):
@@ -663,7 +723,7 @@ class MasterDuelImporter:
                 missing = self.card_stats.ensure(c.match.cid for c in scan.cards if c.match.cid)
             self._run_on_ui(self._on_extras_scan_done, scan, error, missing)
 
-        exporter = DeckExporter(self.config, TESSERACT_CMD, status_cb, finish_cb)
+        exporter = DeckExporter(self.config, TESSERACT_CMD, status_cb, finish_cb, memory=self._use_memory())
         exporter.label = "Scan"
         threading.Thread(target=exporter.execute_scan, daemon=True).start()
 

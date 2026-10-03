@@ -24,6 +24,16 @@ MIN_PREFIX = 12          # So viele Zeichen müssen bei einem abgeschnittenen Na
 SURE_RATIO = 0.92        # Ähnlichkeit, ab der ein ungenau gelesener Name als sicher gilt
 SURE_MARGIN = 0.04       # … wenn der Zweitbeste so viel schlechter ist
 MIN_RATIO = 0.75         # Darunter: Karte nicht erkannt
+# Ab so vielen Zeichen kann das Detail-Panel einen Namen abgeschnitten haben ("Number F0: Utopic Future Zexal"
+# erscheint dann als "Number F0: Utopic Future" – genau der Name einer anderen Karte)
+TRUNC_LEN = 17
+# Zeichen, die die Texterkennung in Kartennamen verwechselt ("Number F0" wird als "Number FO" gelesen)
+OCR_CONFUSIONS = str.maketrans({"0": "o", "1": "l"})
+
+
+def ocr_fold(text: str) -> str:
+    """Vergleichsform, in der verwechselbare Zeichen gleich sind (nach clean_text)."""
+    return text.translate(OCR_CONFUSIONS)
 
 
 def db_file(lang: str) -> str:
@@ -48,6 +58,11 @@ class CardDB:
             pool = self.extra if frame.startswith(EXTRA_FRAMES) else self.main
             pool.setdefault(clean_text(name), (str(cid), name))
         self._names = {False: list(self.main), True: list(self.extra)}
+        # Gleiche Namen bis auf verwechselbare Zeichen: {gefaltet: [Namen]}
+        self._folded: Dict[bool, Dict[str, List[str]]] = {False: {}, True: {}}
+        for extra, names in self._names.items():
+            for name in names:
+                self._folded[extra].setdefault(ocr_fold(name), []).append(name)
         self._identified: Dict[str, Optional[str]] = {}  # Cache für identify()
 
     def __len__(self):
@@ -78,6 +93,15 @@ class CardDB:
         self._identified[s_c] = result
         return result
 
+    def _full_name(self, pool: dict, extra: bool, key: str) -> CardMatch:
+        """Gelesener Name ist ein vollständiger Kartenname – oder der abgeschnittene einer längeren Karte?"""
+        cid, name = pool[key]
+        longer = _longer_names(self._folded[extra], key) if len(key) >= TRUNC_LEN else []
+        if longer:
+            others = ", ".join(pool[n][1] for n in sorted(longer, key=len)[:2])
+            return CardMatch(cid, name, False, f"Name evtl. abgeschnitten, könnte auch {others} sein")
+        return CardMatch(cid, name, True)
+
     def match(self, s_c: str, extra: bool) -> CardMatch:
         """Bester Treffer für einen gelesenen Namen (clean_text) aus dem Main- oder Extra Deck."""
         pool = self.extra if extra else self.main
@@ -88,18 +112,25 @@ class CardDB:
 
         for text in texts:
             if text in pool:
-                cid, name = pool[text]
-                return CardMatch(cid, name, True)
-
-        # Im Detail-Panel abgeschnittener Name: Anfang muss exakt passen
+                return self._full_name(pool, extra, text)
+        # Nur verwechselbare Zeichen anders gelesen (0/O, 1/l) → sicher, wenn genau eine Karte passt
         for text in texts:
+            hits = self._folded[extra].get(ocr_fold(text), [])
+            if len(hits) == 1:
+                return self._full_name(pool, extra, hits[0])
+
+        # Im Detail-Panel abgeschnittener Name: Anfang muss passen (bis auf verwechselbare Zeichen).
+        # Das letzte Zeichen ist dabei oft ein angeschnittener Buchstabe ("…DracoI" statt "…Draco F") → auch ohne
+        prefixes = [(text, False) for text in texts] + [(text[:-1], True) for text in texts]
+        for text, trimmed in prefixes:
             if len(text) < MIN_PREFIX:
                 continue
-            hits = [n for n in self._names[extra] if n.startswith(text)]
+            folded = ocr_fold(text)
+            hits = [n for f, names in self._folded[extra].items() if f.startswith(folded) for n in names]
             if len(hits) == 1:
                 cid, name = pool[hits[0]]
                 return CardMatch(cid, name, True)
-            if hits:
+            if hits and not trimmed:
                 hits.sort(key=len)
                 cid, name = pool[hits[0]]
                 others = ", ".join(pool[h][1] for h in hits[1:3])
@@ -127,6 +158,12 @@ class CardDB:
         cid, name = pool[best]
         sure = ratio >= SURE_RATIO and ratio - second >= SURE_MARGIN
         return CardMatch(cid, name, sure, "" if sure else f"unsicher gelesen ({ratio:.0%})")
+
+
+def _longer_names(folded_index: Dict[str, List[str]], key: str) -> List[str]:
+    """Längere Namen, die mit `key` anfangen (bis auf verwechselbare Zeichen)."""
+    folded = ocr_fold(key)
+    return [n for f, names in folded_index.items() if f != folded and f.startswith(folded) for n in names]
 
 
 def _download(lang: str) -> List[Tuple[str, str, str]]:

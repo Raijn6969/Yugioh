@@ -12,6 +12,7 @@ import mss
 from PIL import Image
 
 import md_layout
+import md_memory
 import win_api
 from auto_calibration import count_region, read_deck_count
 from app_paths import LOG_FILE
@@ -206,8 +207,36 @@ def deck_changes(scan: DeckScan, frame: md_layout.Frame, image: Image.Image, ori
     return None
 
 
+def memory_changes(scan: DeckScan) -> Tuple[bool, Optional[str]]:
+    """
+    Lesemethode "Speicher": das Deck im Speicher mit dem gescannten vergleichen – exakt, ohne Bildvergleich (der
+    z.B. den Auswahlrahmen der zuletzt angeklickten Karte für eine Änderung halten kann).
+    Returns: (geprüft?, Grund falls geändert). Nicht geprüft: Scan nicht aus dem Speicher oder Speicher nicht lesbar.
+    """
+    if scan.kids is None or not md_memory.is_ready():
+        return False, None
+    try:
+        deck = md_memory.shared().deck()
+    except Exception:  # z.B. Deck-Editor geschlossen → wie bisher über den Bildschirm
+        return False, None
+    zones = list(zip(("Main", "Extra"), scan.kids, deck))
+    for zone, old, new in zones:
+        if len(old) != len(new):
+            return True, f"{zone} Deck hat jetzt {len(new)} statt {len(old)} Karten"
+    for zone, old, new in zones:
+        if old != new:
+            if sorted(old) == sorted(new):
+                return True, f"Reihenfolge im {zone} Deck geändert"
+            index = next(i for i, (a, b) in enumerate(zip(old, new)) if a != b)
+            return True, f"{zone} #{index + 1} ist eine andere Karte"
+    return True, None
+
+
 def current_changes(scan: DeckScan) -> Optional[str]:
     """Jetzt nachsehen, ob noch dasselbe Deck daliegt. Returns: Grund, falls nicht (oder nicht prüfbar), sonst None."""
+    checked, reason = memory_changes(scan)
+    if checked:
+        return reason
     frame = md_layout.md_frame()
     if frame is None:
         return "Master Duel nicht gefunden"
@@ -226,6 +255,7 @@ def _position(zones, zone: str, index: int) -> Tuple[float, float]:
 class DeckWatcher:
     """
     Prüft im Hintergrund, ob das Deck noch dem eingelesenen entspricht.
+    - Aus dem Speicher gelesen (Lesemethode "Speicher"): exakter Vergleich der Karten-IDs, sonst über den Bildschirm:
     - Kartenzahlen neben "Main Deck"/"Extra Deck": Texterkennung nur, wenn sich die Pixel der Zahl
       ändern (spart Rechenzeit auf schwachen PCs). Eine andere Zahl heißt sicher: Deck bearbeitet.
     - Kartenbilder: erkennen auch einen Tausch bei gleicher Kartenzahl. Muss zweimal hintereinander
@@ -243,6 +273,7 @@ class DeckWatcher:
         self.frame_source = frame_source
         self.read_count = read_count or read_deck_count
         self.expected = {name: len(positions) for name, positions, _ in scan.zones}
+        self.memory_reason: Optional[str] = None  # exakt aus dem Speicher (verschwindet, wenn das Deck wieder stimmt)
         self.count_reason: Optional[str] = None   # bleibt bis zum neuen Einlesen
         self.image_reason: Optional[str] = None
         self._image_hits = self._image_clean = 0
@@ -253,7 +284,7 @@ class DeckWatcher:
 
     @property
     def reason(self) -> Optional[str]:
-        return self.count_reason or self.image_reason
+        return self.memory_reason or self.count_reason or self.image_reason
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -277,6 +308,12 @@ class DeckWatcher:
             append(LOG_FILE, f"[DECK-FENSTER] Deck-Überwachung beendet: {e}")
 
     def check(self, sct, images: bool = True) -> Optional[str]:
+        checked, reason = memory_changes(self.scan)
+        if checked:
+            if reason and reason != self.memory_reason:
+                append(LOG_FILE, f"[DECK-FENSTER] {reason} (Speicher) → Deck geändert.")
+            self.memory_reason = reason
+            return self.reason
         frame = self.frame_source()
         if frame is None:
             return self.reason

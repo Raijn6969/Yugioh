@@ -7,6 +7,7 @@ im Deck mit der Maus über eine Karte, erscheint daneben ein kleines Analyse-Fen
 Ändert sich das Deck (Kartenzahl oder Karten), meldet das Menü "bitte neu scannen".
 Optionen → "Starter aus Guides nachladen": holt die Starter-Einstufungen für das Deck aus den Guides von
 Master Duel Meta (falls die Textregeln danebenliegen) und speichert sie offline.
+Optionen → "Karten lesen": Speicher oder Texterkennung – gilt für Import, Deck-Scan und Export.
 """
 
 import threading
@@ -20,7 +21,7 @@ import md_layout
 import win_api
 import starter_guides
 from card_stats import CardInfo, CardStatsDB
-from dark_menu import DarkMenu
+from options_popup import OptionsPopup
 from deck_analysis import DeckAnalysis, DeckEntry, DeckWatcher, current_changes, slot_at, slot_rect
 from deck_export import DeckScan
 from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
@@ -37,6 +38,9 @@ MUTED = "#9a9a9a"
 GOLD = "#c9a02f"
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
+# Einstellung: Wie Karten gelesen werden (Import, Deck-Scan, Export); fehlt sie, fragt das Overlay beim Start
+READ_METHOD_KEY = "READ_METHOD"
+READ_METHODS = {"memory": "Speicher lesen", "ocr": "Texterkennung"}
 WATCH_AFTER_HOVER = 1.5  # So lange nach dem Hover-Fenster keine Deck-Prüfung (liegt evtl. über dem Deck; schont FPS)
 GUIDE_ARCHETYPES = 3   # Guides für die häufigsten Archetypen im Deck
 GUIDE_MIN_COPIES = 3   # … mit mindestens so vielen Karten
@@ -118,6 +122,7 @@ class ExtrasPanel:
         self.win.wm_attributes("-alpha", 1.0)
         self.show_second = tk.BooleanVar(master=self.win, value=bool(self.settings.get(SHOW_SECOND_KEY, False)))
         self.animation = tk.BooleanVar(master=self.win, value=bool(self.settings.get(ANIMATION_KEY, True)))
+        self.read_method = tk.StringVar(master=self.win, value=self.settings.get(READ_METHOD_KEY, "ocr"))
         self._build()
         self._place_over_card_list()
         apply_frame(self.win)
@@ -140,10 +145,15 @@ class ExtrasPanel:
         self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, bg="#444444",
                                          font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.options_btn.pack(side=tk.RIGHT)
-        self.options_menu = DarkMenu(self.win, font=self.font)
-        self.options_menu.add_checkbutton("Spalte „2. Zug“ anzeigen", self.show_second, command=self._on_option_changed)
-        self.options_menu.add_checkbutton("Analyse-Animation", self.animation, command=self._on_option_changed)
-        self.options_menu.add_command("Starter aus Guides nachladen (online)", self.load_guides)
+        self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
+        self.options_menu.add_section("Karten lesen", "gilt für Import, Deck-Scan und Export")
+        self.options_menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
+                                     command=self._on_read_method_changed)
+        self.options_menu.add_section("Anzeige")
+        self.options_menu.add_toggles([("Spalte „2. Zug“", self.show_second), ("Analyse-Animation", self.animation)],
+                                      command=self._on_option_changed)
+        self.options_menu.add_section("Starter", "Einstufung aus den Deck-Guides von Master Duel Meta")
+        self.options_menu.add_buttons([("Aus Guides nachladen (online)", self.load_guides)])
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
@@ -223,10 +233,14 @@ class ExtrasPanel:
 
     def _rebuild_header(self) -> None:
         s = self.s
-        columns = [("×", int(40 * s)), (f"1. Zug ({HAND_FIRST})", int(64 * s))]
+        # Feste Spaltenbreiten nach dem längsten möglichen Inhalt: keine Zeile darf eine Spalte verbreitern,
+        # sonst stehen die Zahlen nicht mehr rechtsbündig untereinander. ✎ (selbst festgelegt) in eigener Spalte.
+        percent = max(int(64 * s), self._label_width("100,0 %", self.font))
+        columns = [("×", int(40 * s)), (f"1. Zug ({HAND_FIRST})", percent)]
         if self.show_second.get():
-            columns.append((f"2. Zug ({HAND_SECOND})", int(64 * s)))
-        columns.append(("Starter", int(58 * s)))
+            columns.append((f"2. Zug ({HAND_SECOND})", percent))
+        columns.append(("Starter", max(int(46 * s), self._label_width("Nein", self.font_bold))))
+        columns.append(("", self._label_width("✎", self.font_bold)))
         self.columns = [width for _, width in columns]
         for child in self.table_head.winfo_children():
             child.destroy()
@@ -234,6 +248,13 @@ class ExtrasPanel:
             self.table_head.grid_columnconfigure(col, minsize=0)
         self._table_row(self.table_head, PANEL, ["Karte"] + [title for title, _ in columns],
                         [MUTED] * (len(columns) + 1), self.font_small)
+
+    def _label_width(self, text: str, font) -> int:
+        """Breite einer Tabellenzelle mit diesem Text (am echten Label gemessen: ✎ kommt aus einer Ersatzschrift)."""
+        label = tk.Label(self.win, text=text, font=font, padx=int(6 * self.s))
+        width = label.winfo_reqwidth()
+        label.destroy()
+        return width
 
     def _open_options(self) -> None:
         self.options_menu.popup_below(self.options_btn)
@@ -245,6 +266,13 @@ class ExtrasPanel:
         self._rebuild_header()
         if self.analysis is not None:
             self._render()
+
+    def _on_read_method_changed(self) -> None:
+        """Lesemethode für Import, Deck-Scan und Export (gilt ab dem nächsten Lesen)."""
+        self.settings[READ_METHOD_KEY] = self.read_method.get()
+        self.save_settings()
+        self.set_status(f"Karten lesen: {READ_METHODS[self.read_method.get()]} – gilt ab dem nächsten Scan/Import",
+                        NEON)
 
     # ── Starter aus Guides (Master Duel Meta) ──
     def load_guides(self) -> None:
@@ -440,24 +468,25 @@ class ExtrasPanel:
         if entry.zone == "Main":
             stats = analysis.stats(entry)
             starter = stats.starter
-            starter_text = {True: "Ja", False: "Nein", None: "?"}[starter.starter] + (" ✎" if starter.manual else "")
+            starter_text = {True: "Ja", False: "Nein", None: "?"}[starter.starter]
             starter_color = {True: GREEN, False: MUTED, None: AMBER}[starter.starter]
             texts = [name, str(entry.copies), pct(stats.first)]
             colors = [TEXT, TEXT, NEON]
             if self.show_second.get():
                 texts.append(pct(stats.second))
                 colors.append(NEON)
-            texts.append(starter_text)
-            colors.append(starter_color)
+            texts += [starter_text, "✎" if starter.manual else ""]
+            colors += [starter_color, starter_color]
         else:
-            texts = [name, str(entry.copies)] + ["–"] * (len(self.columns) - 2) + [""]
+            texts = [name, str(entry.copies)] + ["–"] * (len(self.columns) - 3) + ["", ""]
             colors = [MUTED] * len(texts)
         labels = self._table_row(row, bg, texts, colors, self.font)
-        labels[-1].config(font=self.font_bold)
-        if entry.zone == "Main" and not entry.key.startswith("?") and self.stats_db is not None:
-            labels[-1].config(cursor="hand2")
-            labels[-1].bind("<Button-1>", lambda e, en=entry: self._toggle_starter(en))
-            labels[-1].bind("<Button-3>", lambda e, en=entry: self._reset_starter(en))
+        for label in labels[-2:]:  # Starter + ✎
+            label.config(font=self.font_bold)
+            if entry.zone == "Main" and not entry.key.startswith("?") and self.stats_db is not None:
+                label.config(cursor="hand2")
+                label.bind("<Button-1>", lambda e, en=entry: self._toggle_starter(en))
+                label.bind("<Button-3>", lambda e, en=entry: self._reset_starter(en))
         self._rows[entry.key] = row
         self._row_bg[entry.key] = bg
 

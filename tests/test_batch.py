@@ -19,6 +19,25 @@ class BatchGroupingTest(unittest.TestCase):
         deck = [DeckCard(str(i), f"Götterdämmerung {n}", 1) for i, n in enumerate(["Alpha", "Beta", "Gamma"])]
         self.assertEqual(list(make_core()._compute_batch_groups(deck)), ["götterdämmerung"])
 
+    def test_short_first_words_and_hyphens(self):
+        # Echter Fall: 5 Sky-Striker-Karten wurden einzeln gesucht ("Sky" war als erstes Wort zu kurz).
+        # "Red Reboot" darf "Red-Eyes" nicht verhindern; gesucht wird der echte Namensanfang "red-eyes"
+        names = ["Sky Striker Mobilize - Engage!", "Sky Striker Mecha - Hornet Drones", "Red Reboot",
+                 "Sky Striker Mecha - Widow Anchor", "Sky Striker Ace - Kagari", "Sky Striker Ace - Zero",
+                 "Red-Eyes Black Dragon", "Red-Eyes Dark Dragoon", "Red-Eyes Fusion",
+                 "Tri-Brigade Kitt", "Tri-Brigade Fraktall", "Tri-Brigade Arms Bucephalus II"]
+        deck = [DeckCard(str(i), n, 1) for i, n in enumerate(names)]
+        groups = {k: len(g) for k, g in make_core()._compute_batch_groups(deck).items()}
+        self.assertEqual(groups, {"sky striker": 5, "red-eyes": 3, "tri-brigade": 3})
+
+    def test_dd_and_ddd_are_one_group(self):
+        # "d/d" ist kurz, aber durch den Schrägstrich eindeutig; D/D/D-Karten beginnen auch mit "d/d"
+        names = ["D/D/D Wave King Caesar", "D/D/D Flame King Genghis", "D/D Savant Kepler", "D/D Necro Slime",
+                 "D/D/D Doom King Armageddon", "Dark Contract with the Gate"]
+        deck = [DeckCard(str(i), n, 1) for i, n in enumerate(names)]
+        groups = {k: len(g) for k, g in make_core()._compute_batch_groups(deck).items()}
+        self.assertEqual(groups, {"d/d": 5})
+
     def test_generic_german_first_words_not_grouped(self):
         deck = [DeckCard(str(i), f"Schwarzer {n}", 1) for i, n in enumerate(["Ritter", "Magier", "Drache"])]
         self.assertEqual(make_core()._compute_batch_groups(deck), {})

@@ -26,9 +26,11 @@ class OverlayTest(unittest.TestCase):
         self.warnings = []
         self.patches = [
             mock.patch.object(Overlay, "CONFIG_FILE", self.config_file),
-            mock.patch.object(Overlay.messagebox, "showwarning", lambda t, m: self.warnings.append(t)),
+            mock.patch.object(Overlay, "show_message", lambda master, title, *a, **k: self.warnings.append(title)),
             # Auto-Ausblenden aus: im Test ist Master Duel nicht im Vordergrund
             mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),
+            # Abfrage der Lesemethode beim ersten Start: im Test nichts gewählt (eigener Test unten)
+            mock.patch.object(Overlay, "ask_choice", return_value=None),
         ]
         for p in self.patches:
             p.start()
@@ -115,6 +117,8 @@ class OverlayTest(unittest.TestCase):
         old_docked_y = screen_h - int(85 * scale)
         self.assertEqual(app._snap_to_bottom(old_docked_y, height), screen_h - height)
         self.assertEqual(app._snap_to_bottom(300, height), 300)  # mitten auf dem Bildschirm: bleibt
+        # Knapp unter dem Rand losgelassen (ragt 20 px hinaus) → ebenfalls genau an den Rand
+        self.assertEqual(app._snap_to_bottom(screen_h - height + 20, height), screen_h - height)
 
     def test_warning_when_dropped_over_the_deck(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
@@ -148,6 +152,64 @@ class OverlayTest(unittest.TestCase):
             app.toggle_extras()
             self.pump(root, 0.3)
 
+    def test_resume_question_uses_dark_dialog(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        resume = {"done": {"1": 1}, "saved_at": "2026-10-03 10:00:00"}
+        for answer, clears, starts in ((None, False, False), (False, True, True), (True, False, True)):
+            with mock.patch.object(Overlay, "parse_clipboard", return_value=["1"]), \
+                    mock.patch.object(Overlay.resume_state, "load_progress", return_value=resume), \
+                    mock.patch.object(Overlay.resume_state, "clear_progress") as clear, \
+                    mock.patch.object(Overlay, "ask_choice", return_value=answer) as ask, \
+                    mock.patch.object(Overlay, "DeckImporterCore") as core:
+                app.is_running = False
+                app.start_import_thread()
+            labels = [label for label, _, _ in ask.call_args.args[3]]
+            self.assertEqual(labels, ["Fortsetzen", "Neu starten", "Abbrechen"])
+            self.assertEqual(clear.called, clears)
+            self.assertEqual(core.called, starts)
+            if starts:  # Fortsetzen: gespeicherter Stand geht an den Import, Neu starten: keiner
+                self.assertEqual(core.call_args.kwargs["resume"], resume if answer else None)
+
+    def test_first_start_asks_for_read_method_and_saves_it(self):
+        root, app = self.open_app()  # keine Config: erster Start
+        self.assertIn("read_method", app._after_ids)
+        with mock.patch.object(Overlay, "ask_choice", return_value="memory") as ask:
+            app._ask_read_method()
+        self.assertEqual([label for label, _, _ in ask.call_args.args[3]], ["Speicher lesen", "Texterkennung"])
+        with open(self.config_file, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["READ_METHOD"], "memory")
+        root2, app2 = self.open_app()
+        self.assertNotIn("read_method", app2._after_ids)  # danach nicht mehr gefragt
+
+    def test_start_import_uses_the_configured_read_method(self):
+        for method, memory in (("memory", True), ("ocr", False)):
+            self.write_config(json.dumps({"IS_CALIBRATED": True, "READ_METHOD": method}))
+            root, app = self.open_app()
+            with mock.patch.object(Overlay, "parse_clipboard", return_value=["1"]), \
+                    mock.patch.object(Overlay.resume_state, "load_progress", return_value=None), \
+                    mock.patch.object(Overlay, "DeckImporterCore") as core, \
+                    mock.patch.object(Overlay.threading, "Thread"):
+                app.start_btn.invoke()  # Button ohne Menü: startet direkt
+            self.assertEqual(core.call_args.kwargs["memory"], memory)
+
+    def test_ask_choice_is_dark_and_keyboard_friendly(self):
+        import dark_dialog
+        root = tk.Tk()
+        root.withdraw()
+        choices = [("Fortsetzen", True, "#007acc"), ("Neu starten", False, "#ef6c00"), ("Abbrechen", None, "#444")]
+        for key, expected in (("<Return>", True), ("<Escape>", None)):
+            root.after(150, lambda key=key: root.winfo_children()[-1].event_generate(key))
+            self.assertIs(dark_dialog.ask_choice(root, "Import fortsetzen?", "Text", choices), expected)
+        # Button-Klick
+        def click_second():
+            win = root.winfo_children()[-1]
+            self.assertEqual(win.cget("bg"), dark_dialog.BG)
+            win.choice_buttons[1].invoke()
+        root.after(150, click_second)
+        self.assertIs(dark_dialog.ask_choice(root, "Import fortsetzen?", "Text", choices), False)
+        root.destroy()
+
     def test_extras_scan_and_close_when_import_starts(self):
         import deck_export
         from card_db import CardMatch
@@ -170,6 +232,11 @@ class OverlayTest(unittest.TestCase):
             core.assert_called_once()
             self.assertIsNone(app.extras)
             self.assertIsNone(app._last_scan)  # Import verändert das Deck → Scan verfällt
+            # Am Ende hat die Kontrolle das Deck gelesen → gilt als gescannt (Deck-Fenster/Export lesen nicht neu)
+            finish = core.call_args.args[3]
+            finish(success=True, has_errors=False, failed_cards=[], notes=[], scan=scan)
+            self.pump(root, 0.1)
+            self.assertIs(app._last_scan, scan)
 
     def test_export_reuses_scan_only_if_deck_unchanged(self):
         import deck_export
@@ -294,6 +361,18 @@ class DarkDialogTest(unittest.TestCase):
             app.close()
         save.assert_called_once_with("#main\n1\n")
         self.assertEqual(show.call_args.kwargs["kind"], "info")
+
+    def test_memory_is_preloaded_in_background_once(self):
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
+                mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                mock.patch.object(Overlay.md_memory, "preload") as preload:
+            app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
+            app._preload_memory()
+            app._memory_thread.join(2)
+            app._preload_memory()  # kurz danach: kein zweiter Versuch (erst nach MEMORY_RETRY)
+            app.close()
+        preload.assert_called_once()
 
     def test_uncalibrated_start_tries_automatic_first(self):
         with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \

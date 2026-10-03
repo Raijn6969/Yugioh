@@ -1,5 +1,6 @@
 """Start-Prüfung, automatische Tempo-Anpassung, Fortsetzen-Speicher, Deck-Zählung."""
 
+import itertools
 import os
 import tempfile
 import unittest
@@ -105,17 +106,56 @@ class LagDetectionTest(unittest.TestCase):
 
 
 class FocusTest(unittest.TestCase):
-    def test_switches_only_when_master_duel_is_not_in_front(self):
+    def setUp(self):
         import input_utils
-        with mock.patch("window_automation.find_md_window", return_value=42), \
-                mock.patch.object(input_utils.win_api, "set_foreground_window") as set_fg, \
-                mock.patch.object(input_utils.time, "sleep"):
-            with mock.patch.object(input_utils.win_api, "get_foreground_window", return_value=42):
-                input_utils.focus_master_duel()
+        self.iu = input_utils
+        self.patches = [mock.patch("window_automation.find_md_window", return_value=42),
+                        mock.patch.object(input_utils.win_api, "window_pid", lambda hwnd: {42: 100}.get(hwnd, 200)),
+                        mock.patch.object(input_utils.time, "sleep")]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+
+    def test_switches_only_when_master_duel_is_not_in_front(self):
+        with mock.patch.object(self.iu.win_api, "set_foreground_window") as set_fg:
+            with mock.patch.object(self.iu.win_api, "get_foreground_window", return_value=42):
+                self.iu.focus_master_duel()
             set_fg.assert_not_called()
-            with mock.patch.object(input_utils.win_api, "get_foreground_window", return_value=7):
-                input_utils.focus_master_duel()
+            with mock.patch.object(self.iu.win_api, "get_foreground_window", side_effect=[7, 42]):
+                self.iu.focus_master_duel()
             set_fg.assert_called_once_with(42)
+
+    def test_stops_when_master_duel_does_not_come_to_front(self):
+        with mock.patch.object(self.iu.win_api, "set_foreground_window") as set_fg, \
+                mock.patch.object(self.iu.win_api, "get_foreground_window", return_value=7), \
+                mock.patch.object(self.iu, "FOCUS_TIMEOUT", 0.05):
+            with self.assertRaises(self.iu.FocusLostError):
+                self.iu.focus_master_duel()
+        set_fg.assert_called_with(42)
+
+    def test_other_window_of_master_duel_counts(self):
+        with mock.patch.object(self.iu.win_api, "get_foreground_window", return_value=43), \
+                mock.patch.object(self.iu.win_api, "window_pid", lambda hwnd: 100):  # gleicher Prozess
+            self.assertTrue(self.iu.md_in_front(42))
+        with mock.patch.object(self.iu.win_api, "get_foreground_window", return_value=43):
+            self.assertFalse(self.iu.md_in_front(42))  # fremder Prozess
+
+    def test_no_shortcuts_when_a_window_jumps_in_front_of_the_search_bar(self):
+        automator = mock.Mock()
+        # Vor dem Klick ist Master Duel vorne, danach ein anderes Fenster (z.B. Benachrichtigung)
+        front = itertools.chain([42], itertools.repeat(7))
+        with mock.patch.object(self.iu.win_api, "get_foreground_window", lambda: next(front)), \
+                mock.patch.object(self.iu.win_api, "set_foreground_window"), \
+                mock.patch.object(self.iu, "FOCUS_TIMEOUT", 0.05), \
+                mock.patch.object(self.iu, "pyperclip"), \
+                mock.patch.object(self.iu.pyautogui, "hotkey") as hotkey:
+            with self.assertRaises(self.iu.FocusLostError):
+                self.iu.type_card_name(automator, "bonfire", {"SEARCH_BAR": [10, 20]})
+        automator.iron_grip_click.assert_called_once_with(10, 20)
+        hotkey.assert_not_called()
 
 
 class ResumeStateTest(unittest.TestCase):

@@ -183,33 +183,67 @@ def sanitize_name(name):
     return name.strip()
 
 
-def parse_clipboard():
-    text = pyperclip.paste().strip()
-    ids = []
+class DeckCodeError(ValueError):
+    """Deck-Code in der Zwischenablage ist beschädigt (lieber gar nicht importieren als ein falsches Deck)."""
 
-    if text.startswith("ydke://"):
+
+def _parse_ydke(payload: str) -> list:
+    """ydke://MAIN!EXTRA!SIDE! – Master Duel hat kein Side Deck, also nur Main und Extra."""
+    ids = []
+    for section in payload.split("!")[:2]:
+        section = section.strip()
+        if not section:
+            continue
         try:
-            payload = text[7:]
-            sections = payload.split("!")
-            for section in sections:
-                if not section:
-                    continue
-                missing_padding = len(section) % 4
-                if missing_padding:
-                    section += '=' * (4 - missing_padding)
-                data = base64.b64decode(section)
-                for i in range(0, len(data), 4):
-                    if i + 4 <= len(data):
-                        cid = struct.unpack("<I", data[i:i + 4])[0]
-                        ids.append(str(cid))
-        except Exception:
-            pass
-    else:
-        for line in text.splitlines():
-            line = line.strip()
-            if line.isdigit():
-                ids.append(line)
+            data = base64.b64decode(section + "=" * (-len(section) % 4), validate=True)
+        except ValueError as e:
+            raise DeckCodeError(f"Der YDKE-Code ist beschädigt ({e}).") from e
+        if len(data) % 4:
+            raise DeckCodeError("Der YDKE-Code ist unvollständig (abgeschnitten?).")
+        for (cid,) in struct.iter_unpack("<I", data):
+            if cid == 0:
+                raise DeckCodeError("Der YDKE-Code enthält eine ungültige Karten-ID (0).")
+            ids.append(str(cid))
     return ids
+
+
+def _parse_ydk(text: str) -> list:
+    """.ydk-Text oder einfache ID-Liste. Karten nach "!side" (Side Deck) werden ignoriert."""
+    ids = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.lower().startswith("!side"):
+            break
+        if line.isdigit():
+            ids.append(line)
+    return ids
+
+
+def parse_deck_code(text: str) -> list:
+    """
+    Karten-IDs (Main + Extra) aus einem YDKE-Link oder .ydk-Text.
+    Raises DeckCodeError, wenn ein YDKE-Code beschädigt ist. Kein Deck-Code → [].
+    """
+    text = (text or "").strip()
+    if text.startswith("ydke://"):
+        return _parse_ydke(text[len("ydke://"):])
+    return _parse_ydk(text)
+
+
+def search_text(name: str) -> str:
+    """
+    Suchbegriff fürs Suchfeld von Master Duel. Teile in spitzen Klammern ("Maliss <P> Chessy Cat") findet die
+    Suche nicht (das Eingabefeld behandelt sie als Formatierung) → nur den längsten Teil ohne sie suchen.
+    """
+    if "<" not in name and ">" not in name:
+        return name
+    parts = [p.strip() for p in re.split(r"<[^>]*>|[<>]", name)]
+    return max(parts, key=len) or name
+
+
+def parse_clipboard():
+    """Deck-Code aus der Zwischenablage (siehe parse_deck_code)."""
+    return parse_deck_code(pyperclip.paste())
 
 _ocr_cache = {}
 OCR_CACHE_LIMIT = 5000  # Bei mehreren Importen ohne Neustart nicht unbegrenzt wachsen

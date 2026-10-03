@@ -15,7 +15,7 @@ import time
 
 import requests
 
-from card_stats import BASE_DB_NAME, cards_from_api, create_tables, store_auto
+from card_stats import BASE_DB_NAME, cards_from_api, create_tables, konami_rows, store_auto
 from utils import YGOPRO_API_URL
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,10 +41,11 @@ def curated_rows(cards: dict, path: str = STARTER_LIST) -> list:
 
 
 def build(path: str = TARGET) -> int:
-    """Lädt alle Karten (eine Anfrage, ~20 MB) und schreibt die Datenbank. Returns: Anzahl Einträge."""
-    resp = requests.get(YGOPRO_API_URL, timeout=120)
+    """Lädt alle Karten (eine Anfrage, ~25 MB) und schreibt die Datenbank. Returns: Anzahl Einträge."""
+    resp = requests.get(YGOPRO_API_URL, params={"misc": "yes"}, timeout=120)  # misc: Konami-IDs
     resp.raise_for_status()
-    cards = cards_from_api(resp.json().get("data", []))
+    data = resp.json().get("data", [])
+    cards = cards_from_api(data)
     tmp = path + ".tmp"
     if os.path.exists(tmp):
         os.remove(tmp)
@@ -55,6 +56,7 @@ def build(path: str = TARGET) -> int:
         con.executemany("INSERT OR REPLACE INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         [(*info, now) for info in cards.values()])
         con.executemany("INSERT OR REPLACE INTO starter_curated VALUES (?, ?, ?)", curated_rows(cards))
+        con.executemany("INSERT OR REPLACE INTO konami VALUES (?, ?, ?)", konami_rows(data))
         store_auto(con, cards.values())  # Starter-Einstufung nach den Textregeln, mit Regel-Version
         con.commit()
         con.execute("VACUUM")
@@ -64,12 +66,24 @@ def build(path: str = TARGET) -> int:
     return len(cards)
 
 
+def _has_konami_ids(path: str) -> bool:
+    """Ältere Datenbanken haben noch keine Konami-IDs (für den Speicher-Modus) → neu bauen."""
+    try:
+        con = sqlite3.connect(path)
+        try:
+            return con.execute("SELECT COUNT(*) FROM konami").fetchone()[0] > 0
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return False
+
+
 def ensure_fresh(path: str = TARGET) -> None:
     """
     Für den Build: neu bauen, wenn die Datei fehlt, zu alt ist oder starter_list.json / die Starter-Regeln
     geändert wurden (offline → alte Datei behalten).
     """
-    if os.path.exists(path):
+    if os.path.exists(path) and _has_konami_ids(path):
         age = time.time() - os.path.getmtime(path)
         sources = (STARTER_LIST, os.path.join(PROJECT_DIR, "starter_rules.py"))
         if age < MAX_AGE_DAYS * 86400 and all(os.path.getmtime(s) <= os.path.getmtime(path) for s in sources):

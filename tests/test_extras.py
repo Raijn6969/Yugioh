@@ -407,6 +407,11 @@ def paint_deck(main_count, extra_count=0, seed=1, extra_card_after=False):
     return image
 
 
+def md_memory_unavailable():
+    import md_memory
+    return md_memory.MemoryUnavailable("Deck-Editor zu")
+
+
 def scan_of(image, main_count, extra_count=0):
     scan = make_scan(["x"] * main_count, ["y"] * extra_count)
     panel = FRAME.region(*md_layout.DECK_PANEL)
@@ -493,6 +498,32 @@ class DeckWatcherTest(unittest.TestCase):
         counts["Extra"] = 15
         self.assertIsNone(watcher.check(sct))
         self.assertIsNone(watcher.check(sct))
+
+    def test_memory_scan_is_checked_exactly_without_screen(self):
+        # Lesemethode "Speicher": Deck aus dem Speicher vergleichen, kein Bildvergleich (keine Fehlalarme)
+        image = paint_deck(40, 15)
+        watcher, reads = self.make(image, {"Main": 40, "Extra": 15})
+        watcher.scan = watcher.scan._replace(kids=([1, 2, 3], [9]))
+        deck = [[1, 2, 3], [9]]
+        selected = image.copy()  # z.B. Auswahlrahmen um die zuletzt angeklickte Karte
+        selected.paste(paint_deck(40, 15, seed=9).crop((570, 300, 650, 400)), (570, 300))
+        with mock.patch.object(deck_analysis.md_memory, "is_ready", return_value=True), \
+                mock.patch.object(deck_analysis.md_memory, "shared") as shared:
+            shared.return_value.deck = lambda: (list(deck[0]), list(deck[1]))
+            self.assertIsNone(watcher.check(FakeSct(selected)))
+            self.assertIsNone(watcher.check(FakeSct(selected)))
+            self.assertEqual(reads, [])  # keine Texterkennung
+            deck[0] = [1, 2, 3, 4]
+            self.assertEqual(watcher.check(FakeSct(image)), "Main Deck hat jetzt 4 statt 3 Karten")
+            deck[0] = [1, 5, 3]
+            self.assertEqual(watcher.check(FakeSct(image)), "Main #2 ist eine andere Karte")
+            deck[0] = [3, 2, 1]
+            self.assertEqual(watcher.check(FakeSct(image)), "Reihenfolge im Main Deck geändert")
+            deck[0] = [1, 2, 3]
+            self.assertIsNone(watcher.check(FakeSct(image)))  # wieder wie beim Scan
+            shared.return_value.deck = mock.Mock(side_effect=md_memory_unavailable())
+            watcher.check(FakeSct(image))
+        self.assertEqual(len(reads), 2)  # Speicher nicht lesbar → wieder über den Bildschirm
 
     def test_card_swap_needs_two_checks_and_clears_again(self):
         image = paint_deck(40, 15)
@@ -614,31 +645,70 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
         self.panel.set_scan(self.scan)
         header = [w.cget("text") for w in self.panel.table_head.winfo_children()]
-        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "Starter"])
+        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "Starter", ""])
         self.assertNotIn("2. Zug", self.panel.starter_odds.cget("text"))
-        self.panel.options_menu.invoke(0)  # "Spalte 2. Zug anzeigen"
+        self.panel.options_menu.invoke("Spalte „2. Zug“")
         header = [w.cget("text") for w in self.panel.table_head.winfo_children()]
-        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "2. Zug (6)", "Starter"])
-        self.assertEqual(len(self.panel._rows["1"].winfo_children()), 5)
+        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "2. Zug (6)", "Starter", ""])
+        self.assertEqual(len(self.panel._rows["1"].winfo_children()), 6)
         self.assertIn("2. Zug", self.panel.starter_odds.cget("text"))
         self.assertEqual(saved, [{"DECK_SHOW_SECOND_TURN": True, "DECK_HOVER_ANIMATION": True}])
 
+    def test_read_method_can_be_switched_in_options(self):
+        saved = []
+        self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
+        self.panel.options_menu.invoke("Speicher lesen")
+        self.assertEqual(saved[-1]["READ_METHOD"], "memory")
+        self.panel.options_menu.invoke("Texterkennung")
+        self.assertEqual(saved[-1]["READ_METHOD"], "ocr")
+
+    def test_options_are_grouped_buttons_and_stay_open_while_switching(self):
+        import options_popup
+        self.panel.save_settings = lambda: None
+        self.panel._open_options()
+        self.root.update()
+        menu = self.panel.options_menu
+        self.assertTrue(menu.is_open)
+        self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Spalte „2. Zug“",
+                                             "Analyse-Animation", "Aus Guides nachladen (online)"})
+        # Buttons einer Reihe nebeneinander
+        self.assertIs(menu.buttons["Speicher lesen"].master, menu.buttons["Texterkennung"].master)
+        menu.invoke("Speicher lesen")
+        self.assertTrue(menu.is_open)  # Umschalten lässt das Fenster offen
+        self.assertEqual(menu.buttons["Speicher lesen"]._opts["fill"], options_popup.CHOSEN)
+        self.assertEqual(menu.buttons["Texterkennung"]._opts["fill"], options_popup.OFF)
+        menu.invoke("Analyse-Animation")  # war an → aus
+        self.assertEqual(menu.buttons["Analyse-Animation"]._opts["fill"], options_popup.OFF)
+        menu.close()
+        self.assertFalse(menu.is_open)
+
     def test_animation_can_be_switched_off(self):
         self.panel.set_scan(self.scan)
-        self.panel.options_menu.invoke(1)  # "Analyse-Animation" aus
+        self.panel.options_menu.invoke("Analyse-Animation")  # aus
         self.assertFalse(self.panel.settings["DECK_HOVER_ANIMATION"])
         self.cursor = FRAME.point(*self.scan.zones[0][1][1])
         self.pump(0.3)
         self.assertEqual(self.panel.hover.phase, "done")  # Stats sofort, ohne "Analyse…"
         self.assertEqual(self.panel.hover.content.title, "Lukias")
 
+    def test_numbers_stay_aligned_with_manual_marker(self):
+        # Echter Fall: Zeilen mit "Nein ✎" schoben Anzahl und Prozent nach links
+        self.panel.set_scan(self.scan)
+        self.root.update()
+        self.panel._toggle_starter(self.panel.analysis.entry_at("Main", 0))
+        self.root.update()
+        rights = {key: [w.winfo_x() + w.winfo_width() for w in row.winfo_children()[1:]]
+                  for key, row in self.panel._rows.items()}
+        self.assertEqual(len({tuple(r) for r in rights.values()}), 1)  # alle Spalten enden überall gleich
+
     def test_starter_can_be_changed_by_click(self):
         self.panel.set_scan(self.scan)
         self.root.update()
         row = self.panel._rows["1"]
-        row.winfo_children()[-1].event_generate("<Button-1>")
+        row.winfo_children()[-2].event_generate("<Button-1>")  # "Ja"/"Nein"
         self.root.update()
         self.assertFalse(self.db.starter("1").starter)
+        self.assertEqual([w.cget("text") for w in self.panel._rows["1"].winfo_children()[-2:]], ["Nein", "✎"])
         self.assertEqual(self.panel.tiles["starter"].cget("text"), "0")
         self.panel._rows["1"].winfo_children()[-1].event_generate("<Button-3>")
         self.root.update()
@@ -666,7 +736,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(self.panel.analysis.starter(lukias).starter)
         found = Verdict("Lukias", False, "Lukias isn't a starter on his own.", "Dracotail Guide")
         with mock.patch.object(extras_panel.starter_guides, "lookup", return_value=[found]) as lookup:
-            self.panel.options_menu.invoke(2)  # "Starter aus Guides nachladen"
+            self.panel.options_menu.invoke("Aus Guides nachladen (online)")
             self.panel._guide_thread.join(5)
             self.pump(0.15)
         self.assertEqual(lookup.call_args.args[0], ["Dracotail"])  # Archetyp mit 3 Karten im Deck

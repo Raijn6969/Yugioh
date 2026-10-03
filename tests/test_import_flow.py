@@ -13,6 +13,7 @@ from unittest import mock
 import import_engine as ie
 import resume_state
 from utils import clean_text, sanitize_name
+from window_automation import UserInterrupt
 
 DECK = {  # ID → (Name, Anzahl, Typ)
     "1": ("Artmage Power Patron", 2, "Effect Monster"),
@@ -92,7 +93,7 @@ class FakeMasterDuel:
 
     def add(self, x, y, amount):
         if self.abort_after_adds is not None and self.adds >= self.abort_after_adds:
-            raise Exception("Manuelle Mausbewegung erkannt! Abbruch.")
+            raise UserInterrupt("Manuelle Mausbewegung erkannt! Abbruch.")
         self.adds += 1
         self.click(x, y)
         lost = min(self.lost_clicks.pop(self.panel, 0), amount)
@@ -199,12 +200,25 @@ class ImportFlowTest(unittest.TestCase):
             log = f.read()
         return finished, log, clipboard, core
 
+    def test_damaged_deck_code_stops_before_anything_is_clicked(self):
+        finished = {}
+        core = ie.DeckImporterCore({}, "", lambda *a: None, lambda **k: finished.update(k))
+        with mock.patch.object(ie, "parse_clipboard", side_effect=ie.DeckCodeError("Der YDKE-Code ist beschädigt.")), \
+                mock.patch.object(ie, "WindowAutomator") as automator, \
+                mock.patch.object(ie, "LOG_FILE", os.path.join(self.tmp, "md_debug.log")), \
+                mock.patch.object(ie, "pyperclip"):
+            core.execute_import()
+        automator.assert_not_called()
+        self.assertFalse(finished["success"])
+        self.assertIn("beschädigt", finished["message"])
+
     def test_full_import(self):
         game = FakeMasterDuel()
         finished, log, clipboard, _ = self.run_import(game)
 
         self.assertEqual(+game.deck, +EXPECTED_DECK)
-        self.assertEqual(finished, {"success": True, "has_errors": False, "failed_cards": [], "notes": []})
+        self.assertEqual(finished, {"success": True, "has_errors": False, "failed_cards": [], "notes": [],
+                                    "scan": None})  # ohne Kartenliste keine Kontrolle → kein Scan
         # Artmage-Gruppe + Nerva per Archetyp-Suche, Rest einzeln
         self.assertEqual(game.searches, ["artmage", sanitize_name("Ash Blossom & Joyous Spring"),
                                          sanitize_name('Maxx "C"'), "The Fallen & The Virtuous"])

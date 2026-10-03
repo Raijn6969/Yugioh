@@ -67,6 +67,11 @@ def get_md_window_size() -> Optional[Tuple[int, int]]:
 # Wird nur hier gesetzt, damit der Wert nicht von der Import-Reihenfolge abhängt.
 pyautogui.PAUSE = 0.001
 
+
+class UserInterrupt(Exception):
+    """Der Spieler hat die Maus bewegt → Import sofort anhalten (darf nirgends abgefangen werden)."""
+
+
 class WindowAutomator:
     def __init__(self, config):
         self.config = config
@@ -93,7 +98,7 @@ class WindowAutomator:
     def check_user_interruption(self):
         x, y = win_api.get_cursor_pos()
         if abs(x - self.last_bot_pos[0]) > 20 or abs(y - self.last_bot_pos[1]) > 20:
-            raise Exception("Manuelle Mausbewegung erkannt! Abbruch.")
+            raise UserInterrupt("Manuelle Mausbewegung erkannt! Abbruch.")
 
     def iron_grip_click(self, x: int, y: int, button: str = 'left'):
         self.check_user_interruption()

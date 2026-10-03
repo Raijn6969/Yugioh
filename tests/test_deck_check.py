@@ -34,6 +34,19 @@ class CardNotInDeckTest(unittest.TestCase):
         pending = {"Dracotail Flame": ("1", "Dracotail Flame", 1)}
         self.assertEqual(core._plausible_candidates(pending, "dracotailgulame", 0.85), [])
 
+    def test_cut_off_name_that_is_another_card_name(self):
+        # Echter Fall: "Wynn the Wind Charmer, Verdant" steht abgeschnitten als "Wynn the Wind Charmer" im Panel –
+        # das ist auch eine (andere) Karte, die bei der Suche nach "…, Verdant" aber gar nicht erscheinen kann
+        core = make_core()
+        core.card_db = CardDB([("1", "Wynn the Wind Charmer", "effect"),
+                               ("2", "Wynn the Wind Charmer, Verdant", "link")])
+        core._search_term = "wynnthewindcharmerverdant"
+        self.assertEqual(core._check_match_with_overrule("Wynn the Wind Charmer, Verdant", "lwynnthewindcharmer"),
+                         (True, "FUZZY"))
+        # Archetyp-Suche "wynn": Die alte Wynn kann im Ergebnis stehen → weiter ablehnen
+        core._search_term = "wynn"
+        self.assertIn("laut Kartenliste", core._wrong_card_reason("wynnthewindcharmerverdant", "lwynnthewindcharmer"))
+
     def test_own_card_read_slightly_cut_off_still_matches(self):
         core = make_check_core()
         self.assertIsNone(core._wrong_card_reason("dracotailarthalion", "dracotailarthalio"))
@@ -82,7 +95,7 @@ class FinalDeckCheckTest(unittest.TestCase):
         deck = [DeckCard("1", "Dracotail Flame", 1), DeckCard("4", "Dracotail Sting", 1),
                 DeckCard("3", "Dracotail Arthalion", 2)]
         reads = iter(reads)
-        zones = lambda self, sct, frame: [("Main", [(543, 267)], 10), ("Extra", [(543, 845)] * 4, 10)]
+        zones = lambda self, sct, frame, counts=None: [("Main", [(543, 267)], 10), ("Extra", [(543, 845)] * 4, 10)]
         searched = []
         core._search_single_card = lambda sct, a, card, added, s0, last: (searched.append(card) or True, s0, last)
         core._capture_and_ocr_slot = lambda sct, monitor: ("", "dracotailgulamel")
@@ -90,6 +103,8 @@ class FinalDeckCheckTest(unittest.TestCase):
         with mock.patch.object(md_layout, "md_frame", return_value=frame), \
                 mock.patch.object(deck_export.DeckExporter, "_plan", zones), \
                 mock.patch.object(deck_export.DeckExporter, "_read_cards", lambda *args: next(reads)), \
+                mock.patch("import_engine.win_api.set_cursor_pos") as self.park, \
+                mock.patch("import_engine.win_api.get_cursor_pos", return_value=(1292, 600)), \
                 mock.patch("import_engine.time.sleep"):
             problems = core._final_deck_check(None, automator, deck, "", "")
         right_clicks = [c for c in automator.iron_grip_click.call_args_list if c.kwargs.get("button") == "right"]
@@ -111,6 +126,39 @@ class FinalDeckCheckTest(unittest.TestCase):
             "Extra", ["Dracotail Arthalion", "Dracotail Arthalion"])
         problems, searched, right_clicks, _ = self.run_check([right])
         self.assertEqual((problems, searched, right_clicks), ([], [], []))
+
+    def test_last_read_counts_as_scan(self):
+        wrong = read("Main", ["Dracotail Sting"]) + read(
+            "Extra", ["Dracotail Arthalion", "Dracotail Gulamel", "Dracotail Gulamel", "Dracotail Gulamel"])
+        right = read("Main", ["Dracotail Flame", "Dracotail Sting"]) + read(
+            "Extra", ["Dracotail Arthalion", "Dracotail Arthalion"])
+        _, _, _, core = self.run_check([wrong, right])
+        self.assertEqual(core.final_scan.cards, right)  # Stand nach der Korrektur
+        self.park.assert_called_with(*md_layout.PARK_POINT)  # Maus neben dem Deck (fürs Deck-Fenster)
+
+    def test_memory_mode_checks_without_clicks(self):
+        core = make_check_core()
+        core.memory = mock.Mock()
+        core.memory.deck.return_value = ([101, 104], [103, 103])  # Konami-IDs: Main, Extra
+        core._kid_names = {101: "Dracotail Flame", 104: "Dracotail Sting", 103: "Dracotail Arthalion"}
+        core._kid_passcodes = {101: "1", 104: "4", 103: "3"}
+        frame = md_layout.Frame(0, 0, 1920, 1080)
+        deck = [DeckCard("1", "Dracotail Flame", 1), DeckCard("4", "Dracotail Sting", 1),
+                DeckCard("3", "Dracotail Arthalion", 2)]
+        plan = mock.Mock(return_value=[("Main", [(543, 267)] * 2, 10), ("Extra", [(543, 845)] * 2, 10)])
+        automator = mock.Mock()
+        with mock.patch.object(md_layout, "md_frame", return_value=frame), \
+                mock.patch.object(deck_export.DeckExporter, "_plan", lambda self, sct, fr, counts=None: plan(counts)), \
+                mock.patch.object(deck_export.DeckExporter, "_read_cards", side_effect=AssertionError("Klicks!")), \
+                mock.patch("import_engine.win_api.set_cursor_pos"), \
+                mock.patch("import_engine.win_api.get_cursor_pos", return_value=(1292, 600)), \
+                mock.patch("import_engine.time.sleep"):
+            problems = core._final_deck_check(None, automator, deck, "", "")
+        self.assertEqual(problems, [])
+        plan.assert_called_with((2, 2))  # Kartenzahlen aus dem Speicher statt per Texterkennung
+        automator.iron_grip_click.assert_not_called()
+        self.assertEqual([(c.zone, c.slot, c.match.cid) for c in core.final_scan.cards],
+                         [("Main", 1, "1"), ("Main", 2, "4"), ("Extra", 1, "3"), ("Extra", 2, "3")])
 
     def test_nothing_changed_when_a_card_was_not_read_safely(self):
         unsure = ExportedCard("Extra", 2, "dracotail?", CardMatch(None, "", False, "nichts erkannt"))

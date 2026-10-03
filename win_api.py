@@ -31,6 +31,8 @@ _GetClientRect = _sig(_user32.GetClientRect, [wintypes.HWND, ctypes.POINTER(wint
 _ClientToScreen = _sig(_user32.ClientToScreen, [wintypes.HWND, ctypes.POINTER(wintypes.POINT)], wintypes.BOOL)
 _IsWindow = _sig(_user32.IsWindow, [wintypes.HWND], wintypes.BOOL)
 _GetForegroundWindow = _sig(_user32.GetForegroundWindow, [], wintypes.HWND)
+_GetWindowThreadProcessId = _sig(_user32.GetWindowThreadProcessId,
+                                 [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)], wintypes.DWORD)
 _SetWindowPos = _sig(_user32.SetWindowPos, [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
                                             ctypes.c_int, wintypes.UINT], wintypes.BOOL)
 _HWND_TOPMOST = wintypes.HWND(-1)
@@ -129,6 +131,13 @@ def known_folder_path(folder_id: str) -> Optional[str]:
 
 def set_foreground_window(hwnd: int) -> bool:
     return bool(_SetForegroundWindow(hwnd))
+
+
+def window_pid(hwnd: int) -> int:
+    """Prozess-ID des Fensters, 0 wenn es das Fenster nicht gibt."""
+    pid = wintypes.DWORD(0)
+    _GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return pid.value
 
 
 def get_cursor_pos() -> Tuple[int, int]:

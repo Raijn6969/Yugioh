@@ -2003,7 +2003,7 @@
    "Exosister Stella",
    "Exosisters Magnifica"
   ],
-  "hecahand": [
+  "hecahands": [
    "Hecahands",
    "Hecahands Bait",
    "Hecahands Breus",
@@ -2036,6 +2036,12 @@
    "Primite Imperial Dragon",
    "Primite Lordly Lode",
    "Primite Roar"
+  ],
+  "red-eyes": [
+   "Red-Eyes Black Dragon",
+   "Red-Eyes Black Meteor Dragon",
+   "Red-Eyes Darkness Metal Dragon",
+   "Red-Eyes Flare Metal Dragon"
   ],
   "swordsoul": [
    "Swordsoul Blackout",

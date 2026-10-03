@@ -63,6 +63,11 @@ def create_tables(con: sqlite3.Connection) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS starter_auto (
                        id TEXT PRIMARY KEY, starter INTEGER, reason TEXT)""")
     con.execute("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)")
+    # Konamis interne Karten-ID (steht im Speicher von Master Duel) für jeden Passcode (auch Artworks)
+    con.execute("CREATE TABLE IF NOT EXISTS konami (id TEXT PRIMARY KEY, konami_id INTEGER, name TEXT)")
+    con.execute("CREATE INDEX IF NOT EXISTS konami_by_kid ON konami (konami_id)")
+    # Artworks, die nur Master Duel kennt (eigene Konami-ID, YGOPRODeck fehlt sie): im Import gelernt
+    con.execute("CREATE TABLE IF NOT EXISTS konami_alias (konami_id INTEGER PRIMARY KEY, id TEXT)")
     # Aus den Deck-Guides von Master Duel Meta nachgeladen (starter_guides)
     con.execute("""CREATE TABLE IF NOT EXISTS starter_guide (
                        id TEXT PRIMARY KEY, starter INTEGER NOT NULL, reason TEXT, quote TEXT, set_at REAL)""")
@@ -85,6 +90,18 @@ def auto_rows(cards: Iterable[CardInfo]) -> list:
 def store_auto(con: sqlite3.Connection, cards: Iterable[CardInfo]) -> None:
     con.executemany("INSERT OR REPLACE INTO starter_auto VALUES (?, ?, ?)", auto_rows(cards))
     con.execute("INSERT OR REPLACE INTO meta VALUES ('rules_version', ?)", (str(RULES_VERSION),))
+
+
+def konami_rows(data: List[dict]) -> list:
+    """YGOPRODeck-Antwort (mit misc=yes) → [(Passcode, Konami-ID, Name)] für alle Artworks."""
+    rows = []
+    for card in data:
+        kid = next((m.get("konami_id") for m in card.get("misc_info", []) if m.get("konami_id")), None)
+        if not kid:
+            continue
+        ids = {str(card.get("id"))} | {str(img.get("id")) for img in card.get("card_images", [])}
+        rows += [(cid, int(kid), card.get("name", "")) for cid in ids]
+    return rows
 
 
 def cards_from_api(data: List[dict], wanted: Optional[set] = None) -> Dict[str, CardInfo]:
@@ -214,6 +231,79 @@ class CardStatsDB:
         with self._connect() as con:
             con.executemany("INSERT OR REPLACE INTO starter_guide VALUES (?, ?, ?, ?, ?)", rows)
         return {row[0]: bool(row[1]) for row in rows}
+
+    # ── Konami-IDs (Speicher-Modus) ──
+    def konami_ids(self, passcodes: Iterable[str]) -> Dict[str, int]:
+        """{Passcode: Konami-ID}; unbekannte werden einmal online nachgeschlagen (YGOPRODeck, misc=yes)."""
+        wanted = sorted({str(p) for p in passcodes if p})
+        result = self._konami_lookup("id", wanted)
+        missing = [p for p in wanted if p not in result]
+        if missing:
+            try:
+                rows = []
+                for start in range(0, len(missing), BATCH):
+                    resp = requests.get(YGOPRO_API_URL, params={"id": ",".join(missing[start:start + BATCH]),
+                                                                "misc": "yes"}, timeout=15)
+                    if resp.status_code != 400:
+                        resp.raise_for_status()
+                        rows += konami_rows(resp.json().get("data", []))
+                with self._connect() as con:
+                    con.executemany("INSERT OR REPLACE INTO konami VALUES (?, ?, ?)", rows)
+                result.update({cid: kid for cid, kid, _ in rows if cid in missing})
+            except Exception as e:
+                dlog(f"[SPEICHER] Konami-IDs nicht nachgeladen ({e}).")
+        return result
+
+    def konami_names(self) -> Dict[int, str]:
+        """{Konami-ID: englischer Name} aller bekannten Karten (inkl. gelernter Artworks)."""
+        names: Dict[int, str] = {}
+        for base in reversed(self._sources()):  # eigene Datei zuletzt → überschreibt
+            try:
+                with self._connect(base) as con:
+                    names.update(con.execute("SELECT konami_id, name FROM konami"))
+            except sqlite3.OperationalError:
+                pass
+        aliases = self.konami_aliases()
+        base_ids = self._konami_lookup("id", sorted(set(aliases.values())))
+        names.update({kid: names[base_ids[cid]] for kid, cid in aliases.items() if base_ids.get(cid) in names})
+        return names
+
+    def konami_passcodes(self) -> Dict[int, str]:
+        """{Konami-ID: Passcode} aller bekannten Karten (bei mehreren Artworks der kleinste Passcode)."""
+        result: Dict[int, str] = {}
+        for base in reversed(self._sources()):
+            try:
+                with self._connect(base) as con:
+                    result.update(con.execute("SELECT konami_id, MIN(id) FROM konami GROUP BY konami_id"))
+            except sqlite3.OperationalError:
+                pass
+        result.update(self.konami_aliases())
+        return result
+
+    def konami_aliases(self) -> Dict[int, str]:
+        """{Konami-ID: Passcode} der Artworks, die nur Master Duel kennt (im Import gelernt)."""
+        with self._connect() as con:
+            return dict(con.execute("SELECT konami_id, id FROM konami_alias"))
+
+    def learn_konami_alias(self, konami_id: int, passcode: str) -> None:
+        """Ein Artwork aus Master Duel (eigene Konami-ID) einer Karte zuordnen – gilt ab dem nächsten Import."""
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO konami_alias VALUES (?, ?)", (int(konami_id), str(passcode)))
+
+    def _konami_lookup(self, column: str, values: List[str]) -> Dict[str, int]:
+        result: Dict[str, int] = {}
+        for base in self._sources():
+            if not values:
+                break
+            try:
+                with self._connect(base) as con:
+                    for start in range(0, len(values), 500):
+                        chunk = values[start:start + 500]
+                        result.update(con.execute(f"SELECT {column}, konami_id FROM konami WHERE {column} IN "
+                                                  f"({','.join('?' * len(chunk))})", chunk))
+            except sqlite3.OperationalError:  # ältere Datenbank ohne Tabelle
+                continue
+        return result
 
     # ── Starter ──
     def starter(self, cid: str) -> StarterInfo:
