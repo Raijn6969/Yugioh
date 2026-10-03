@@ -99,7 +99,8 @@ class OverlayTest(unittest.TestCase):
         self.pump(root, 0.1)
         self.assertTrue(app.speed_btn.winfo_manager())
         self.assertGreater(root.winfo_width(), narrow)
-        self.assertEqual(root.winfo_x() + root.winfo_width(), right)
+        if right <= root.winfo_screenwidth() - root.winfo_width():  # sonst (z.B. hochkant per RDP): an den Rand
+            self.assertEqual(root.winfo_x() + root.winfo_width(), right)
         # Tempo in den Optionen geändert → Overlay übernimmt es
         app.config["SPEED_PROFILE"] = "slow"
         app._on_settings_changed()

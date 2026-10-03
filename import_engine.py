@@ -1297,7 +1297,9 @@ class DeckImporterCore:
         Jeder Wort-Präfix jeder Karte ist ein Kandidat ("sky", "sky striker", "sky striker mecha", …). Genommen
         wird der Präfix mit den meisten Karten (bei Gleichstand der längere, er sucht genauer), dann geht es mit
         den übrigen Karten weiter. So stört z.B. "Red Reboot" die Gruppe "red eyes" nicht, und kurze erste
-        Wörter wie "Sky" (Striker) zählen auch.
+        Wörter wie "Sky" (Striker) zählen auch. Außerdem ist jedes einzelne Wort ein Kandidat, auch mitten im
+        Namen (die Suche findet es überall): "Sword Ryzeal", "Ice Ryzeal", "Ryzeal Detonator" → "ryzeal".
+        Bei gleich vielen Karten gewinnt der Namensanfang.
 
         Plural-Normalisierung: "exosisters magnifica" kommt in dieselbe Gruppe wie "exosister martha".
         Suchbegriff = echter Namensanfang (mit Leerzeichen und Bindestrichen), z.B. "kewl tune" statt "kewltune"
@@ -1309,6 +1311,7 @@ class DeckImporterCore:
         MIN_GROUP_SIZE = 3
         MIN_PREFIX_CHARS = 6
         MIN_SPECIAL_PREFIX_CHARS = 3  # Suchbegriff mit Sonderzeichen ("d/d")
+        ANYWHERE = "*"  # Kennung: einzelnes Wort irgendwo im Namen (kein Namensanfang)
 
         # Schritt 1: Alle Wort-Präfixe (normalisiert) → {Kartenindex: echter Namensanfang bis zu diesem Wort}
         candidates: Dict[tuple, Dict[int, str]] = {}
@@ -1320,6 +1323,11 @@ class DeckImporterCore:
                     break  # spitze Klammern ("<P>") findet die Suche nicht
                 key = tuple(self._normalize_word(m.group()) for m in spans[:n])
                 candidates.setdefault(key, {})[index] = name[:spans[n - 1].end()]
+            # Dazu jedes einzelne Wort, auch mitten im Namen: Die Suche findet es überall ("Sword Ryzeal",
+            # "Ice Ryzeal", "Ryzeal Detonator" → "ryzeal")
+            for m in spans:
+                if not m.group().startswith("<"):
+                    candidates.setdefault((ANYWHERE, self._normalize_word(m.group())), {})[index] = m.group()
 
         def term(key: tuple, members: List[int]) -> str:
             # Die kürzere echte Form: "exosister" steckt auch in "exosisters" ("maliss" bleibt "maliss")
@@ -1331,7 +1339,13 @@ class DeckImporterCore:
             text = term(key, members)
             if len(text) < (MIN_SPECIAL_PREFIX_CHARS if re.search(r"[^\w\s]", text) else MIN_PREFIX_CHARS):
                 return False
-            return len(key) > 1 or not any(candidates[key][i] in self._BATCH_NOISE for i in members)
+            single = len(key) == 1 or key[0] == ANYWHERE
+            return not single or not any(candidates[key][i] in self._BATCH_NOISE for i in members)
+
+        def rank(key: tuple, members: List[int]) -> tuple:
+            # meiste Karten; bei Gleichstand ein Namensanfang vor einem Wort irgendwo, dann der längere
+            anywhere = key[0] == ANYWHERE
+            return len(members), not anywhere, 1 if anywhere else len(key)
 
         # Schritt 2: Gierig die größte Gruppe nehmen, ihre Karten entfernen, weiter mit dem Rest
         taken: set = set()
@@ -1340,7 +1354,7 @@ class DeckImporterCore:
             best = None
             for key, cards in candidates.items():
                 members = [i for i in cards if i not in taken]
-                if usable(key, members) and (best is None or (len(members), len(key)) > (len(best[1]), len(best[0]))):
+                if usable(key, members) and (best is None or rank(key, members) > rank(*best)):
                     best = (key, members)
             if best is None:
                 break

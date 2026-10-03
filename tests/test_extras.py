@@ -699,7 +699,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertEqual(self.panel.handtrap_odds.cget("text"), "Mind. 1 Handtrap:  100,0 %")
         # rechts neben der Starter-Chance
         self.root.update()
-        self.assertGreater(self.panel.handtrap_odds.winfo_x(),
+        self.assertGreaterEqual(self.panel.handtrap_odds.winfo_x(),  # rechts daneben, ohne Überlappung
                            self.panel.starter_odds.winfo_x() + self.panel.starter_odds.winfo_width())
 
     def test_handtrap_can_be_changed_by_click(self):

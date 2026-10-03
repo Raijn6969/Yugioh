@@ -38,6 +38,15 @@ class BatchGroupingTest(unittest.TestCase):
         groups = {k: len(g) for k, g in make_core()._compute_batch_groups(deck).items()}
         self.assertEqual(groups, {"d/d": 5})
 
+    def test_archetype_word_in_the_middle_of_names(self):
+        # Echter Fall: Ryzeal wurde einzeln gesucht – nur 2 Karten beginnen mit "Ryzeal", 4 haben es hinten
+        names = ["Sword Ryzeal", "Node Ryzeal", "Ice Ryzeal", "Ext Ryzeal", "Ryzeal Duo Drive", "Ryzeal Detonator",
+                 "Mitsurugi Ritual", "Mitsurugi Prayers", "Mitsurugi Mirror", "Ash Blossom & Joyous Spring",
+                 "Blue-Eyes White Dragon", "Red-Eyes Black Dragon", "Dragon Shrine"]
+        deck = [DeckCard(str(i), n, 1) for i, n in enumerate(names)]
+        groups = {k: len(g) for k, g in make_core()._compute_batch_groups(deck).items()}
+        self.assertEqual(groups, {"ryzeal": 6, "mitsurugi": 3})  # "dragon" ist zu allgemein
+
     def test_generic_german_first_words_not_grouped(self):
         deck = [DeckCard(str(i), f"Schwarzer {n}", 1) for i, n in enumerate(["Ritter", "Magier", "Drache"])]
         self.assertEqual(make_core()._compute_batch_groups(deck), {})
