@@ -6,9 +6,11 @@ Lokale Mini-Datenbank für Karten-Stats (SQLite).
   damit geht alles ab dem ersten Start offline.
 - md_card_stats.db neben dem Programm: Karten, die neuer sind als die Grunddatenbank (einmalig online
   bei YGOPRODeck nachgeschlagen), Starter-Einstufungen aus den Guides von Master Duel Meta (im Deck-Fenster
-  über Optionen nachgeladen) und eigene Starter-Korrekturen aus dem Deck-Fenster (haben Vorrang).
+  über Optionen nachgeladen), eigene Starter-/Handtrap-Korrekturen aus dem Deck-Fenster (haben Vorrang) und
+  der Verlauf der importierten Decks.
 
-Ob eine Karte ein Starter ist, wird aus dem gespeicherten Kartentext abgeleitet (starter_rules).
+Ob eine Karte ein Starter bzw. eine Handtrap ist, wird aus dem gespeicherten Kartentext abgeleitet
+(starter_rules, handtrap_rules).
 """
 
 import os
@@ -23,7 +25,8 @@ import requests
 
 from app_paths import APP_DIR, BUNDLE_DIR
 from debug_log import dlog
-from starter_rules import RULES_VERSION, classify
+from handtrap_rules import classify_handtrap
+from starter_rules import EXTRA_FRAMES, RULES_VERSION, classify
 from utils import YGOPRO_API_URL
 
 DB_FILE = os.path.join(APP_DIR, "md_card_stats.db")
@@ -31,6 +34,7 @@ BASE_DB_NAME = "md_card_stats_base.db"
 BASE_DB_FILE = os.path.join(BUNDLE_DIR, BASE_DB_NAME)
 BATCH = 50  # IDs pro Anfrage (YGOPRODeck erlaubt mehrere IDs, der Link bleibt kurz genug)
 COLUMNS = "id, name, type, frame, race, level, archetype, desc"
+HISTORY_MIN_COPIES = 3  # Archetyp zählt für den Deck-Namen ab so vielen Karten
 
 
 class CardInfo(NamedTuple):
@@ -48,6 +52,24 @@ class StarterInfo(NamedTuple):
     starter: Optional[bool]  # None = unbekannt bzw. Extra Deck
     reason: str
     manual: bool              # True = von Hand im Extras-Menü gesetzt
+
+
+class HandtrapInfo(NamedTuple):
+    handtrap: Optional[bool]  # None = unbekannt bzw. Extra Deck
+    reason: str
+    manual: bool               # True = von Hand im Deck-Fenster gesetzt
+
+
+class HistoryEntry(NamedTuple):
+    id: int
+    code: str            # Deck-Code wie kopiert (YDKE-Link oder .ydk-Text) → erneut importierbar
+    name: str            # aus den Archetypen gebildet
+    archetypes: str
+    main: int
+    extra: int
+    imported_at: float
+    times: int           # wie oft importiert
+    result: str          # "ok" oder "Lücken"
 
 
 def create_tables(con: sqlite3.Connection) -> None:
@@ -71,6 +93,14 @@ def create_tables(con: sqlite3.Connection) -> None:
     # Aus den Deck-Guides von Master Duel Meta nachgeladen (starter_guides)
     con.execute("""CREATE TABLE IF NOT EXISTS starter_guide (
                        id TEXT PRIMARY KEY, starter INTEGER NOT NULL, reason TEXT, quote TEXT, set_at REAL)""")
+    con.execute("""CREATE TABLE IF NOT EXISTS handtrap_overrides (
+                       id TEXT PRIMARY KEY, handtrap INTEGER NOT NULL, set_at REAL)""")
+    # Importierte Decks (ein Eintrag pro Deck; erneuter Import desselben Decks rückt es nach oben).
+    # cards: Kartennamen fürs Suchen (englisch und in Spielsprache)
+    con.execute("""CREATE TABLE IF NOT EXISTS deck_history (
+                       id INTEGER PRIMARY KEY AUTOINCREMENT, deck_key TEXT UNIQUE, code TEXT, name TEXT,
+                       archetypes TEXT, cards TEXT, main INTEGER, extra INTEGER, imported_at REAL,
+                       times INTEGER, result TEXT)""")
 
 
 def name_key(name: str) -> str:
@@ -358,3 +388,93 @@ class CardStatsDB:
             else:
                 con.execute("INSERT OR REPLACE INTO starter_overrides VALUES (?, ?, ?)",
                             (str(cid), int(bool(value)), time.time()))
+
+    # ── Handtraps ──
+    def handtrap(self, cid: str) -> HandtrapInfo:
+        with self._connect() as con:
+            row = con.execute("SELECT handtrap FROM handtrap_overrides WHERE id = ?", (str(cid),)).fetchone()
+        if row is not None:
+            return HandtrapInfo(bool(row[0]), "von dir festgelegt", True)
+        info = self.info(cid)
+        if info is None:
+            return HandtrapInfo(None, "keine Kartendaten (offline?)", False)
+        guess = classify_handtrap(info.card_type, info.frame, info.desc, info.name)
+        return HandtrapInfo(guess.handtrap, guess.reason, False)
+
+    def set_handtrap(self, cid: str, value: Optional[bool]) -> None:
+        """Eigene Einstufung speichern; None = wieder automatisch."""
+        with self._connect() as con:
+            if value is None:
+                con.execute("DELETE FROM handtrap_overrides WHERE id = ?", (str(cid),))
+            else:
+                con.execute("INSERT OR REPLACE INTO handtrap_overrides VALUES (?, ?, ?)",
+                            (str(cid), int(bool(value)), time.time()))
+
+    # ── Verlauf der importierten Decks ──
+    def add_history(self, code: str, card_ids: Iterable[str], names: Iterable[str] = (), result: str = "ok",
+                    now: Optional[float] = None) -> int:
+        """
+        Importiertes Deck merken. Dasselbe Deck (gleiche Karten, egal in welcher Reihenfolge) noch einmal →
+        derselbe Eintrag rückt nach oben. Name = Archetypen des Decks. Returns: ID des Eintrags.
+        """
+        card_ids = [str(c) for c in card_ids]
+        key = ",".join(sorted(card_ids))
+        name, archetypes, main, extra, english = self._describe(card_ids)
+        cards = "\n".join(sorted({n for n in [*english, *names] if n}))
+        now = time.time() if now is None else now
+        with self._connect() as con:
+            con.execute("""INSERT INTO deck_history (deck_key, code, name, archetypes, cards, main, extra,
+                                                     imported_at, times, result)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+                           ON CONFLICT(deck_key) DO UPDATE SET code = excluded.code, cards = excluded.cards,
+                               imported_at = excluded.imported_at, times = times + 1, result = excluded.result""",
+                        (key, code.strip(), name, archetypes, cards, main, extra, now, result))
+            return con.execute("SELECT id FROM deck_history WHERE deck_key = ?", (key,)).fetchone()[0]
+
+    def history(self, search: str = "", limit: int = 200) -> List[HistoryEntry]:
+        """Importierte Decks, das letzte zuerst. search: alle Wörter müssen in Name, Archetyp oder Karten vorkommen."""
+        words = search.lower().split()
+        where = " AND ".join(r"LOWER(name || ' ' || archetypes || ' ' || cards) LIKE ? ESCAPE '\'"
+                             for _ in words) or "1"
+        like = ["%" + w.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%" for w in words]
+        with self._connect() as con:
+            rows = con.execute(f"""SELECT id, code, name, archetypes, main, extra, imported_at, times, result
+                                   FROM deck_history WHERE {where} ORDER BY imported_at DESC, id DESC LIMIT ?""",
+                               (*like, limit)).fetchall()
+        return [HistoryEntry(*row) for row in rows]
+
+    def delete_history(self, entry_id: int) -> None:
+        with self._connect() as con:
+            con.execute("DELETE FROM deck_history WHERE id = ?", (entry_id,))
+
+    def _describe(self, card_ids: List[str]):
+        """(Name, Archetypen, Main, Extra, englische Kartennamen) aus den gespeicherten Kartendaten."""
+        weight: Dict[str, int] = {}
+        staples = set()  # Archetypen von Handtraps (Mulcharmy, "C" …)
+        main = extra = 0
+        names = []
+        for cid in card_ids:
+            info = self.info(cid)
+            if info is None:
+                main += 1
+                continue
+            names.append(info.name)
+            if (info.frame or "").lower().startswith(EXTRA_FRAMES):
+                extra += 1
+            else:
+                main += 1
+            if info.archetype:
+                weight[info.archetype] = weight.get(info.archetype, 0) + 1
+                if classify_handtrap(info.card_type, info.frame, info.desc, info.name).handtrap:
+                    staples.add(info.archetype)
+        ranked = sorted(weight, key=lambda a: -weight[a])
+        # Name: die Archetypen mit den meisten Karten (mind. HISTORY_MIN_COPIES), höchstens zwei – ohne Handtraps
+        # (3× Maxx "C" macht noch kein „"C"“-Deck)
+        main_types = [a for a in ranked if weight[a] >= HISTORY_MIN_COPIES and a not in staples][:2]
+        if main_types:
+            name = " / ".join(main_types)
+        elif names:
+            name = max(set(names), key=lambda n: (names.count(n), n))  # häufigste Karte
+        else:
+            name = f"Deck mit {len(card_ids)} Karten"
+        return name, ", ".join(ranked), main, extra, names

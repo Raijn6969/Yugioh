@@ -2,12 +2,16 @@
 Deck-Fenster (Button "Deck" im Overlay): öffnet sich über der Kartenliste von Master Duel.
 
 Draw-Chance-Rechner: Das Deck wird einmal gescannt (wie beim Export). Danach zeigt die Liste
-für jede Karte die Chance, sie auf der Starthand zu haben, und ob sie ein Starter ist. Fährt man
+für jede Karte die Chance, sie auf der Starthand zu haben, und ob sie ein Starter bzw. eine Handtrap ist
+(dazu die Chance auf mind. 1 Starter und mind. 1 Handtrap auf der Starthand). Fährt man
 im Deck mit der Maus über eine Karte, erscheint daneben ein kleines Analyse-Fenster mit den Stats.
 Ändert sich das Deck (Kartenzahl oder Karten), meldet das Menü "bitte neu scannen".
 Optionen → "Starter aus Guides nachladen": holt die Starter-Einstufungen für das Deck aus den Guides von
 Master Duel Meta (falls die Textregeln danebenliegen) und speichert sie offline.
-Optionen → "Karten lesen": Speicher oder Texterkennung – gilt für Import, Deck-Scan und Export.
+Optionen → "Karten lesen": Speicher oder Texterkennung – gilt für Import, Deck-Scan und Export. Bei "Speicher lesen"
+steht hier auch das Tempo (nur noch Reserve für langsame PCs); bei Texterkennung sitzt es im Overlay.
+"Verlauf" (links neben Optionen): importierte Decks mit Suche; Klick auf ein Deck zeigt seine Analyse hier an
+(aus dem Deck-Code, ohne das Spiel zu lesen), "Neu scannen" liest wieder das Deck im Spiel.
 """
 
 import threading
@@ -41,6 +45,8 @@ ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation
 # Einstellung: Wie Karten gelesen werden (Import, Deck-Scan, Export); fehlt sie, fragt das Overlay beim Start
 READ_METHOD_KEY = "READ_METHOD"
 READ_METHODS = {"memory": "Speicher lesen", "ocr": "Texterkennung"}
+SPEED_KEY = "SPEED_PROFILE"
+SPEEDS = {"fast": "Schnell", "normal": "Normal", "slow": "Langsam"}
 WATCH_AFTER_HOVER = 1.5  # So lange nach dem Hover-Fenster keine Deck-Prüfung (liegt evtl. über dem Deck; schont FPS)
 GUIDE_ARCHETYPES = 3   # Guides für die häufigsten Archetypen im Deck
 GUIDE_MIN_COPIES = 3   # … mit mindestens so vielen Karten
@@ -81,7 +87,9 @@ class ExtrasPanel:
     def __init__(self, master: tk.Misc, stats_db: Optional[CardStatsDB], tesseract_cmd: str,
                  on_rescan: Callable[[], None], on_close: Callable[[], None],
                  is_active: Callable[[], bool] = lambda: True, settings: Optional[dict] = None,
-                 save_settings: Callable[[], None] = lambda: None):
+                 save_settings: Callable[[], None] = lambda: None,
+                 on_import_code: Optional[Callable[[str], None]] = None,
+                 on_copy_code: Optional[Callable[[str], None]] = None):
         self.master = master
         self.settings = settings if settings is not None else {}  # Config des Overlays (Optionen)
         self.save_settings = save_settings
@@ -90,6 +98,8 @@ class ExtrasPanel:
         self.on_rescan = on_rescan
         self.on_close = on_close
         self.is_active = is_active
+        self.on_import_code = on_import_code  # Verlauf: Deck erneut importieren
+        self.on_copy_code = on_copy_code      # Verlauf: Deck-Code kopieren
         self.s = scale = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = ("Helvetica", int(10 * scale))
         self.font_bold = ("Helvetica", int(10 * scale), "bold")
@@ -102,6 +112,9 @@ class ExtrasPanel:
         self.watcher: Optional[DeckWatcher] = None
         self.scanning = False
         self.closed = False
+        self.offline = False                   # True = Deck aus dem Verlauf (nicht das Deck im Spiel)
+        self.history = None                    # Verlauf-Fenster, None = zu
+        self._history_result = None            # (Scan, Eintrag, fehlende Stats) bzw. Fehlertext vom Laden
         self._visible = True
         self._hover_slot = None
         self._candidate = None                 # Karte unter der Maus (noch nicht angezeigt)
@@ -123,6 +136,7 @@ class ExtrasPanel:
         self.show_second = tk.BooleanVar(master=self.win, value=bool(self.settings.get(SHOW_SECOND_KEY, False)))
         self.animation = tk.BooleanVar(master=self.win, value=bool(self.settings.get(ANIMATION_KEY, True)))
         self.read_method = tk.StringVar(master=self.win, value=self.settings.get(READ_METHOD_KEY, "ocr"))
+        self.speed = tk.StringVar(master=self.win, value=self.settings.get(SPEED_KEY, "normal"))
         self._build()
         self._place_over_card_list()
         apply_frame(self.win)
@@ -137,7 +151,8 @@ class ExtrasPanel:
         header.pack(fill=tk.X)
         tk.Label(header, text="◆ DECK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="Draw-Chance & Starter", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
+        tk.Label(header, text="Draw-Chance, Starter & Handtraps", fg=MUTED, bg=PANEL, font=self.font).pack(
+            side=tk.LEFT)
         RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
@@ -145,10 +160,20 @@ class ExtrasPanel:
         self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, bg="#444444",
                                          font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.options_btn.pack(side=tk.RIGHT)
+        if self.stats_db is not None:  # Verlauf liegt in der Datenbank
+            self.history_btn = RoundedButton(header, text="Verlauf", command=self.toggle_history, bg="#00796b",
+                                             font=self.font_small, padx=int(9 * s), pady=int(3 * s),
+                                             radius=int(6 * s))
+            self.history_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
         self.options_menu.add_section("Karten lesen", "gilt für Import, Deck-Scan und Export")
         self.options_menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
                                      command=self._on_read_method_changed)
+        memory = lambda: self.read_method.get() == "memory"  # noqa: E731
+        self.options_menu.add_section("Tempo", "beim Speicher-Lesen nur Reserve: „Langsam“ für langsame PCs",
+                                      visible=memory)
+        self.options_menu.add_choice([(label, key) for key, label in SPEEDS.items()], self.speed,
+                                     command=self._on_speed_changed, visible=memory)
         self.options_menu.add_section("Anzeige")
         self.options_menu.add_toggles([("Spalte „2. Zug“", self.show_second), ("Analyse-Animation", self.animation)],
                                       command=self._on_option_changed)
@@ -161,19 +186,25 @@ class ExtrasPanel:
                                      justify=tk.LEFT, wraplength=int(480 * s))
         self.status_label.pack(fill=tk.X)
 
-        # Kacheln: Main / Extra / Starter
+        # Kacheln: Main / Extra / Starter / Handtraps
         tiles = tk.Frame(body, bg=BG)
         tiles.pack(fill=tk.X, pady=(int(6 * s), int(4 * s)))
         self.tiles = {}
-        for key, caption in (("main", "MAIN DECK"), ("extra", "EXTRA DECK"), ("starter", "STARTER")):
+        for key, caption in (("main", "MAIN DECK"), ("extra", "EXTRA DECK"), ("starter", "STARTER"),
+                             ("handtrap", "HANDTRAPS")):
             tile = tk.Frame(tiles, bg=PANEL, padx=int(8 * s), pady=int(4 * s))
             tile.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, int(6 * s)))
             value = tk.Label(tile, text="–", fg=TEXT, bg=PANEL, font=self.font_big)
             value.pack()
             tk.Label(tile, text=caption, fg=MUTED, bg=PANEL, font=self.font_small).pack()
             self.tiles[key] = value
-        self.starter_odds = tk.Label(body, text="", fg=TEXT, bg=BG, font=self.font, anchor="w", justify=tk.LEFT)
-        self.starter_odds.pack(fill=tk.X, pady=(int(2 * s), int(6 * s)))
+        # Chance auf mind. 1 Starter, rechts daneben auf mind. 1 Handtrap
+        odds = tk.Frame(body, bg=BG)
+        odds.pack(fill=tk.X, pady=(int(2 * s), int(6 * s)))
+        self.starter_odds = tk.Label(odds, text="", fg=TEXT, bg=BG, font=self.font, anchor="w", justify=tk.LEFT)
+        self.starter_odds.pack(side=tk.LEFT, anchor="n")
+        self.handtrap_odds = tk.Label(odds, text="", fg=TEXT, bg=BG, font=self.font, anchor="e", justify=tk.RIGHT)
+        self.handtrap_odds.pack(side=tk.RIGHT, anchor="n", padx=(0, int(6 * s)))
 
         # Tabelle (Spalten je nach Option, siehe _rebuild_header)
         self.table_head = tk.Frame(body, bg=PANEL)
@@ -185,6 +216,8 @@ class ExtrasPanel:
         bar = tk.Scrollbar(list_frame, command=self.list_canvas.yview)
         self.list_canvas.config(yscrollcommand=bar.set)
         bar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Kopfzeile so breit wie die Zeilen darunter (ohne Scrollleiste), sonst stehen die Überschriften versetzt
+        self.table_head.pack_configure(padx=(0, bar.winfo_reqwidth()))
         self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.list_inner = tk.Frame(self.list_canvas, bg=BG)
         self._inner_id = self.list_canvas.create_window(0, 0, window=self.list_inner, anchor="nw")
@@ -239,8 +272,12 @@ class ExtrasPanel:
         columns = [("×", int(40 * s)), (f"1. Zug ({HAND_FIRST})", percent)]
         if self.show_second.get():
             columns.append((f"2. Zug ({HAND_SECOND})", percent))
-        columns.append(("Starter", max(int(46 * s), self._label_width("Nein", self.font_bold))))
-        columns.append(("", self._label_width("✎", self.font_bold)))
+        mark = self._label_width("✎", self.font_bold)
+        columns += [("Starter", max(int(46 * s), self._label_width("Nein", self.font_bold))), ("", mark),
+                    ("Handtrap", max(self._label_width("Handtrap", self.font_small),
+                                     self._label_width("Nein", self.font_bold))), ("", mark)]
+        # Auch die Überschrift muss hineinpassen (sonst ist die Spalte in der Kopfzeile breiter als darunter)
+        columns = [(title, max(width, self._label_width(title, self.font_small))) for title, width in columns]
         self.columns = [width for _, width in columns]
         for child in self.table_head.winfo_children():
             child.destroy()
@@ -271,8 +308,14 @@ class ExtrasPanel:
         """Lesemethode für Import, Deck-Scan und Export (gilt ab dem nächsten Lesen)."""
         self.settings[READ_METHOD_KEY] = self.read_method.get()
         self.save_settings()
+        self.options_menu.rebuild()  # Tempo nur bei "Speicher lesen" (sonst im Overlay)
         self.set_status(f"Karten lesen: {READ_METHODS[self.read_method.get()]} – gilt ab dem nächsten Scan/Import",
                         NEON)
+
+    def _on_speed_changed(self) -> None:
+        self.settings[SPEED_KEY] = self.speed.get()
+        self.save_settings()
+        self.set_status(f"Tempo: {SPEEDS[self.speed.get()]}", NEON)
 
     # ── Starter aus Guides (Master Duel Meta) ──
     def load_guides(self) -> None:
@@ -325,6 +368,63 @@ class ExtrasPanel:
             self._render()
         self.set_status(text, color)
 
+    # ── Verlauf der importierten Decks ──
+    def toggle_history(self) -> None:
+        if self.history is not None:
+            self._close_history()
+            return
+        from history_panel import HistoryPanel  # importiert die Farben von hier
+        self.history = HistoryPanel(self.win, self.stats_db, on_import=self._import_code, on_copy=self._copy_code,
+                                    on_close=self._on_history_closed, on_open=self.load_history_deck,
+                                    anchor=self.history_btn)
+
+    def _close_history(self) -> None:
+        if self.history is not None:
+            self.history.close()  # ruft _on_history_closed
+
+    def _on_history_closed(self) -> None:
+        self.history = None
+
+    def _import_code(self, code: str) -> None:
+        if self.on_import_code is not None:
+            self.on_import_code(code)
+
+    def _copy_code(self, code: str) -> None:
+        if self.on_copy_code is not None:
+            self.on_copy_code(code)
+            self.set_status("Deck-Code kopiert", GREEN)
+
+    def load_history_deck(self, entry) -> None:
+        """Deck aus dem Verlauf hier anzeigen (Analyse aus dem Deck-Code, im Hintergrund – evtl. Stats online)."""
+        if self.scanning:
+            return
+        self.set_status(f"Lade „{entry.name}“ aus dem Verlauf …", NEON)
+        threading.Thread(target=self._history_worker, args=(entry,), daemon=True).start()
+
+    def _history_worker(self, entry) -> None:
+        from history_panel import deck_from_history
+        try:
+            scan = deck_from_history(entry.code, self.stats_db)
+            missing = self.stats_db.ensure(c.match.cid for c in scan.cards if c.match.cid)
+            if missing:  # erst jetzt bekannt (online nachgeladen): Namen und Main/Extra stimmen dann
+                scan = deck_from_history(entry.code, self.stats_db)
+            self._history_result = (scan, entry, missing)
+        except Exception as e:  # beschädigter Code, Datenbank gesperrt …
+            self._history_result = f"Deck aus dem Verlauf nicht lesbar: {e}"
+
+    def _show_history_result(self) -> None:
+        if self._history_result is None:
+            return
+        result, self._history_result = self._history_result, None
+        if isinstance(result, str):
+            self.set_status(result, RED)
+            return
+        scan, entry, missing = result
+        self.set_scan(scan, missing, live=False)
+        note = f" · {missing} Karte(n) ohne Stats (offline?)" if missing else ""
+        self.set_status(f"Aus dem Verlauf: {entry.name}{note} – „Neu scannen“ liest wieder das Deck im Spiel",
+                        AMBER if missing else NEON)
+
     def _table_row(self, parent: tk.Frame, bg: str, texts: List[str], colors: List[str], font) -> List[tk.Label]:
         parent.grid_columnconfigure(0, weight=1)
         labels = []
@@ -368,8 +468,11 @@ class ExtrasPanel:
         self.rescan_btn.config(state=tk.NORMAL)
         self.set_status(f"Scan nicht möglich: {message}", RED)
 
-    def set_scan(self, scan: DeckScan, missing_stats: int = 0) -> None:
+    def set_scan(self, scan: DeckScan, missing_stats: int = 0, live: bool = True) -> None:
+        """live=False: Deck aus dem Verlauf – kein Mouseover über dem Spiel und keine Prüfung auf Änderungen."""
         self.scanning = False
+        self.offline = not live
+        self._set_hover(None)
         self.rescan_btn.config(state=tk.NORMAL)
         self.analysis = DeckAnalysis(scan, self.stats_db)
         self._shown_reason = None
@@ -380,7 +483,10 @@ class ExtrasPanel:
         self.set_status(f"Deck gescannt{note}", GREEN if not note else AMBER)
         self.calc_vars["deck"].set(self.analysis.main_size or 40)
         self._render()
-        self._start_watcher(scan)
+        if live:
+            self._start_watcher(scan)
+        else:
+            self._stop_watcher()
 
     def try_reuse(self, scan: DeckScan) -> bool:
         """Liegt noch dasselbe Deck da wie beim letzten Scan? Dann ohne neuen Scan übernehmen."""
@@ -394,6 +500,8 @@ class ExtrasPanel:
         """Hat der Wächter seit dem Scan eine Änderung am Deck bemerkt? (Grund oder None)"""
         if self.analysis is None or self.scanning:
             return "noch nicht gescannt"
+        if self.offline:
+            return "Deck aus dem Verlauf angezeigt"
         return self.watcher.reason if self.watcher else None
 
     def set_visible(self, visible: bool) -> None:
@@ -414,6 +522,7 @@ class ExtrasPanel:
             return
         self.closed = True
         self._stop_watcher()
+        self._close_history()
         if self._poll_job is not None:
             try:
                 self.win.after_cancel(self._poll_job)
@@ -439,13 +548,13 @@ class ExtrasPanel:
         self.tiles["main"].config(text=str(analysis.main_size))
         self.tiles["extra"].config(text=str(analysis.sizes.get("Extra", 0)))
         self.tiles["starter"].config(text=str(starters), fg=GREEN if starters else TEXT)
-        first, second = analysis.starter_odds()
-        text = f"Mind. 1 Starter auf der Hand:  {pct(first)}"
-        if self.show_second.get():
-            text = f"Mind. 1 Starter auf der Hand:  1. Zug {pct(first)}  ·  2. Zug {pct(second)}"
+        handtraps, _ = analysis.handtrap_copies()
+        self.tiles["handtrap"].config(text=str(handtraps), fg=GREEN if handtraps else TEXT)
+        text = self._odds_text("Mind. 1 Starter auf der Hand", *analysis.starter_odds())
         if unknown:
             text += f"\n({unknown} Karte(n) ohne Einstufung nicht mitgezählt)"
         self.starter_odds.config(text=text)
+        self.handtrap_odds.config(text=self._odds_text("Mind. 1 Handtrap", *analysis.handtrap_odds()))
 
         name_font = tkfont.Font(font=self.font)
         # Breite für den Namen: Fenster minus Ränder, Scrollleiste und die Zahlen-Spalten
@@ -459,6 +568,12 @@ class ExtrasPanel:
             for i, entry in enumerate(extras):
                 self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         self.list_canvas.yview_moveto(0)
+
+    def _odds_text(self, caption: str, first: float, second: float) -> str:
+        """Mit Spalte „2. Zug“ zweizeilig, damit Starter und Handtrap nebeneinander passen."""
+        if self.show_second.get():
+            return f"{caption}:\n1. Zug {pct(first)}  ·  2. Zug {pct(second)}"
+        return f"{caption}:  {pct(first)}"
 
     def _add_row(self, entry: DeckEntry, bg: str, name_font, name_width: int) -> None:
         analysis = self.analysis
@@ -477,16 +592,22 @@ class ExtrasPanel:
                 colors.append(NEON)
             texts += [starter_text, "✎" if starter.manual else ""]
             colors += [starter_color, starter_color]
+            handtrap = stats.handtrap
+            texts += [{True: "Ja", False: "Nein", None: "?"}[handtrap.handtrap], "✎" if handtrap.manual else ""]
+            colors += [{True: GREEN, False: MUTED, None: AMBER}[handtrap.handtrap]] * 2
         else:
-            texts = [name, str(entry.copies)] + ["–"] * (len(self.columns) - 3) + ["", ""]
+            texts = [name, str(entry.copies)] + ["–"] * (len(self.columns) - 5) + [""] * 4
             colors = [MUTED] * len(texts)
         labels = self._table_row(row, bg, texts, colors, self.font)
-        for label in labels[-2:]:  # Starter + ✎
-            label.config(font=self.font_bold)
-            if entry.zone == "Main" and not entry.key.startswith("?") and self.stats_db is not None:
-                label.config(cursor="hand2")
-                label.bind("<Button-1>", lambda e, en=entry: self._toggle_starter(en))
-                label.bind("<Button-3>", lambda e, en=entry: self._reset_starter(en))
+        # Starter + ✎, Handtrap + ✎: Klick ändert die Einstufung, Rechtsklick → wieder automatisch
+        for labels_of, toggle, reset in ((labels[-4:-2], self._toggle_starter, self._reset_starter),
+                                         (labels[-2:], self._toggle_handtrap, self._reset_handtrap)):
+            for label in labels_of:
+                label.config(font=self.font_bold)
+                if entry.zone == "Main" and not entry.key.startswith("?") and self.stats_db is not None:
+                    label.config(cursor="hand2")
+                    label.bind("<Button-1>", lambda e, en=entry, f=toggle: f(en))
+                    label.bind("<Button-3>", lambda e, en=entry, f=reset: f(en))
         self._rows[entry.key] = row
         self._row_bg[entry.key] = bg
 
@@ -505,6 +626,14 @@ class ExtrasPanel:
 
     def _reset_starter(self, entry: DeckEntry) -> None:
         self.analysis.set_starter(entry, None)
+        self._render()
+
+    def _toggle_handtrap(self, entry: DeckEntry) -> None:
+        self.analysis.set_handtrap(entry, not self.analysis.handtrap(entry).handtrap)
+        self._render()
+
+    def _reset_handtrap(self, entry: DeckEntry) -> None:
+        self.analysis.set_handtrap(entry, None)
         self._render()
 
     def _highlight(self, key: Optional[str]) -> None:
@@ -554,6 +683,7 @@ class ExtrasPanel:
             self._update_hover()
             self._update_change_warning()
             self._show_guide_result()
+            self._show_history_result()
         finally:
             if not self.closed:
                 self._poll_job = self.win.after(POLL_MS, self._poll)
@@ -566,7 +696,8 @@ class ExtrasPanel:
         return frame
 
     def _update_hover(self) -> None:
-        if self.analysis is None or self.scanning or not self._visible or not self.is_active():
+        if (self.analysis is None or self.scanning or self.offline or not self._visible
+                or not self.is_active()):
             self._cursor_slot = None
             self._set_hover(None)
             return
@@ -616,7 +747,13 @@ class ExtrasPanel:
         badge = {True: ("STARTER ✓", GREEN), False: ("KEIN STARTER", MUTED), None: ("STARTER ?", AMBER)}[starter.starter]
         # Bei "kein Starter" keine Begründung (nur bei Ja bzw. unbekannt interessant)
         note = "" if starter.starter is False else ("von dir festgelegt" if starter.manual else starter.reason)
-        return HoverContent(entry.name, type_line(stats.info), rows, badge, note, warning)
+        # Handtrap nur anzeigen, wenn sie eine ist (mit Begründung)
+        handtrap = stats.handtrap
+        badge2, note2 = None, ""
+        if handtrap.handtrap:
+            badge2 = ("HANDTRAP ✓", GREEN)
+            note2 = "Handtrap: " + ("von dir festgelegt" if handtrap.manual else handtrap.reason)
+        return HoverContent(entry.name, type_line(stats.info), rows, badge, note, warning, badge2, note2)
 
     # ── Deck-Änderungen ──
     def _start_watcher(self, scan: DeckScan) -> None:

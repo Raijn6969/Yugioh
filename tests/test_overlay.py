@@ -31,7 +31,13 @@ class OverlayTest(unittest.TestCase):
             mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),
             # Abfrage der Lesemethode beim ersten Start: im Test nichts gewählt (eigener Test unten)
             mock.patch.object(Overlay, "ask_choice", return_value=None),
+            # Nie die echte Zwischenablage oder die echte Datenbank (Verlauf) des Spielers anfassen
+            mock.patch.object(Overlay.pyperclip, "paste", lambda: self.clipboard[0]),
+            mock.patch.object(Overlay.pyperclip, "copy", lambda text: self.clipboard.__setitem__(0, text)),
+            mock.patch.object(Overlay, "CardStatsDB", lambda: self.make_db()),
         ]
+        self.clipboard = [""]
+        self.db_path = os.path.join(tempfile.mkdtemp(), "stats.db")
         for p in self.patches:
             p.start()
         self.apps = []
@@ -41,6 +47,10 @@ class OverlayTest(unittest.TestCase):
             app.close()
         for p in self.patches:
             p.stop()
+
+    def make_db(self):
+        from card_stats import CardStatsDB
+        return CardStatsDB(self.db_path, fetch=lambda ids: {}, base_path=None)
 
     def write_config(self, text):
         with open(self.config_file, "w", encoding="utf-8") as f:
@@ -72,6 +82,27 @@ class OverlayTest(unittest.TestCase):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
         app.speed_menu.invoke(2)  # Langsam
+        self.assertEqual(app.speed_btn.cget("text"), "Tempo: Langsam ▾")
+        with open(self.config_file, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["SPEED_PROFILE"], "slow")
+
+    def test_speed_button_only_with_text_recognition(self):
+        # Speicher lesen: Tempo ist nur Reserve → im Deck-Fenster unter Optionen, nicht im Overlay
+        self.write_config(json.dumps({"IS_CALIBRATED": True, "READ_METHOD": "memory"}))
+        root, app = self.open_app()
+        self.assertFalse(app.speed_btn.winfo_manager())
+        narrow = root.winfo_width()
+        right = root.winfo_x() + narrow
+        # In den Optionen auf Texterkennung umgestellt → Button wieder da, Overlay breiter, rechte Kante bleibt
+        app.config["READ_METHOD"] = "ocr"
+        app._on_settings_changed()
+        self.pump(root, 0.1)
+        self.assertTrue(app.speed_btn.winfo_manager())
+        self.assertGreater(root.winfo_width(), narrow)
+        self.assertEqual(root.winfo_x() + root.winfo_width(), right)
+        # Tempo in den Optionen geändert → Overlay übernimmt es
+        app.config["SPEED_PROFILE"] = "slow"
+        app._on_settings_changed()
         self.assertEqual(app.speed_btn.cget("text"), "Tempo: Langsam ▾")
         with open(self.config_file, encoding="utf-8") as f:
             self.assertEqual(json.load(f)["SPEED_PROFILE"], "slow")
@@ -142,11 +173,12 @@ class OverlayTest(unittest.TestCase):
             def execute_scan(self):
                 self.finish_cb(scan=scan, error="")
 
-        from card_stats import StarterInfo
+        from card_stats import HandtrapInfo, StarterInfo
         stats = mock.Mock()
         stats.ensure.return_value = 0
         stats.info.return_value = None
         stats.starter.return_value = StarterInfo(True, "sucht", False)
+        stats.handtrap.return_value = HandtrapInfo(False, "", False)
         app.card_stats = stats
         with mock.patch.object(Overlay, "DeckExporter", FakeExporter),                 mock.patch("extras_panel.DeckWatcher.start", lambda self: None):
             app.toggle_extras()
@@ -237,6 +269,37 @@ class OverlayTest(unittest.TestCase):
             finish(success=True, has_errors=False, failed_cards=[], notes=[], scan=scan)
             self.pump(root, 0.1)
             self.assertIs(app._last_scan, scan)
+
+    def test_imported_deck_lands_in_history_and_can_be_imported_again(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        self.clipboard[0] = "ydke://AAAA!!!"
+        with mock.patch.object(Overlay.resume_state, "load_progress", return_value=None), \
+                mock.patch.object(Overlay, "DeckImporterCore") as core:
+            app.start_import_thread()
+            core.return_value._card_ids = ["1", "1", "2"]
+            core.return_value.deck_names = {"1": "Feuerwerk"}
+            core.call_args.args[3](success=True, has_errors=False, failed_cards=["x"], notes=[])
+            self.pump(root, 0.1)
+        entry, = self.make_db().history()
+        self.assertEqual((entry.code, entry.result, entry.main), ("ydke://AAAA!!!", "Lücken", 3))
+        self.assertEqual([e.code for e in self.make_db().history("feuerwerk")], ["ydke://AAAA!!!"])
+        # Abgebrochene Importe kommen nicht in den Verlauf
+        with mock.patch.object(Overlay.resume_state, "load_progress", return_value=None), \
+                mock.patch.object(Overlay, "DeckImporterCore") as core:
+            self.clipboard[0] = "ydke://BBBB!!!"
+            app.start_import_thread()
+            core.return_value._card_ids = ["5"]
+            core.call_args.args[3](success=False, has_errors=True, failed_cards=[], message="Abbruch")
+            self.pump(root, 0.1)
+        self.assertEqual(len(self.make_db().history()), 1)
+        # Aus dem Verlauf (im Deck-Fenster) erneut importieren: Code in die Zwischenablage, Import startet
+        self.clipboard[0] = ""
+        with mock.patch.object(app, "start_import_thread") as start:
+            app._import_from_history("ydke://AAAA!!!")
+        start.assert_called_once()
+        self.assertEqual(self.clipboard[0], "ydke://AAAA!!!")
+        self.assertFalse(hasattr(app, "history_btn"))  # Verlauf sitzt im Deck-Fenster, nicht im Overlay
 
     def test_export_reuses_scan_only_if_deck_unchanged(self):
         import deck_export

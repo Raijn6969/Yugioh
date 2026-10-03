@@ -182,6 +182,7 @@ class DeckImporterCore:
         self.resume = resume              # Gespeicherter Stand eines abgebrochenen Imports
         self._progress: Dict[str, int] = {}   # cid → eingefügte Anzahl (für "Fortsetzen")
         self._card_ids: List[str] = []
+        self.deck_names: Dict[str, str] = {}  # Passcode → Name in Spielsprache
         self.card_types: Dict[str, str] = {}
         self._deck_clean_names: set = set()  # Alle Kartennamen des Decks (clean_text)
         self._open_pool: List[DeckCard] = []  # Karten dieses Laufs (für "nebenbei einfügen")
@@ -281,6 +282,7 @@ class DeckImporterCore:
 
         original_counts = Counter(card_ids)
         cards_ready, id_to_name_map = self._resolve_card_names(original_counts, self.config.get("LANGUAGE", "en"))
+        self.deck_names = id_to_name_map  # Namen in Spielsprache (für die Suche im Verlauf)
         self._deck_clean_names = {clean_text(sanitize_name(c.name)) for c in cards_ready}
         if self.config.get("DECK_COUNT"):
             self.card_types = fetch_card_types([c.cid for c in cards_ready])

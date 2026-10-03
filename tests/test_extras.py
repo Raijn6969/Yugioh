@@ -13,8 +13,9 @@ import deck_analysis
 import deck_export
 import md_layout
 from card_db import CardMatch
-from card_stats import CardInfo, CardStatsDB, StarterInfo
+from card_stats import CardInfo, CardStatsDB, HandtrapInfo, StarterInfo
 from draw_odds import p_at_least, p_exactly
+from handtrap_rules import classify_handtrap
 from starter_rules import classify
 
 try:
@@ -141,6 +142,68 @@ class StarterRulesTest(unittest.TestCase):
                          'beschwört 2 Monster aus dem Deck ("Clown Crew" monsters)')
 
 
+# Handtraps (Kartentexte gekürzt von YGOPRODeck): (Typ, Frame, Text)
+HANDTRAPS = {
+    "Maxx \"C\"": ("Effect Monster", "effect",
+                   "(Quick Effect): You can send this card from your hand to the GY; this turn, each time your "
+                   "opponent Special Summons a monster(s), immediately draw 1 card."),
+    "Effect Veiler": ("Tuner Monster", "effect",
+                      "During your opponent's Main Phase (Quick Effect): You can send this card from your hand to the "
+                      "GY, then target 1 Effect Monster your opponent controls; negate the effects of that monster."),
+    "Ghost Mourner & Moonlit Chill": ("Tuner Monster", "effect",
+                                      "If your opponent Special Summons a monster(s) face-up (except during the Damage "
+                                      "Step): You can discard this card, then target 1 of those face-up monsters; "
+                                      "negate its effects until the end of this turn."),
+    "Infinite Impermanence": ("Trap Card", "trap",
+                              "Target 1 face-up monster your opponent controls; negate its effects. If you control no "
+                              "cards, you can activate this card from your hand."),
+    "Bystial Magnamhut": ("Effect Monster", "effect",
+                          "You can target 1 LIGHT or DARK monster in either GY; banish it, and if you do, Special "
+                          "Summon this card from your hand. This is a Quick Effect if your opponent controls a "
+                          "monster."),
+}
+NO_HANDTRAPS = {
+    "Kuriboh": ("Effect Monster", "effect",
+                "During damage calculation, if your opponent's monster attacks (Quick Effect): You can discard this "
+                "card; you take no battle damage from that battle."),
+    "Tenyi Spirit - Mapura": ("Effect Monster", "effect",
+                              "When your opponent activates a card or effect that targets a face-up non-Effect "
+                              "Monster(s) you control (Quick Effect): You can banish this card from your hand or GY; "
+                              "negate the activation."),
+    "Contact \"C\"": ("Effect Monster", "effect",
+                      "When your opponent Normal or Special Summons a monster(s): You can Special Summon this card "
+                      "from your hand to the opponent's field in Defense Position."),
+    "Mystical Space Typhoon": ("Spell Card", "spell", "Target 1 Spell/Trap on the field; destroy that target."),
+    "Solemn Judgment": ("Trap Card", "trap", "When a monster(s) would be Summoned: Pay half your LP; negate it."),
+}
+
+
+class HandtrapRulesTest(unittest.TestCase):
+    def test_handtraps(self):
+        for name, (card_type, frame, desc) in HANDTRAPS.items():
+            with self.subTest(name):
+                self.assertTrue(classify_handtrap(card_type, frame, desc, name).handtrap)
+
+    def test_no_handtraps(self):
+        # Kampf (Kuriboh), schützt nur eigene Karten (Tenyi), beschwört sich zum Gegner (Contact "C"), Zauber,
+        # normal gesetzte Falle
+        for name, (card_type, frame, desc) in NO_HANDTRAPS.items():
+            with self.subTest(name):
+                self.assertFalse(classify_handtrap(card_type, frame, desc, name).handtrap)
+        self.assertIsNone(guess_handtrap("arthalion").handtrap)
+        self.assertFalse(guess_handtrap("lukias").handtrap)
+
+    def test_reason(self):
+        self.assertEqual(guess_handtrap("ash").reason, "im Zug des Gegners aus der Hand (abwerfen) – negiert")
+        self.assertEqual(classify_handtrap(*HANDTRAPS["Infinite Impermanence"]).reason,
+                         "Falle, aus der Hand aktivierbar")
+
+
+def guess_handtrap(key):
+    card_type, frame, _, _, desc = TEXTS[key]
+    return classify_handtrap(card_type, frame, desc)
+
+
 def info(cid, key):
     card_type, frame, level, race, desc = TEXTS[key]
     return CardInfo(cid, key, card_type, frame, race, level, "", desc)
@@ -247,6 +310,41 @@ class CardStatsDbTest(unittest.TestCase):
         again.set_starter("2", None)
         self.assertFalse(again.starter("2").starter)
 
+    def test_handtrap_and_own_rating(self):
+        db = self.make_db()
+        db.ensure(["1", "2"])
+        self.assertEqual(db.handtrap("2").handtrap, True)   # Ash
+        self.assertEqual(db.handtrap("1").handtrap, False)  # Lukias
+        db.set_handtrap("1", True)
+        self.assertEqual(self.make_db().handtrap("1"), (True, "von dir festgelegt", True))
+        db.set_handtrap("1", None)
+        self.assertFalse(db.handtrap("1").handtrap)
+
+    def test_history_latest_first_and_search(self):
+        db = CardStatsDB(self.path, base_path=None, fetch=lambda ids: {
+            "1": info("1", "lukias")._replace(name="Dracotail Lukias", archetype="Dracotail"),
+            "2": info("2", "ash")._replace(name="Ash Blossom & Joyous Spring"),
+            "3": info("3", "arthalion")._replace(name="Dracotail Arthalion", archetype="Dracotail"),
+            "4": info("4", "saji")._replace(name="Mitsurugi no Saji", archetype="Mitsurugi")})
+        db.ensure(["1", "2", "3", "4"])
+        db.add_history("ydke://draco", ["1", "1", "1", "2", "3"], names=["Dracoschwanz Lukias"], now=100)
+        db.add_history("ydke://mitsu", ["4", "4", "4", "2"], result="Lücken", now=200)
+        first, second = db.history()
+        self.assertEqual((first.name, first.code, first.result), ("Mitsurugi", "ydke://mitsu", "Lücken"))
+        self.assertEqual((second.name, second.main, second.extra), ("Dracotail", 4, 1))
+        # Dasselbe Deck (andere Reihenfolge) noch einmal → derselbe Eintrag, wieder oben
+        db.add_history("ydke://draco2", ["3", "2", "1", "1", "1"], names=["Dracoschwanz Lukias"], now=300)
+        latest = db.history()
+        self.assertEqual([(e.name, e.times) for e in latest], [("Dracotail", 2), ("Mitsurugi", 1)])
+        self.assertEqual(latest[0].code, "ydke://draco2")
+        # Suche: Name, Archetyp, Karten (englisch und Spielsprache), alle Wörter; Sonderzeichen wörtlich
+        self.assertEqual([e.name for e in db.history("ash")], ["Dracotail", "Mitsurugi"])
+        self.assertEqual([e.name for e in db.history("ASH saji")], ["Mitsurugi"])
+        self.assertEqual([e.name for e in db.history("dracoschwanz")], ["Dracotail"])
+        self.assertEqual(db.history("100%"), [])
+        db.delete_history(latest[0].id)
+        self.assertEqual([e.name for e in db.history()], ["Mitsurugi"])
+
     def test_guide_rating_beats_rules_but_not_own_rating(self):
         from starter_guides import Verdict
         db = CardStatsDB(self.path, fetch=lambda ids: {"1": info("1", "lukias")._replace(name="Maliss <P> Dormouse")},
@@ -340,6 +438,8 @@ class DeckAnalysisTest(unittest.TestCase):
         self.db = mock.Mock()
         lukias = self.scan.cards[0].match.cid
         self.db.starter.side_effect = lambda cid: StarterInfo(cid == lukias, "", False)
+        ash = self.scan.cards[3].match.cid
+        self.db.handtrap.side_effect = lambda cid: HandtrapInfo(cid == ash, "", False)
         self.analysis = deck_analysis.DeckAnalysis(self.scan, self.db)
 
     def test_copies_are_grouped_in_deck_order(self):
@@ -356,6 +456,12 @@ class DeckAnalysisTest(unittest.TestCase):
         self.assertEqual(self.analysis.starter_copies(), (3, 1))  # 1 nicht erkannte Karte
         self.assertAlmostEqual(self.analysis.starter_odds()[0], 0.3376, places=4)
         self.assertIsNone(self.analysis.starter(self.analysis.entry_at("Extra", 0)).starter)
+
+    def test_handtrap_odds(self):
+        self.assertEqual(self.analysis.handtrap_copies(), (3, 1))
+        self.assertAlmostEqual(self.analysis.handtrap_odds()[0], 0.3376, places=4)
+        self.assertAlmostEqual(self.analysis.handtrap_odds()[1], 0.3943, places=4)
+        self.assertTrue(self.analysis.stats(self.analysis.entry_at("Main", 3)).handtrap.handtrap)
 
 
 class SlotGeometryTest(unittest.TestCase):
@@ -537,6 +643,15 @@ class DeckWatcherTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
+class ImmediateThread:
+    """Ersatz für threading.Thread: läuft sofort (Tests ohne Warten)."""
+    def __init__(self, target, args=(), daemon=None):
+        self.target, self.args = target, args
+
+    def start(self):
+        self.target(*self.args)
+
+
 class ExtrasPanelTest(unittest.TestCase):
     def setUp(self):
         import extras_panel
@@ -579,6 +694,61 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertEqual(len(self.panel._rows), 1 + 1 + 35 + 1)  # Lukias, Ash, 35 andere, Arthalion
         self.assertEqual(self.panel.tiles["main"].cget("text"), "40")
         self.assertEqual(self.panel.tiles["starter"].cget("text"), "3")
+        self.assertEqual(self.panel.tiles["handtrap"].cget("text"), "37")  # Ash ×2 + 35 andere (Text von Ash)
+        self.assertEqual(self.panel.starter_odds.cget("text"), "Mind. 1 Starter auf der Hand:  33,8 %")
+        self.assertEqual(self.panel.handtrap_odds.cget("text"), "Mind. 1 Handtrap:  100,0 %")
+        # rechts neben der Starter-Chance
+        self.root.update()
+        self.assertGreater(self.panel.handtrap_odds.winfo_x(),
+                           self.panel.starter_odds.winfo_x() + self.panel.starter_odds.winfo_width())
+
+    def test_handtrap_can_be_changed_by_click(self):
+        self.panel.set_scan(self.scan)
+        self.root.update()
+        self.panel._rows["1"].winfo_children()[-2].event_generate("<Button-1>")  # Handtrap "Nein" → "Ja"
+        self.root.update()
+        self.assertTrue(self.db.handtrap("1").handtrap)
+        self.assertEqual([w.cget("text") for w in self.panel._rows["1"].winfo_children()[-2:]], ["Ja", "✎"])
+        self.assertEqual(self.panel.tiles["handtrap"].cget("text"), "40")
+        self.assertEqual(self.panel._hover_content(self.panel.analysis.entry_at("Main", 0)).badge2[0], "HANDTRAP ✓")
+        self.panel._rows["1"].winfo_children()[-1].event_generate("<Button-3>")
+        self.root.update()
+        self.assertFalse(self.db.handtrap("1").handtrap)
+
+    def test_history_button_left_of_options_opens_deck_without_game(self):
+        import extras_panel
+        imported = []
+        self.panel.on_import_code = imported.append
+        self.root.update()
+        # links neben "Optionen"
+        self.assertLess(self.panel.history_btn.winfo_x() + self.panel.history_btn.winfo_width(),
+                        self.panel.options_btn.winfo_x() + 1)
+        ydk = "#main\n" + "1\n" * 3 + "2\n" * 2 + "#extra\n9\n!side\n"
+        self.db.add_history(ydk, ["1", "1", "1", "2", "2", "9"], now=1)
+        self.panel.history_btn.invoke()
+        history = self.panel.history
+        self.assertEqual([e.name for e in history.entries], ["lukias"])
+        with mock.patch.object(extras_panel.threading, "Thread", ImmediateThread):
+            history._open(history.entries[0])  # Klick auf das Deck
+        self.pump(0.1)
+        self.assertIsNone(self.panel.history)
+        analysis = self.panel.analysis
+        self.assertEqual((analysis.main_size, [(e.key, e.copies) for e in analysis.entries()]), (6, [("1", 3), ("2", 2), ("9", 1)]))
+        self.assertTrue(self.panel.offline)
+        self.assertIsNone(self.panel.watcher)  # nicht das Deck im Spiel → keine Prüfung, kein Mouseover
+        self.assertIn("Aus dem Verlauf", self.panel.status_label.cget("text"))
+        self.assertEqual(self.panel.change_reason(), "Deck aus dem Verlauf angezeigt")  # Export liest neu
+        self.cursor = FRAME.point(*self.scan.zones[0][1][0])
+        self.pump(0.3)
+        self.assertFalse(self.panel.hover.visible)
+        # Importieren aus dem Verlauf
+        self.panel.toggle_history()
+        self.panel.history._import(self.panel.history.entries[0])
+        self.assertEqual(imported, [ydk.strip()])
+        # Neu scannen → wieder das Deck im Spiel
+        self.panel.set_scan(self.scan)
+        self.assertFalse(self.panel.offline)
+        self.assertIsNotNone(self.panel.watcher)
 
     def test_hover_is_raised_above_other_topmost_windows(self):
         import hover_card
@@ -639,19 +809,23 @@ class ExtrasPanelTest(unittest.TestCase):
         ash = self.panel.analysis.entry_at("Main", 3)
         content = self.panel._hover_content(ash)
         self.assertEqual((content.badge[0], content.badge_note), ("KEIN STARTER", ""))
+        self.assertEqual(content.badge2[0], "HANDTRAP ✓")
+        self.assertIn("abwerfen", content.badge2_note)
+        self.assertIsNone(self.panel._hover_content(self.panel.analysis.entry_at("Main", 0)).badge2)
 
     def test_second_turn_column_is_an_option(self):
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
         self.panel.set_scan(self.scan)
         header = [w.cget("text") for w in self.panel.table_head.winfo_children()]
-        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "Starter", ""])
+        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "Starter", "", "Handtrap", ""])
         self.assertNotIn("2. Zug", self.panel.starter_odds.cget("text"))
         self.panel.options_menu.invoke("Spalte „2. Zug“")
         header = [w.cget("text") for w in self.panel.table_head.winfo_children()]
-        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "2. Zug (6)", "Starter", ""])
-        self.assertEqual(len(self.panel._rows["1"].winfo_children()), 6)
+        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "2. Zug (6)", "Starter", "", "Handtrap", ""])
+        self.assertEqual(len(self.panel._rows["1"].winfo_children()), 8)
         self.assertIn("2. Zug", self.panel.starter_odds.cget("text"))
+        self.assertIn("2. Zug", self.panel.handtrap_odds.cget("text"))
         self.assertEqual(saved, [{"DECK_SHOW_SECOND_TURN": True, "DECK_HOVER_ANIMATION": True}])
 
     def test_read_method_can_be_switched_in_options(self):
@@ -682,6 +856,23 @@ class ExtrasPanelTest(unittest.TestCase):
         menu.close()
         self.assertFalse(menu.is_open)
 
+    def test_speed_option_only_when_reading_memory(self):
+        saved = []
+        self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
+        self.panel._open_options()
+        self.root.update()
+        menu = self.panel.options_menu
+        self.assertNotIn("Langsam", menu.buttons)  # Texterkennung: Tempo sitzt im Overlay
+        menu.invoke("Speicher lesen")
+        self.assertTrue(menu.is_open)
+        self.assertIn("Langsam", menu.buttons)
+        menu.invoke("Langsam")
+        self.assertEqual(saved[-1]["SPEED_PROFILE"], "slow")
+        self.assertEqual(menu.buttons["Langsam"]._opts["fill"], "#007acc")
+        menu.invoke("Texterkennung")
+        self.assertNotIn("Langsam", menu.buttons)
+        menu.close()
+
     def test_animation_can_be_switched_off(self):
         self.panel.set_scan(self.scan)
         self.panel.options_menu.invoke("Analyse-Animation")  # aus
@@ -696,21 +887,26 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.set_scan(self.scan)
         self.root.update()
         self.panel._toggle_starter(self.panel.analysis.entry_at("Main", 0))
+        self.panel._toggle_handtrap(self.panel.analysis.entry_at("Main", 0))
         self.root.update()
         rights = {key: [w.winfo_x() + w.winfo_width() for w in row.winfo_children()[1:]]
                   for key, row in self.panel._rows.items()}
         self.assertEqual(len({tuple(r) for r in rights.values()}), 1)  # alle Spalten enden überall gleich
+        # Überschriften stehen genau über den Werten (Kopfzeile ohne Scrollleiste)
+        head = [w.winfo_rootx() + w.winfo_width() for w in self.panel.table_head.winfo_children()[1:]]
+        row = [w.winfo_rootx() + w.winfo_width() for w in self.panel._rows["1"].winfo_children()[1:]]
+        self.assertEqual(head, row)
 
     def test_starter_can_be_changed_by_click(self):
         self.panel.set_scan(self.scan)
         self.root.update()
         row = self.panel._rows["1"]
-        row.winfo_children()[-2].event_generate("<Button-1>")  # "Ja"/"Nein"
+        row.winfo_children()[-4].event_generate("<Button-1>")  # Starter "Ja"/"Nein"
         self.root.update()
         self.assertFalse(self.db.starter("1").starter)
-        self.assertEqual([w.cget("text") for w in self.panel._rows["1"].winfo_children()[-2:]], ["Nein", "✎"])
+        self.assertEqual([w.cget("text") for w in self.panel._rows["1"].winfo_children()[-4:-2]], ["Nein", "✎"])
         self.assertEqual(self.panel.tiles["starter"].cget("text"), "0")
-        self.panel._rows["1"].winfo_children()[-1].event_generate("<Button-3>")
+        self.panel._rows["1"].winfo_children()[-3].event_generate("<Button-3>")
         self.root.update()
         self.assertTrue(self.db.starter("1").starter)
 

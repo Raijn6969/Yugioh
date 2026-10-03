@@ -5,6 +5,8 @@ in Abschnitte gegliedert. Je Abschnitt eine Reihe Buttons nebeneinander:
   - Schalter (add_toggles): an/aus, an = grün mit ✓
   - Aktionen (add_buttons): führen etwas aus und schließen das Fenster
 Auswahl und Schalter lassen das Fenster offen, damit man die Änderung sieht. invoke(Beschriftung) wie ein Klick.
+visible=Funktion: Zeile nur anzeigen, wenn sie True liefert (z.B. Tempo nur bei "Speicher lesen"); rebuild()
+baut ein offenes Fenster danach neu auf.
 """
 
 import time
@@ -35,13 +37,14 @@ class OptionsPopup:
         self._opened_at = 0.0
 
     # ── Inhalt ──
-    def add_section(self, title: str, hint: str = "") -> None:
-        self.rows.append({"kind": "section", "title": title, "hint": hint})
+    def add_section(self, title: str, hint: str = "", visible: Optional[Callable[[], bool]] = None) -> None:
+        self.rows.append({"kind": "section", "title": title, "hint": hint, "visible": visible})
 
     def add_choice(self, options: Sequence[Tuple[str, object]], variable: tk.Variable,
-                   command: Optional[Callable] = None) -> None:
+                   command: Optional[Callable] = None, visible: Optional[Callable[[], bool]] = None) -> None:
         """Eine von mehreren Möglichkeiten: [(Beschriftung, Wert)]."""
-        self.rows.append({"kind": "choice", "items": list(options), "variable": variable, "command": command})
+        self.rows.append({"kind": "choice", "items": list(options), "variable": variable, "command": command,
+                          "visible": visible})
 
     def add_toggles(self, toggles: Sequence[Tuple[str, tk.BooleanVar]], command: Optional[Callable] = None) -> None:
         """An/Aus-Schalter nebeneinander: [(Beschriftung, Variable)]."""
@@ -53,7 +56,7 @@ class OptionsPopup:
 
     def invoke(self, label: str):
         """Wie ein Klick auf den Button mit dieser Beschriftung."""
-        for row in self.rows:
+        for row in self.visible_rows():
             for item in row.get("items", []):
                 if item[0] != label:
                     continue
@@ -67,6 +70,9 @@ class OptionsPopup:
                 self._refresh()
                 return row["command"]() if row["command"] else None
         raise KeyError(label)
+
+    def visible_rows(self) -> List[dict]:
+        return [row for row in self.rows if row.get("visible") is None or row["visible"]()]
 
     # ── Anzeige ──
     @property
@@ -82,12 +88,8 @@ class OptionsPopup:
         win = tk.Toplevel(self.master, bg=BG)
         win.overrideredirect(True)
         win.wm_attributes("-topmost", True)
-        body = tk.Frame(win, bg=BG, padx=int(12 * s), pady=int(8 * s))
-        body.pack()
-        self.window, self.buttons = win, {}
-        for index, row in enumerate(self.rows):
-            self._build_row(body, row, first=index == 0)
-        self._refresh()
+        self.window, self._anchor = win, widget
+        self._build_body()
         win.update_idletasks()
         x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - win.winfo_reqwidth())
         y = widget.winfo_rooty() + widget.winfo_height() + self.gap
@@ -97,6 +99,27 @@ class OptionsPopup:
         win.bind("<FocusOut>", self._on_focus_out)
         win.focus_force()
         self._opened_at = time.monotonic()
+
+    def rebuild(self) -> None:
+        """Offenes Fenster neu aufbauen (z.B. weil eine Zeile jetzt sichtbar/unsichtbar ist)."""
+        if not self.is_open:
+            return
+        for child in self.window.winfo_children():
+            child.destroy()
+        self._build_body()
+        self.window.update_idletasks()
+        widget = self._anchor
+        x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - self.window.winfo_reqwidth())
+        self.window.geometry(f"+{max(0, x)}+{self.window.winfo_rooty()}")
+
+    def _build_body(self) -> None:
+        s = self.s
+        body = tk.Frame(self.window, bg=BG, padx=int(12 * s), pady=int(8 * s))
+        body.pack()
+        self.buttons = {}
+        for index, row in enumerate(self.visible_rows()):
+            self._build_row(body, row, first=index == 0)
+        self._refresh()
 
     def close(self) -> None:
         if self.is_open:

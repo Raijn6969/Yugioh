@@ -1,6 +1,6 @@
 """
 Deck-Analyse für das Extras-Menü: Welche Karte liegt unter der Maus, wie oft ist sie im Deck,
-wie wahrscheinlich ist sie auf der Starthand, ist sie ein Starter? Und: Hat sich das Deck seit
+wie wahrscheinlich ist sie auf der Starthand, ist sie ein Starter oder eine Handtrap? Und: Hat sich das Deck seit
 dem Einlesen verändert?
 """
 
@@ -17,7 +17,7 @@ import win_api
 from auto_calibration import count_region, read_deck_count
 from app_paths import LOG_FILE
 from debug_log import append
-from card_stats import CardInfo, CardStatsDB, StarterInfo
+from card_stats import CardInfo, CardStatsDB, HandtrapInfo, StarterInfo
 from deck_export import (DeckScan, background_mask, card_center_box, check_layout, signature,
                          signature_distance)
 from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
@@ -41,6 +41,7 @@ class CardStats(NamedTuple):
     two_first: float    # mind. 2 Kopien bei 5 Karten
     starter: StarterInfo
     info: Optional[CardInfo]
+    handtrap: HandtrapInfo
 
 
 class DeckAnalysis:
@@ -61,6 +62,7 @@ class DeckAnalysis:
             self._entries[zone] = OrderedDict(
                 (key, DeckEntry(key, name, zone, len(slots), tuple(slots))) for key, (name, slots) in cards.items())
         self._starter_cache: Dict[str, StarterInfo] = {}
+        self._handtrap_cache: Dict[str, HandtrapInfo] = {}
 
     # ── Karten ──
     @property
@@ -91,34 +93,62 @@ class DeckAnalysis:
     def reload_starters(self) -> None:
         """Nach neuen Einstufungen (z.B. aus Guides) alles neu nachschlagen."""
         self._starter_cache.clear()
+        self._handtrap_cache.clear()
 
     def set_starter(self, entry: DeckEntry, value: Optional[bool]) -> None:
         if self.stats_db is not None and not entry.key.startswith("?"):
             self.stats_db.set_starter(entry.key, value)
             self._starter_cache.pop(entry.key, None)
 
+    def handtrap(self, entry: DeckEntry) -> HandtrapInfo:
+        if entry.zone != "Main":
+            return HandtrapInfo(None, "Extra Deck – wird nicht gezogen", False)
+        if self.stats_db is None or entry.key.startswith("?"):
+            return HandtrapInfo(None, "Karte nicht erkannt", False)
+        if entry.key not in self._handtrap_cache:
+            self._handtrap_cache[entry.key] = self.stats_db.handtrap(entry.key)
+        return self._handtrap_cache[entry.key]
+
+    def set_handtrap(self, entry: DeckEntry, value: Optional[bool]) -> None:
+        if self.stats_db is not None and not entry.key.startswith("?"):
+            self.stats_db.set_handtrap(entry.key, value)
+            self._handtrap_cache.pop(entry.key, None)
+
     # ── Wahrscheinlichkeiten ──
     def stats(self, entry: DeckEntry) -> CardStats:
         deck = self.main_size
         copies = entry.copies if entry.zone == "Main" else 0
         return CardStats(entry, deck, p_at_least(deck, copies, HAND_FIRST), p_at_least(deck, copies, HAND_SECOND),
-                         p_at_least(deck, copies, HAND_FIRST, 2), self.starter(entry), self.info(entry))
+                         p_at_least(deck, copies, HAND_FIRST, 2), self.starter(entry), self.info(entry),
+                         self.handtrap(entry))
 
     def starter_copies(self) -> Tuple[int, int]:
         """(Starter im Main Deck, davon unbekannt)"""
-        starters = unknown = 0
-        for entry in self.entries("Main"):
-            value = self.starter(entry).starter
-            if value:
-                starters += entry.copies
-            elif value is None:
-                unknown += entry.copies
-        return starters, unknown
+        return self._copies(lambda entry: self.starter(entry).starter)
 
     def starter_odds(self) -> Tuple[float, float]:
-        starters, _ = self.starter_copies()
-        return (p_at_least(self.main_size, starters, HAND_FIRST),
-                p_at_least(self.main_size, starters, HAND_SECOND))
+        return self._odds(self.starter_copies()[0])
+
+    def handtrap_copies(self) -> Tuple[int, int]:
+        """(Handtraps im Main Deck, davon unbekannt)"""
+        return self._copies(lambda entry: self.handtrap(entry).handtrap)
+
+    def handtrap_odds(self) -> Tuple[float, float]:
+        return self._odds(self.handtrap_copies()[0])
+
+    def _copies(self, value_of: Callable[[DeckEntry], Optional[bool]]) -> Tuple[int, int]:
+        hits = unknown = 0
+        for entry in self.entries("Main"):
+            value = value_of(entry)
+            if value:
+                hits += entry.copies
+            elif value is None:
+                unknown += entry.copies
+        return hits, unknown
+
+    def _odds(self, copies: int) -> Tuple[float, float]:
+        """Mind. 1 davon auf der Starthand: (1. Zug, 2. Zug)"""
+        return p_at_least(self.main_size, copies, HAND_FIRST), p_at_least(self.main_size, copies, HAND_SECOND)
 
 
 # ── Raster: Bildschirm ↔ Kartenplatz ──

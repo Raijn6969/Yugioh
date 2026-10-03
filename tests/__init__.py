@@ -29,3 +29,19 @@ for _name in ("press", "hotkey", "typewrite", "write", "keyDown", "keyUp", "clic
     setattr(pyautogui, _name, _no_real_input)
 for _name in ("set_foreground_window", "set_cursor_pos", "mouse_event", "mouse_wheel"):
     setattr(win_api, _name, _no_real_input)
+
+# Tk-Tests legen eigene Hauptfenster an. Bleiben davon Python-Zyklen übrig, räumt die Speicherbereinigung sie
+# irgendwann auf – evtl. in einem fremden Thread eines späteren Tests, und dann stürzt Tk ab ("Tcl_AsyncDelete:
+# async handler deleted by the wrong thread"). Deshalb vor jedem Test im Hauptthread aufräumen.
+import gc  # noqa: E402
+import unittest  # noqa: E402
+
+_run_test = unittest.TestCase.run
+
+
+def _run_after_cleanup(self, result=None):
+    gc.collect()
+    return _run_test(self, result)
+
+
+unittest.TestCase.run = _run_after_cleanup

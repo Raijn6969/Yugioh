@@ -46,6 +46,8 @@ class HoverContent(NamedTuple):
     badge: Optional[Tuple[str, str]] = None   # (Text, Farbe), z.B. ("STARTER ✓", GREEN)
     badge_note: str = ""
     warning: str = ""
+    badge2: Optional[Tuple[str, str]] = None  # zweites Abzeichen daneben, z.B. ("HANDTRAP ✓", GREEN)
+    badge2_note: str = ""
 
 
 class HoverCard:
@@ -254,19 +256,23 @@ class HoverCard:
                                    width=0)
             y += int(19 * s)
 
-        if content.badge:
-            text, color = content.badge
+        badges = [b for b in (content.badge, content.badge2) if b]
+        if badges:
             y += int(4 * s)
-            label = c.create_text(pad + int(8 * s), y, text=text, fill=color, font=self.font_mono_bold, anchor="w")
-            x1, y1, x2, y2 = c.bbox(label)
-            box = c.create_rectangle(x1 - int(8 * s), y1 - int(3 * s), x2 + int(8 * s), y2 + int(3 * s),
-                                     outline=color, width=max(1, int(s)))
-            c.tag_lower(box)
-            y = y2 + int(8 * s)
-            if content.badge_note:  # Begründung darunter in voller Breite
-                note = c.create_text(pad, y, text=content.badge_note, fill=MUTED, font=self.font_small,
-                                     anchor="nw", width=w - 2 * pad)
-                y = c.bbox(note)[3] + int(6 * s)
+            x, bottom = pad + int(8 * s), y
+            for text, color in badges:  # nebeneinander
+                label = c.create_text(x, y, text=text, fill=color, font=self.font_mono_bold, anchor="w")
+                x1, y1, x2, y2 = c.bbox(label)
+                box = c.create_rectangle(x1 - int(8 * s), y1 - int(3 * s), x2 + int(8 * s), y2 + int(3 * s),
+                                         outline=color, width=max(1, int(s)))
+                c.tag_lower(box)
+                x, bottom = x2 + int(24 * s), max(bottom, y2)
+            y = bottom + int(8 * s)
+            for text in (content.badge_note, content.badge2_note):  # Begründungen darunter in voller Breite
+                if text:
+                    note = c.create_text(pad, y, text=text, fill=MUTED, font=self.font_small,
+                                         anchor="nw", width=w - 2 * pad)
+                    y = c.bbox(note)[3] + int(6 * s)
         if content.warning:
             warn = c.create_text(pad, y, text=f"⚠ {content.warning}", fill=AMBER, font=self.font_small, anchor="nw",
                                  width=w - 2 * pad)

@@ -1,5 +1,8 @@
 """
-Overlay-Fenster des Master Duel Deck Importers (Start, Kalibrierung, Tempo, Timer).
+Overlay-Fenster des Master Duel Deck Importers (Import, Export, Deck-Fenster, Kalibrierung, Tempo, Timer).
+Fertige Importe kommen in den Verlauf (Deck-Fenster → „Verlauf“).
+Sichtbar nur, wenn Master Duel vorne ist und den Deck-Editor zeigt (editor_watch), während eines Imports/Exports
+oder wenn ein Fenster des Importers selbst vorne ist.
 """
 
 import ctypes
@@ -16,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import json
+import pyperclip
 import win32gui
 import win32process
 from PIL import ImageTk
@@ -40,6 +44,7 @@ from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message
 from dark_menu import DarkMenu
+from editor_watch import EditorWatcher
 from window_style import apply_frame
 from rounded_button import RoundedButton
 from tray import TrayIcon
@@ -71,10 +76,14 @@ class MasterDuelImporter:
         self._position_warning = False  # Zeigt der Status gerade die Warnung "verdeckt …"?
         self._drag_offset = None  # Mausposition im Fenster beim Start des Verschiebens
         self.extras = None       # Extras-Menü (über der Kartenliste), None = zu
+        self._import_code = ""   # Deck-Code des laufenden Imports (kommt danach in den Verlauf)
+        self._core = None        # laufender bzw. letzter Import
         self.card_stats = None   # Lokale Karten-Datenbank (erst beim ersten Öffnen der Extras)
         self._last_scan = None   # Letzter Deck-Scan der Extras (wird übernommen, wenn das Deck gleich ist)
         self._memory_thread = None    # Vorladen für den Speicher-Modus (läuft im Hintergrund)
         self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
+        # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
+        self.editor_watch = EditorWatcher(TESSERACT_CMD)
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
         # Warteschlange, der Haupt-Thread arbeitet sie regelmäßig ab.
         self._ui_queue = queue.Queue()
@@ -93,6 +102,7 @@ class MasterDuelImporter:
                                  on_quit=lambda: self._run_on_ui(self.close))
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
+        self.editor_watch.start()
         self._check_window_focus()
 
     def load_config(self):
@@ -215,8 +225,12 @@ class MasterDuelImporter:
             self.speed_menu.add_radiobutton(label=menu_text, value=key, variable=self.speed_var,
                                             command=self._on_speed_selected)
         self.speed_btn.config(menu=self.speed_menu)
-        self.speed_btn.pack(**btn_pack)
+        self._btn_pack = btn_pack
+        # Bei "Speicher lesen" ist Tempo nur noch Reserve → steht dann in den Optionen des Deck-Fensters
+        if not self._use_memory():
+            self.speed_btn.pack(**btn_pack)
         self._refresh_speed_button()
+        self._btn_frame, self._scale = btn_frame, scale
 
         # Etwas eingerückt, damit der abgerundete Goldrand im Eck frei bleibt
         RoundedButton(self.root, text="✕", command=self.close, bg="#cc0000", border="#ff8a80", font=font_x,
@@ -230,7 +244,7 @@ class MasterDuelImporter:
 
         # Fenstergröße nach Inhalt: mindestens wie bisher, breiter falls die Buttons mehr brauchen
         self.root.update_idletasks()
-        win_w = max(int(280 * scale), btn_frame.winfo_reqwidth() + int(16 * scale))
+        win_w = self._content_width()
         # So flach wie möglich: Höhe nach Inhalt (Statuszeile + Buttons), damit das Overlay am
         # unteren Rand nicht in die Kartenliste von Master Duel ragt
         win_h = self.root.winfo_reqheight()
@@ -269,11 +283,14 @@ class MasterDuelImporter:
                 _, fg_pid = win32process.GetWindowThreadProcessId(fg_hwnd)
                 my_pid = os.getpid()
 
-                # Soll sichtbar sein, wenn Master Duel offen ist ODER du gerade das Overlay selbst anklickst
                 md_active = fg_pid != my_pid and self._is_md_active(fg_hwnd, fg_pid)
+                # Editor-Prüfung nur mit Master Duel vorne – und nicht, solange das Mouseover-Fenster des
+                # Deck-Fensters offen ist (es kann über der Überschrift "Main Deck" liegen)
+                self.editor_watch.md_front = md_active
+                self.editor_watch.paused = bool(self.extras and self.extras.hover.visible)
                 if md_active and self._use_memory():
                     self._preload_memory()
-                if fg_pid == my_pid or md_active:
+                if self._should_show(fg_pid == my_pid, md_active):
                     if not self.is_visible:
                         self.root.wm_attributes("-alpha", 0.95)
                         self.is_visible = True
@@ -287,6 +304,15 @@ class MasterDuelImporter:
             pass  # Läuft alle 300 ms; ein einzelner Fehlschlag (Fenster gerade geschlossen) ist egal
         finally:
             self._after_ids["focus"] = self.root.after(300, self._check_window_focus)
+
+    def _should_show(self, own_window_in_front: bool, md_in_front: bool) -> bool:
+        """
+        Sichtbar: ein Fenster des Importers ist vorne (z.B. gerade angeklickt), oder Master Duel ist vorne und
+        zeigt den Deck-Editor (unbekannt bzw. nicht prüfbar zählt als ja) – während eines Imports immer.
+        """
+        if own_window_in_front:
+            return True
+        return md_in_front and (self.is_running or self.editor_watch.visible is not False)
 
     # --- LESEMETHODE: Speicher (nur lesend) oder Texterkennung ---
     def _use_memory(self) -> bool:
@@ -308,6 +334,7 @@ class MasterDuelImporter:
             return  # nichts gewählt: Texterkennung, beim nächsten Start wird wieder gefragt
         self.config[READ_METHOD_KEY] = choice
         self._save_config_safely()
+        self._update_speed_button()
         self.update_status(f"Lesemethode: {READ_METHODS[choice]}", "#00ff00")
 
     def _preload_memory(self):
@@ -368,6 +395,32 @@ class MasterDuelImporter:
             if x < r["left"] + r["width"] and r["left"] < x + w and y < r["top"] + r["height"] and r["top"] < y + h:
                 return name
         return None
+
+    def _content_width(self):
+        """Mindestens wie bisher, breiter falls die Buttons mehr brauchen."""
+        return max(int(280 * self._scale), self._btn_frame.winfo_reqwidth() + int(16 * self._scale))
+
+    def _update_speed_button(self):
+        """Tempo-Button nur bei Texterkennung; das Overlay passt seine Breite an (rechte Kante bleibt)."""
+        shown = bool(self.speed_btn.winfo_manager())
+        if shown == (not self._use_memory()):
+            return
+        if shown:
+            self.speed_btn.pack_forget()
+        else:
+            self.speed_btn.pack(**self._btn_pack)
+        self.root.update_idletasks()
+        right = self.root.winfo_x() + self.root.winfo_width()
+        width = self._content_width()
+        x = max(0, min(right - width, self.root.winfo_screenwidth() - width))
+        self.root.geometry(f"{width}x{self.root.winfo_height()}+{x}+{self.root.winfo_y()}")
+
+    def _on_settings_changed(self):
+        """Einstellung im Deck-Fenster geändert (Lesemethode, Tempo, …): speichern und Overlay anpassen."""
+        self._save_config_safely()
+        self.speed_var.set(SPEED_PROFILES[self._current_speed_index()][0])
+        self._refresh_speed_button()
+        self._update_speed_button()
 
     def _check_overlay_position(self):
         """Warnt im Status, wenn das Overlay dort liegt, wo Import/Export klicken (Klicks träfen das Overlay)."""
@@ -470,6 +523,7 @@ class MasterDuelImporter:
     def close(self):
         """Alles schließen: Tray-Icon, wiederkehrende Timer, Fenster."""
         self._close_extras()
+        self.editor_watch.stop()
         if self.tray:
             self.tray.stop()
             self.tray = None
@@ -567,6 +621,10 @@ class MasterDuelImporter:
 
             self.is_running = True
             self._close_extras()  # Import klickt in Deck und Kartenliste
+            try:
+                self._import_code = pyperclip.paste() or ""
+            except Exception:  # Zwischenablage gerade belegt – der Import liest sie gleich selbst
+                self._import_code = ""
             self._last_scan = None  # Import verändert das Deck
             self._set_buttons(tk.DISABLED)
 
@@ -586,6 +644,7 @@ class MasterDuelImporter:
 
             core = DeckImporterCore(self.config, TESSERACT_CMD, status_cb, finish_cb,
                                     start_callback=start_cb, resume=resume, memory=memory)
+            self._core = core
             threading.Thread(target=core.execute_import, daemon=True).start()
 
     def _on_import_finished(self, success, has_errors, failed_cards, message="", notes=None, scan=None):
@@ -600,6 +659,7 @@ class MasterDuelImporter:
         # Die Engine kann Einstellungen ergänzt haben (z.B. gemerkte Fenstergröße)
         self._save_config_safely()
         if success:
+            self._add_to_history("ok" if not (failed_cards or has_errors) else "Lücken")
             if failed_cards or has_errors:
                 self.update_status("Mit Lücken fertig!", "#ffaa00")
                 show_message(self.root, "Deck-Audit – bitte prüfen",
@@ -680,6 +740,39 @@ class MasterDuelImporter:
                      items=problems, actions=[("Download als .ydk", download)])
 
 
+    # --- VERLAUF der importierten Decks ---
+    def _stats_db(self):
+        """Lokale Karten-Datenbank (auch für den Verlauf); None, wenn sie nicht angelegt werden kann."""
+        if self.card_stats is None:
+            try:
+                self.card_stats = CardStatsDB()
+            except Exception as e:  # z.B. Ordner schreibgeschützt
+                print(f"Karten-Datenbank nicht verfügbar: {e}")
+        return self.card_stats
+
+    def _add_to_history(self, result):
+        card_ids = getattr(self._core, "_card_ids", None)
+        if not card_ids or not self._import_code.strip():
+            return
+        db = self._stats_db()
+        if db is None:
+            return
+        try:
+            db.add_history(self._import_code, card_ids, getattr(self._core, "deck_names", {}).values(), result)
+        except Exception as e:  # Verlauf ist nur Zusatz – der Import selbst hat geklappt
+            print(f"Verlauf nicht gespeichert: {e}")
+
+    def _copy_from_history(self, code):
+        pyperclip.copy(code)
+        self.update_status("Deck-Code kopiert", "#00ff00")
+
+    def _import_from_history(self, code):
+        """Deck aus dem Verlauf erneut importieren: Deck-Code in die Zwischenablage, dann wie gewohnt starten."""
+        if self.is_running:
+            return
+        pyperclip.copy(code)
+        self.start_import_thread()
+
     # --- EXTRAS (Draw-Chance & Starter) ---
     def toggle_extras(self):
         if self.extras:
@@ -687,14 +780,11 @@ class MasterDuelImporter:
             return
         if self.is_running:
             return
-        if self.card_stats is None:
-            try:
-                self.card_stats = CardStatsDB()
-            except Exception as e:  # z.B. Ordner schreibgeschützt → Extras ohne Starter-Infos
-                print(f"Karten-Datenbank nicht verfügbar: {e}")
+        self._stats_db()  # fehlt sie (z.B. Ordner schreibgeschützt) → Extras ohne Starter-Infos
         self.extras = ExtrasPanel(self.root, self.card_stats, TESSERACT_CMD, on_rescan=self._start_extras_scan,
                                   on_close=self._on_extras_closed, is_active=lambda: self.is_visible,
-                                  settings=self.config, save_settings=self._save_config_safely)
+                                  settings=self.config, save_settings=self._on_settings_changed,
+                                  on_import_code=self._import_from_history, on_copy_code=self._copy_from_history)
         if not (self._last_scan and self.extras.try_reuse(self._last_scan)):
             self._start_extras_scan()
 
