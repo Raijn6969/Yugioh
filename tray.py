@@ -35,6 +35,15 @@ class TrayIcon:
     def available(self) -> bool:
         return self._icon is not None
 
+    def notify(self, text: str, title: str = "") -> None:
+        """Windows-Benachrichtigung am Tray-Icon (z.B. neue Matches übernommen)."""
+        if self._icon is None:
+            return
+        try:
+            self._icon.notify(text, title)
+        except Exception:
+            pass  # Benachrichtigungen aus/nicht unterstützt – nur Zusatz
+
     def stop(self) -> None:
         if self._icon is None:
             return

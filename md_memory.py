@@ -17,6 +17,9 @@ Konami die Klassen nicht umbenennt):
   4. Felder über ihre Namen auflösen (Il2CppClass.fields → Name + Offset).
 
 Im Speicher stehen Konamis interne Karten-IDs (z.B. 12950 = Ash Blossom), nicht die Passcodes.
+
+Außerdem (Winrate-Tracker): Die Klasse "ClientWork" hält die Antworten des Servers als verschachtelte
+Dictionaries, z.B. "DuelHistory" (die Match History mit beiden Decks) und "Deck" (die eigenen Decks mit Namen).
 """
 
 import ctypes
@@ -42,7 +45,10 @@ ARRAY_DATA = 0x20        # Il2CppArray: Header + bounds + max_length
 
 MANAGER_CLASS = ("YgomGame.Menu", "ContentViewControllerManager")
 EDITOR_CLASS = ("YgomGame", "DeckEditViewController2")
+CLIENT_WORK_CLASS = ("YgomSystem.Utility", "ClientWork")
 CLASS_STATIC_FIELDS = 0xB8
+DICT_ENTRY_SIZE = 24     # Dictionary<string, object>.Entry: hashCode, next, key, value
+MAX_ITEMS = 5000         # Schutz vor kaputten Längen (Spiel lädt gerade um o.Ä.)
 
 
 # Ausführung einer Karte (CardBaseData.PremiumID / CardDetailView.m_Premium)
@@ -230,6 +236,8 @@ class DeckEditorMemory:
         self.r, self.il, self.manager_klass = reader, il, manager_klass
         self.klass = klass   # Klasse des Deck-Editors (aus dem gefundenen Objekt)
         self.editor: Optional[int] = None
+        self.client_work_klass = 0           # erst beim ersten Lesen gesucht (einige Sekunden)
+        self._class_names: Dict[int, str] = {}
 
     @classmethod
     def attach(cls) -> "DeckEditorMemory":
@@ -260,9 +268,9 @@ class DeckEditorMemory:
         except (OSError, TypeError):
             return False
 
-    # ── Deck-Editor-Objekt ──
-    def find_editor(self) -> int:
-        """Der gerade angezeigte Deck-Editor: oberster DeckEditViewController2 in den offenen Fenstern."""
+    # ── Offene Fenster ──
+    def _view_stack(self) -> List[int]:
+        """Objekte der offenen Fenster des Spiels, das unterste zuerst."""
         statics = self.r.u64(self.manager_klass + CLASS_STATIC_FIELDS)
         manager = self.r.u64(statics + self.il.fields(self.manager_klass)["Instance"]) if statics else 0
         if not manager:
@@ -270,13 +278,85 @@ class DeckEditorMemory:
         stack = self.r.u64(manager + self.il.field(manager, "viewStack"))
         items = self.r.u64(stack + self.il.field(stack, "_items"))
         size = self.r.i32(stack + self.il.field(stack, "_size"))
-        for i in reversed(range(max(0, min(size, 64)))):
-            obj = self.r.u64(items + ARRAY_DATA + 8 * i)
+        return [self.r.u64(items + ARRAY_DATA + 8 * i) for i in range(max(0, min(size, 64)))]
+
+    def open_views(self) -> List[str]:
+        """Klassennamen der offenen Fenster (z.B. "ColosseumHistoryViewController"), das oberste zuletzt."""
+        names = []
+        for obj in self._view_stack():
+            klass = self.r.u64(obj) if obj else 0
+            if klass and self._unity_alive(obj):
+                names.append(self.il.class_name(klass))
+        return names
+
+    # ── Deck-Editor-Objekt ──
+    def find_editor(self) -> int:
+        """Der gerade angezeigte Deck-Editor: oberster DeckEditViewController2 in den offenen Fenstern."""
+        for obj in reversed(self._view_stack()):
             klass = self.r.u64(obj) if obj else 0
             if klass and self.il.class_name(klass) == EDITOR_CLASS[1] and self._unity_alive(obj):
                 self.editor, self.klass = obj, klass
                 return obj
         raise MemoryUnavailable("Deck-Editor ist nicht offen – bitte ein Deck zum Bearbeiten öffnen.")
+
+    # ── Server-Daten (ClientWork) ──
+    def client_work(self, *path: str):
+        """
+        Zwischengespeicherte Server-Antwort als dict/list/Wert, z.B. client_work("DuelHistory").
+        None, wenn es den Pfad (noch) nicht gibt – das Spiel lädt viele Daten erst beim Öffnen des Menüs.
+        """
+        if not self.client_work_klass:
+            self.client_work_klass = self.il.find_class(*CLIENT_WORK_CLASS)
+        statics = self.r.u64(self.client_work_klass + CLASS_STATIC_FIELDS)
+        if not statics:
+            return None
+        node = self.r.u64(statics + self.il.fields(self.client_work_klass)["s_data"])
+        for key in path:
+            node = dict(self._dict_entries(node)).get(key, 0) if node else 0
+        return self._value(node) if node else None
+
+    def _class_of(self, obj: int) -> str:
+        klass = self.r.u64(obj)
+        if klass not in self._class_names:
+            self._class_names[klass] = self.il.class_name(klass)
+        return self._class_names[klass]
+
+    def _dict_entries(self, obj: int) -> List[Tuple[object, int]]:
+        """Dictionary<string, object>: [(Schlüssel, Adresse des Werts)]; anderes Objekt → []."""
+        if not self._class_of(obj).startswith("Dictionary"):
+            return []
+        entries = self.r.u64(obj + self.il.field(obj, "_entries"))
+        count = self.r.i32(obj + self.il.field(obj, "_count"))
+        if not entries or not 0 <= count <= MAX_ITEMS:
+            return []
+        data = self.r.read(entries + ARRAY_DATA, count * DICT_ENTRY_SIZE)
+        result = []
+        for i in range(count):
+            hash_code, _, key, value = struct.unpack_from("<iiQQ", data, i * DICT_ENTRY_SIZE)
+            if hash_code >= 0 and key:  # < 0: gelöschter Eintrag
+                result.append((self._value(key), value))
+        return result
+
+    def _value(self, obj: int):
+        """Objekt aus ClientWork → Python: Dictionary → dict, List → list, Zahl/Text/Wahrheitswert."""
+        if not obj:
+            return None
+        name = self._class_of(obj)
+        if name == "String":
+            return self._string(obj)
+        if name in ("Int64", "UInt64", "Int32", "Boolean", "Double", "Single"):
+            fmt = {"Int64": "<q", "UInt64": "<Q", "Int32": "<i", "Boolean": "<?", "Double": "<d", "Single": "<f"}[name]
+            return struct.unpack(fmt, self.r.read(obj + OBJECT_HEADER, struct.calcsize(fmt)))[0]
+        if name.startswith("Dictionary"):
+            return {key: self._value(value) for key, value in self._dict_entries(obj)}
+        if name.startswith("List"):
+            items = self.r.u64(obj + self.il.field(obj, "_items"))
+            size = self.r.i32(obj + self.il.field(obj, "_size"))
+            if not items or not 0 <= size <= MAX_ITEMS:
+                return []
+            data = self.r.read(items + ARRAY_DATA, 8 * size) if size else b""
+            return [self._value(addr) for addr in struct.unpack(f"<{size}Q", data)]
+        return None
 
     def _unity_alive(self, obj: int) -> bool:
         """Geschlossene Fenster: Unity hat das Objekt zerstört (m_CachedPtr = 0), es liegt nur noch im Speicher."""

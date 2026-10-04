@@ -12,12 +12,15 @@ Optionen → "Karten lesen": Speicher oder Texterkennung – gilt für Import, D
 steht hier auch das Tempo (nur noch Reserve für langsame PCs); bei Texterkennung sitzt es im Overlay.
 "Verlauf" (links neben Optionen): importierte Decks mit Suche; Klick auf ein Deck zeigt seine Analyse hier an
 (aus dem Deck-Code, ohne das Spiel zu lesen), "Neu scannen" liest wieder das Deck im Spiel.
+"Winrate" (links neben Verlauf): Siege/Niederlagen aus der Match History von Master Duel (winrate_panel); unter den
+Kacheln steht die Winrate des angezeigten Decks (Decks mit denselben Archetypen zählen zusammen).
 """
 
 import threading
 import time
 import tkinter as tk
 from collections import Counter
+from types import SimpleNamespace
 import tkinter.font as tkfont
 from typing import Callable, Dict, List, Optional
 
@@ -114,6 +117,8 @@ class ExtrasPanel:
         self.closed = False
         self.offline = False                   # True = Deck aus dem Verlauf (nicht das Deck im Spiel)
         self.history = None                    # Verlauf-Fenster, None = zu
+        self.winrate = None                    # Winrate-Fenster, None = zu
+        self._deck_name: Optional[str] = None  # Name des angezeigten Decks (für dessen Winrate)
         self._history_result = None            # (Scan, Eintrag, fehlende Stats) bzw. Fehlertext vom Laden
         self._visible = True
         self._hover_slot = None
@@ -165,6 +170,10 @@ class ExtrasPanel:
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.history_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+            self.winrate_btn = RoundedButton(header, text="Winrate", command=self.toggle_winrate, bg="#b8860b",
+                                             font=self.font_small, padx=int(9 * s), pady=int(3 * s),
+                                             radius=int(6 * s))
+            self.winrate_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
         self.options_menu.add_section("Karten lesen", "gilt für Import, Deck-Scan und Export")
         self.options_menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
@@ -205,6 +214,9 @@ class ExtrasPanel:
         self.starter_odds.pack(side=tk.LEFT, anchor="n")
         self.handtrap_odds = tk.Label(odds, text="", fg=TEXT, bg=BG, font=self.font, anchor="e", justify=tk.RIGHT)
         self.handtrap_odds.pack(side=tk.RIGHT, anchor="n", padx=(0, int(6 * s)))
+        # Winrate des angezeigten Decks (aus der Match History; leer, solange es keine Matches dazu gibt)
+        self.winrate_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w")
+        self.winrate_label.pack(fill=tk.X, pady=(0, int(4 * s)))
 
         # Tabelle (Spalten je nach Option, siehe _rebuild_header)
         self.table_head = tk.Frame(body, bg=PANEL)
@@ -374,7 +386,8 @@ class ExtrasPanel:
             self._close_history()
             return
         from history_panel import HistoryPanel  # importiert die Farben von hier
-        self.history = HistoryPanel(self.win, self.stats_db, on_import=self._import_code, on_copy=self._copy_code,
+        self._close_winrate()  # beide lägen an derselben Stelle
+        self.history =HistoryPanel(self.win, self.stats_db, on_import=self._import_code, on_copy=self._copy_code,
                                     on_close=self._on_history_closed, on_open=self.load_history_deck,
                                     anchor=self.history_btn)
 
@@ -384,6 +397,54 @@ class ExtrasPanel:
 
     def _on_history_closed(self) -> None:
         self.history = None
+
+    # ── Winrate (Match History von Master Duel) ──
+    def toggle_winrate(self) -> None:
+        if self.winrate is not None:
+            self._close_winrate()
+            return
+        from winrate_panel import WinratePanel  # importiert die Farben von hier
+        self._close_history()  # beide lägen an derselben Stelle
+        self.winrate = WinratePanel(self.win, self.stats_db, self.settings, self.save_settings,
+                                    on_open=self._open_winrate_deck, on_close=self._on_winrate_closed,
+                                    tracking=self.read_method.get() == "memory", anchor=self.winrate_btn)
+
+    def _close_winrate(self) -> None:
+        if self.winrate is not None:
+            self.winrate.close()  # ruft _on_winrate_closed
+
+    def _on_winrate_closed(self) -> None:
+        self.winrate = None
+
+    def _open_winrate_deck(self, name: str, code: str) -> None:
+        """Deck aus der Winrate hier anzeigen (wie aus dem Verlauf)."""
+        self._close_winrate()
+        self.load_history_deck(SimpleNamespace(name=name, code=code))
+
+    def refresh_winrate(self) -> None:
+        """Neue Matches übernommen → Winrate-Fenster und die Zeile zum Deck aktualisieren."""
+        if self.closed:
+            return
+        if self.winrate is not None:
+            self.winrate.refresh()
+        self._show_deck_winrate()
+
+    def _show_deck_winrate(self) -> None:
+        if self.stats_db is None or self.analysis is None:
+            self.winrate_label.config(text="")
+            return
+        from winrate_panel import summary
+        from match_history import RANKED
+        try:
+            if self._deck_name is None:
+                ids = [e.key for zone in ("Main", "Extra") for e in self.analysis.entries(zone)
+                       for _ in range(e.copies) if not e.key.startswith("?")]
+                self._deck_name = self.stats_db.deck_name(ids)
+            stats = self.stats_db.win_stats(self._deck_name, RANKED)
+            text = f"Winrate Ranked ({self._deck_name}): {summary(stats)}" if stats.matches else ""
+        except Exception:  # Datenbank gesperrt o.Ä. – Winrate ist nur Zusatz
+            text = ""
+        self.winrate_label.config(text=text)
 
     def _import_code(self, code: str) -> None:
         if self.on_import_code is not None:
@@ -475,6 +536,7 @@ class ExtrasPanel:
         self._set_hover(None)
         self.rescan_btn.config(state=tk.NORMAL)
         self.analysis = DeckAnalysis(scan, self.stats_db)
+        self._deck_name = None
         self._shown_reason = None
         note = f" · {missing_stats} Karte(n) ohne Stats (offline?)" if missing_stats else ""
         unsure = sum(1 for c in scan.cards if not (c.match.cid and c.match.sure))
@@ -510,6 +572,9 @@ class ExtrasPanel:
             return
         self._visible = visible
         self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
+        for panel in (self.history, self.winrate):  # eigene Fenster über diesem
+            if panel is not None:
+                panel.set_visible(visible)
         try:
             win_api.set_ex_style(int(self.win.wm_frame(), 16), win_api.WS_EX_TRANSPARENT, not visible)
         except (tk.TclError, ValueError, OSError):
@@ -523,6 +588,7 @@ class ExtrasPanel:
         self.closed = True
         self._stop_watcher()
         self._close_history()
+        self._close_winrate()
         if self._poll_job is not None:
             try:
                 self.win.after_cancel(self._poll_job)
@@ -555,6 +621,7 @@ class ExtrasPanel:
             text += f"\n({unknown} Karte(n) ohne Einstufung nicht mitgezählt)"
         self.starter_odds.config(text=text)
         self.handtrap_odds.config(text=self._odds_text("Mind. 1 Handtrap", *analysis.handtrap_odds()))
+        self._show_deck_winrate()
 
         name_font = tkfont.Font(font=self.font)
         # Breite für den Namen: Fenster minus Ränder, Scrollleiste und die Zahlen-Spalten

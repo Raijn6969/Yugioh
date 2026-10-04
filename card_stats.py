@@ -72,6 +72,51 @@ class HistoryEntry(NamedTuple):
     result: str          # "ok" oder "Lücken"
 
 
+class MatchEntry(NamedTuple):
+    did: str
+    played_at: float
+    mode: int
+    result: int               # 1 Sieg, 2 Niederlage, 3 Unentschieden (match_history)
+    first: Optional[bool]     # selbst angefangen?
+    turns: int
+    finish: int
+    deck_name: str            # aus den Archetypen ("" = Deck unbekannt)
+    deck_code: str            # .ydk-Text → im Deck-Fenster anzeigbar
+    opp_name: str             # "" = unbekannt (live erfasst, Match History noch nicht gelesen)
+    opp_code: str
+    md_deck: str              # Name des Decks in Master Duel ("" = unbekannt)
+
+
+class WinStats(NamedTuple):
+    matches: int = 0
+    wins: int = 0
+    draws: int = 0
+    first: int = 0            # davon als Erster
+    first_wins: int = 0
+    second: int = 0
+    second_wins: int = 0
+    last_played: float = 0.0
+
+    @property
+    def losses(self) -> int:
+        return self.matches - self.wins - self.draws
+
+
+class DeckWinStats(NamedTuple):
+    deck_name: str
+    stats: WinStats
+    deck_code: str            # Deck des letzten Matches
+    md_deck: str              # MD-Name des Decks beim letzten Match ("" = unbekannt)
+
+
+class MdDeck(NamedTuple):
+    """Ein Deck in Master Duel (aus der Deck-Auswahl gemerkt): Karten als Konami-IDs."""
+    deck_id: str
+    name: str
+    main: List[int]
+    extra: List[int]
+
+
 def create_tables(con: sqlite3.Connection) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS cards (
                        id TEXT PRIMARY KEY, name TEXT, type TEXT, frame TEXT, race TEXT,
@@ -101,6 +146,20 @@ def create_tables(con: sqlite3.Connection) -> None:
                        id INTEGER PRIMARY KEY AUTOINCREMENT, deck_key TEXT UNIQUE, code TEXT, name TEXT,
                        archetypes TEXT, cards TEXT, main INTEGER, extra INTEGER, imported_at REAL,
                        times INTEGER, result TEXT)""")
+    # Duelle aus Master Duel (match_history), eins pro Duell-ID. source: "live" (Ergebnis-Bildschirm) oder
+    # "history" (Match History – vollständig: Zugzahl, Gegner-Deck; ersetzt einen Live-Eintrag)
+    con.execute("""CREATE TABLE IF NOT EXISTS matches (
+                       did TEXT PRIMARY KEY, played_at REAL, mode INTEGER, result INTEGER, first INTEGER,
+                       turns INTEGER, finish INTEGER, deck_name TEXT, deck_code TEXT, opp_name TEXT, opp_code TEXT,
+                       md_deck TEXT, source TEXT, added_at REAL)""")
+    # Ältere Tabelle (erste Version ohne MD-Deck und Quelle; alte Einträge stammen aus der Match History) ergänzen
+    columns = {row[1] for row in con.execute("PRAGMA table_info(matches)")}
+    for column, default in (("md_deck", "''"), ("source", "'history'")):
+        if column not in columns:
+            con.execute(f"ALTER TABLE matches ADD COLUMN {column} TEXT DEFAULT {default}")
+    # Decks in Master Duel (aus der Deck-Auswahl gelesen): Welches Deck gerade gewählt ist, steht nur als ID im Spiel
+    con.execute("""CREATE TABLE IF NOT EXISTS md_decks (
+                       deck_id TEXT PRIMARY KEY, name TEXT, main TEXT, extra TEXT, seen_at REAL)""")
 
 
 def name_key(name: str) -> str:
@@ -446,6 +505,96 @@ class CardStatsDB:
     def delete_history(self, entry_id: int) -> None:
         with self._connect() as con:
             con.execute("DELETE FROM deck_history WHERE id = ?", (entry_id,))
+
+    def deck_name(self, card_ids: Iterable[str]) -> str:
+        """Name eines Decks aus seinen Archetypen (wie im Verlauf)."""
+        return self._describe([str(c) for c in card_ids])[0]
+
+    # ── Matches (Winrate-Tracker) ──
+    def match_sources(self, dids: Iterable[str]) -> Dict[str, str]:
+        """{Duell-ID: "live"/"history"} der schon gespeicherten Matches."""
+        dids = sorted({str(d) for d in dids})
+        if not dids:
+            return {}
+        with self._connect() as con:
+            return dict(con.execute(
+                f"SELECT did, source FROM matches WHERE did IN ({','.join('?' * len(dids))})", dids))
+
+    def add_matches(self, rows) -> None:
+        """
+        rows: [(MatchRecord, Deck-Name, Deck-Code, Gegner-Deck-Name, Gegner-Deck-Code)]. Neue Duelle kommen dazu;
+        ein Live-Eintrag wird durch denselben Eintrag aus der Match History ersetzt (MD-Deckname bleibt).
+        """
+        now = time.time()
+        with self._connect() as con:
+            for r, name, code, opp_name, opp_code in rows:
+                old = con.execute("SELECT md_deck FROM matches WHERE did = ?", (r.did,)).fetchone()
+                # Spalten mit Namen: in einer ergänzten Tabelle (siehe create_tables) stehen sie anders
+                con.execute("""INSERT OR REPLACE INTO matches (did, played_at, mode, result, first, turns, finish,
+                                   deck_name, deck_code, opp_name, opp_code, md_deck, source, added_at)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            (r.did, r.played_at, r.mode, r.result, None if r.first is None else int(r.first),
+                             r.turns, r.finish, name, code, opp_name, opp_code,
+                             r.md_deck or (old[0] if old else "") or "", r.source, now))
+
+    def remember_md_decks(self, decks: Iterable[MdDeck]) -> None:
+        with self._connect() as con:
+            con.executemany("INSERT OR REPLACE INTO md_decks VALUES (?, ?, ?, ?, ?)",
+                            [(d.deck_id, d.name, ",".join(map(str, d.main)), ",".join(map(str, d.extra)),
+                              time.time()) for d in decks])
+
+    def md_deck(self, deck_id: str) -> Optional[MdDeck]:
+        with self._connect() as con:
+            row = con.execute("SELECT deck_id, name, main, extra FROM md_decks WHERE deck_id = ?",
+                              (str(deck_id),)).fetchone()
+        if row is None:
+            return None
+        ids = lambda text: [int(k) for k in text.split(",") if k]  # noqa: E731
+        return MdDeck(row[0], row[1], ids(row[2]), ids(row[3]))
+
+    @staticmethod
+    def _match_filter(deck_name: Optional[str], mode: Optional[int]):
+        where, args = [], []
+        if deck_name is not None:
+            where.append("deck_name = ?")
+            args.append(deck_name)
+        if mode is not None:
+            where.append("mode = ?")
+            args.append(mode)
+        return " AND ".join(where) or "1", args
+
+    def matches(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
+                limit: int = 200) -> List[MatchEntry]:
+        """Gespeicherte Matches, das letzte zuerst (optional nur ein Deck bzw. ein Modus)."""
+        where, args = self._match_filter(deck_name, mode)
+        with self._connect() as con:
+            rows = con.execute(f"""SELECT did, played_at, mode, result, first, turns, finish, deck_name, deck_code,
+                                          opp_name, opp_code, md_deck FROM matches WHERE {where}
+                                   ORDER BY played_at DESC LIMIT ?""", (*args, limit)).fetchall()
+        return [MatchEntry(*row[:4], None if row[4] is None else bool(row[4]), *row[5:]) for row in rows]
+
+    def win_stats(self, deck_name: Optional[str] = None, mode: Optional[int] = None) -> WinStats:
+        where, args = self._match_filter(deck_name, mode)
+        with self._connect() as con:
+            row = con.execute(f"""{self._STATS_SQL} FROM matches WHERE {where}""", args).fetchone()
+        return WinStats(*(value or 0 for value in row))
+
+    def deck_win_stats(self, mode: Optional[int] = None) -> List[DeckWinStats]:
+        """Winrate je Deck (nach Name), das zuletzt gespielte zuerst."""
+        where, args = self._match_filter(None, mode)
+        with self._connect() as con:
+            rows = con.execute(f"""{self._STATS_SQL}, deck_name,
+                                       (SELECT deck_code FROM matches AS m WHERE m.deck_name = matches.deck_name
+                                        ORDER BY played_at DESC LIMIT 1),
+                                       (SELECT md_deck FROM matches AS m WHERE m.deck_name = matches.deck_name
+                                        AND md_deck != '' ORDER BY played_at DESC LIMIT 1)
+                                   FROM matches WHERE {where} GROUP BY deck_name ORDER BY MAX(played_at) DESC""",
+                               args).fetchall()
+        return [DeckWinStats(row[-3], WinStats(*(value or 0 for value in row[:-3])), row[-2] or "", row[-1] or "")
+                for row in rows]
+
+    _STATS_SQL = """SELECT COUNT(*), SUM(result = 1), SUM(result = 3), SUM(first = 1), SUM(first = 1 AND result = 1),
+                           SUM(first = 0), SUM(first = 0 AND result = 1), MAX(played_at)"""
 
     def _describe(self, card_ids: List[str]):
         """(Name, Archetypen, Main, Extra, englische Kartennamen) aus den gespeicherten Kartendaten."""

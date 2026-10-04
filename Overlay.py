@@ -1,6 +1,7 @@
 """
 Overlay-Fenster des Master Duel Deck Importers (Import, Export, Deck-Fenster, Kalibrierung, Tempo, Timer).
-Fertige Importe kommen in den Verlauf (Deck-Fenster → „Verlauf“).
+Fertige Importe kommen in den Verlauf (Deck-Fenster → „Verlauf“). Im Speicher-Modus erfasst match_history die
+eigenen Duelle (Deck-Fenster → „Winrate“, Meldung übers Tray-Icon).
 Sichtbar nur, wenn Master Duel vorne ist und den Deck-Editor zeigt (editor_watch), während eines Imports/Exports
 oder wenn ein Fenster des Importers selbst vorne ist.
 """
@@ -40,6 +41,7 @@ from deck_analysis import current_changes
 from deck_export import DeckExporter, save_ydk
 from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
+from match_history import LOSS, WIN, MatchWatcher
 from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message
@@ -84,6 +86,9 @@ class MasterDuelImporter:
         self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
         self.editor_watch = EditorWatcher(TESSERACT_CMD)
+        # Winrate-Tracker: erfasst Duelle am Ergebnis-Bildschirm von Master Duel (Speicher-Modus, nur lesend)
+        self.match_watch = MatchWatcher(self._stats_db, lambda new: self._run_on_ui(self._on_new_matches, new),
+                                        connected=md_memory.is_ready, memory=md_memory.shared)
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
         # Warteschlange, der Haupt-Thread arbeitet sie regelmäßig ab.
         self._ui_queue = queue.Queue()
@@ -103,6 +108,7 @@ class MasterDuelImporter:
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
         self.editor_watch.start()
+        self.match_watch.start()
         self._check_window_focus()
 
     def load_config(self):
@@ -288,6 +294,7 @@ class MasterDuelImporter:
                 # Deck-Fensters offen ist (es kann über der Überschrift "Main Deck" liegen)
                 self.editor_watch.md_front = md_active
                 self.editor_watch.paused = bool(self.extras and self.extras.hover.visible)
+                self.match_watch.enabled = self._use_memory()
                 if md_active and self._use_memory():
                     self._preload_memory()
                 if self._should_show(fg_pid == my_pid, md_active):
@@ -524,6 +531,7 @@ class MasterDuelImporter:
         """Alles schließen: Tray-Icon, wiederkehrende Timer, Fenster."""
         self._close_extras()
         self.editor_watch.stop()
+        self.match_watch.stop()
         if self.tray:
             self.tray.stop()
             self.tray = None
@@ -772,6 +780,26 @@ class MasterDuelImporter:
             return
         pyperclip.copy(code)
         self.start_import_thread()
+
+    # --- WINRATE (eigene Duelle aus Master Duel) ---
+    def _on_new_matches(self, new):
+        if len(new) == 1:
+            match = new[0]
+            text = {WIN: "Sieg", LOSS: "Niederlage"}.get(match.result, "Unentschieden")
+            if match.first is not None:
+                text += " als Erster" if match.first else " als Zweiter"
+            if match.md_deck:
+                text += f" mit {match.md_deck}"
+            text += " erfasst"
+        else:
+            wins = sum(1 for m in new if m.result == WIN)
+            losses = sum(1 for m in new if m.result == LOSS)
+            text = f"{len(new)} Matches erfasst: {wins} Sieg(e), {losses} Niederlage(n)"
+        self.update_status(text, "#00ff00")
+        if self.tray:
+            self.tray.notify(text + " – Winrate im Deck-Fenster", "MD Importer")
+        if self.extras:
+            self.extras.refresh_winrate()
 
     # --- EXTRAS (Draw-Chance & Starter) ---
     def toggle_extras(self):

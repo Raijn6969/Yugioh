@@ -45,3 +45,18 @@ knows where everything is — no matter your screen resolution.
 to `"slow"`. This gives Master Duel more time to load between actions, so
 the program won't click ahead too fast. Options are `"fast"`, `"normal"`,
 or `"slow"`.
+
+### 6. Win-Rate Tracker
+With "Read memory" enabled (Deck → Options), every duel you play is recorded
+automatically when the result screen appears: win or loss, whether you went first
+or second, and which deck you used. Nothing to click and nothing to type.
+- **Your deck** is recognised from the deck you selected in the game. Open the deck
+  selection once per deck so the program learns which cards belong to it. After
+  that, switching decks in the game is picked up on its own.
+- **Opening the Match History** is optional. If you open it, the program adds the
+  turn count and your opponent's deck, plus any duels it missed (for example while
+  it wasn't running).
+Everything is read-only. Data is only read from menu screens (deck selection, coin
+toss, result screen); during a duel it only checks which screen is open.
+Deck → **Winrate** shows your win rate overall, going first and going second, per deck,
+and lists recent matches. A small notification appears for every recorded match.
