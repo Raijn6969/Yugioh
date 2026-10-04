@@ -35,3 +35,4 @@ md_startup_error.log
 md_card_list_*.json
 md_card_stats.db
 md_card_stats_base.db
+card_images/

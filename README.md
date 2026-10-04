@@ -60,3 +60,13 @@ Everything is read-only. Data is only read from menu screens (deck selection, co
 toss, result screen); during a duel it only checks which screen is open.
 Deck → **Winrate** shows your win rate overall, going first and going second, per deck,
 and lists recent matches. A small notification appears for every recorded match.
+
+### 7. Staple Check
+Deck → **Staples** compares the deck shown with the current top lists in
+Master Duel (from Master Duel Meta) for its archetypes:
+- **Different copy count:** "you play Mitsurugi Ritual 2×, 67 % of lists play 3×"
+- **Missing:** cards that at least half of the top lists play
+- **Only you:** cards that hardly any top list plays
+For hybrid decks (e.g. Ryzeal/Mitsurugi) it picks the closest deck type, and you
+can switch to the others. The data is saved locally and refreshed every few days,
+or on demand with "Refresh".

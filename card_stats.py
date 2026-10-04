@@ -6,13 +6,15 @@ Lokale Mini-Datenbank für Karten-Stats (SQLite).
   damit geht alles ab dem ersten Start offline.
 - md_card_stats.db neben dem Programm: Karten, die neuer sind als die Grunddatenbank (einmalig online
   bei YGOPRODeck nachgeschlagen), Starter-Einstufungen aus den Guides von Master Duel Meta (im Deck-Fenster
-  über Optionen nachgeladen), eigene Starter-/Handtrap-Korrekturen aus dem Deck-Fenster (haben Vorrang) und
-  der Verlauf der importierten Decks.
+  über Optionen nachgeladen), eigene Starter-/Handtrap-Korrekturen aus dem Deck-Fenster (haben Vorrang),
+  der Verlauf der importierten Decks, die erfassten Duelle mit den gemerkten Decks aus Master Duel
+  (match_history) und die Auswertung der Top-Listen je Archetyp (staple_analysis).
 
 Ob eine Karte ein Starter bzw. eine Handtrap ist, wird aus dem gespeicherten Kartentext abgeleitet
 (starter_rules, handtrap_rules).
 """
 
+import json
 import os
 import re
 import sqlite3
@@ -160,6 +162,8 @@ def create_tables(con: sqlite3.Connection) -> None:
     # Decks in Master Duel (aus der Deck-Auswahl gelesen): Welches Deck gerade gewählt ist, steht nur als ID im Spiel
     con.execute("""CREATE TABLE IF NOT EXISTS md_decks (
                        deck_id TEXT PRIMARY KEY, name TEXT, main TEXT, extra TEXT, seen_at REAL)""")
+    # Auswertung der Top-Listen je Archetyp (staple_analysis, Master Duel Meta) als JSON
+    con.execute("CREATE TABLE IF NOT EXISTS staple_cache (archetype TEXT PRIMARY KEY, data TEXT, fetched_at REAL)")
 
 
 def name_key(name: str) -> str:
@@ -551,6 +555,20 @@ class CardStatsDB:
             return None
         ids = lambda text: [int(k) for k in text.split(",") if k]  # noqa: E731
         return MdDeck(row[0], row[1], ids(row[2]), ids(row[3]))
+
+    # ── Top-Listen (Staple-Analyse) ──
+    def staples(self, archetype: str) -> Optional[dict]:
+        with self._connect() as con:
+            row = con.execute("SELECT data FROM staple_cache WHERE archetype = ?", (archetype.lower(),)).fetchone()
+        try:
+            return json.loads(row[0]) if row else None
+        except ValueError:
+            return None
+
+    def store_staples(self, archetype: str, data: dict) -> None:
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO staple_cache VALUES (?, ?, ?)",
+                        (archetype.lower(), json.dumps(data), data.get("fetched_at", time.time())))
 
     @staticmethod
     def _match_filter(deck_name: Optional[str], mode: Optional[int]):

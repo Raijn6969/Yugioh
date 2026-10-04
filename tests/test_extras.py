@@ -750,6 +750,20 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertFalse(self.panel.offline)
         self.assertIsNotNone(self.panel.watcher)
 
+    def test_staples_need_a_scan_and_share_the_place_with_winrate(self):
+        self.panel.toggle_staples()
+        self.assertIsNone(self.panel.staples)
+        self.assertIn("Erst das Deck scannen", self.panel.status_label.cget("text"))
+        self.panel.set_scan(self.scan)
+        self.panel.staples_btn.invoke()
+        staples = self.panel.staples
+        self.assertEqual(staples.deck["lukias"], 3)
+        self.assertEqual(staples.archetypes, [])  # Testkarten ohne Archetyp
+        self.assertEqual(staples.passcodes["lukias"], "1")  # fürs Kartenbild
+        self.panel.winrate_btn.invoke()
+        self.assertTrue(staples.closed)
+        self.assertIsNone(self.panel.staples)
+
     def test_hover_is_raised_above_other_topmost_windows(self):
         import hover_card
         self.panel.set_scan(self.scan)

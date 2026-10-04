@@ -12,8 +12,9 @@ Optionen → "Karten lesen": Speicher oder Texterkennung – gilt für Import, D
 steht hier auch das Tempo (nur noch Reserve für langsame PCs); bei Texterkennung sitzt es im Overlay.
 "Verlauf" (links neben Optionen): importierte Decks mit Suche; Klick auf ein Deck zeigt seine Analyse hier an
 (aus dem Deck-Code, ohne das Spiel zu lesen), "Neu scannen" liest wieder das Deck im Spiel.
-"Winrate" (links neben Verlauf): Siege/Niederlagen aus der Match History von Master Duel (winrate_panel); unter den
+"Winrate" (links neben Verlauf): Siege/Niederlagen der eigenen Duelle in Master Duel (winrate_panel); unter den
 Kacheln steht die Winrate des angezeigten Decks (Decks mit denselben Archetypen zählen zusammen).
+"Staples" (links neben Winrate): das angezeigte Deck mit den Top-Listen in Master Duel vergleichen (staple_panel).
 """
 
 import threading
@@ -118,6 +119,7 @@ class ExtrasPanel:
         self.offline = False                   # True = Deck aus dem Verlauf (nicht das Deck im Spiel)
         self.history = None                    # Verlauf-Fenster, None = zu
         self.winrate = None                    # Winrate-Fenster, None = zu
+        self.staples = None                    # Staples-Fenster, None = zu
         self._deck_name: Optional[str] = None  # Name des angezeigten Decks (für dessen Winrate)
         self._history_result = None            # (Scan, Eintrag, fehlende Stats) bzw. Fehlertext vom Laden
         self._visible = True
@@ -156,8 +158,7 @@ class ExtrasPanel:
         header.pack(fill=tk.X)
         tk.Label(header, text="◆ DECK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="Draw-Chance, Starter & Handtraps", fg=MUTED, bg=PANEL, font=self.font).pack(
-            side=tk.LEFT)
+        # Rechts: ✕, Optionen, Verlauf, Winrate, Staples – ohne Untertitel, sonst passen sie nicht in die Breite
         RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
@@ -174,6 +175,10 @@ class ExtrasPanel:
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.winrate_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+            self.staples_btn = RoundedButton(header, text="Staples", command=self.toggle_staples, bg="#6a1b9a",
+                                             font=self.font_small, padx=int(9 * s), pady=int(3 * s),
+                                             radius=int(6 * s))
+            self.staples_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
         self.options_menu.add_section("Karten lesen", "gilt für Import, Deck-Scan und Export")
         self.options_menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
@@ -386,7 +391,7 @@ class ExtrasPanel:
             self._close_history()
             return
         from history_panel import HistoryPanel  # importiert die Farben von hier
-        self._close_winrate()  # beide lägen an derselben Stelle
+        self._close_side_panels()  # lägen an derselben Stelle
         self.history =HistoryPanel(self.win, self.stats_db, on_import=self._import_code, on_copy=self._copy_code,
                                     on_close=self._on_history_closed, on_open=self.load_history_deck,
                                     anchor=self.history_btn)
@@ -404,7 +409,7 @@ class ExtrasPanel:
             self._close_winrate()
             return
         from winrate_panel import WinratePanel  # importiert die Farben von hier
-        self._close_history()  # beide lägen an derselben Stelle
+        self._close_side_panels()  # lägen an derselben Stelle
         self.winrate = WinratePanel(self.win, self.stats_db, self.settings, self.save_settings,
                                     on_open=self._open_winrate_deck, on_close=self._on_winrate_closed,
                                     tracking=self.read_method.get() == "memory", anchor=self.winrate_btn)
@@ -415,6 +420,54 @@ class ExtrasPanel:
 
     def _on_winrate_closed(self) -> None:
         self.winrate = None
+
+    def _close_side_panels(self) -> None:
+        """Verlauf, Winrate und Staples liegen an derselben Stelle: höchstens eins offen."""
+        self._close_history()
+        self._close_winrate()
+        self._close_staples()
+
+    # ── Staples (Vergleich mit den Top-Listen) ──
+    def toggle_staples(self) -> None:
+        if self.staples is not None:
+            self._close_staples()
+            return
+        if self.analysis is None or self.scanning:
+            self.set_status("Erst das Deck scannen, dann mit den Top-Listen vergleichen", AMBER)
+            return
+        from staple_panel import StaplePanel  # importiert die Farben von hier
+        self._close_side_panels()
+        deck, archetypes, passcodes = self._deck_for_staples()
+        self.staples = StaplePanel(self.win, self.stats_db, deck, archetypes, on_close=self._on_staples_closed,
+                                   anchor=self.staples_btn, passcodes=passcodes)
+
+    def _close_staples(self) -> None:
+        if self.staples is not None:
+            self.staples.close()  # ruft _on_staples_closed
+
+    def _on_staples_closed(self) -> None:
+        self.staples = None
+
+    def _deck_for_staples(self):
+        """
+        ({englischer Kartenname: Kopien}, häufigste Archetypen, {Kartenname: Passcode fürs Bild}) des angezeigten
+        Decks (Main + Extra).
+        """
+        deck: Counter = Counter()
+        passcodes: Dict[str, str] = {}
+        weight: Counter = Counter()
+        for zone in ("Main", "Extra"):
+            for entry in self.analysis.entries(zone):
+                info = self.analysis.info(entry)
+                if info is None and entry.key.startswith("?"):
+                    continue  # nicht erkannt
+                name = info.name if info else entry.name
+                deck[name] += entry.copies
+                passcodes.setdefault(name, entry.key)
+                if info is not None and info.archetype:
+                    weight[info.archetype] += entry.copies
+        archetypes = [name for name, count in weight.most_common(GUIDE_ARCHETYPES) if count >= GUIDE_MIN_COPIES]
+        return dict(deck), archetypes, passcodes
 
     def _open_winrate_deck(self, name: str, code: str) -> None:
         """Deck aus der Winrate hier anzeigen (wie aus dem Verlauf)."""
@@ -572,7 +625,7 @@ class ExtrasPanel:
             return
         self._visible = visible
         self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
-        for panel in (self.history, self.winrate):  # eigene Fenster über diesem
+        for panel in (self.history, self.winrate, self.staples):  # eigene Fenster über diesem
             if panel is not None:
                 panel.set_visible(visible)
         try:
@@ -587,8 +640,7 @@ class ExtrasPanel:
             return
         self.closed = True
         self._stop_watcher()
-        self._close_history()
-        self._close_winrate()
+        self._close_side_panels()
         if self._poll_job is not None:
             try:
                 self.win.after_cancel(self._poll_job)
