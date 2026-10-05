@@ -14,12 +14,13 @@ from typing import Callable, Dict, List, Optional
 
 import card_images
 import staple_analysis
+from card_grid import CardGrid
 from card_stats import name_key
 from extras_panel import BG, GOLD, MUTED, PANEL, TEXT
 from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
-from window_style import apply_frame
+from window_style import apply_frame, no_activate
 
 POLL_MS = 100
 COLUMNS = 5             # Karten pro Reihe
@@ -63,12 +64,18 @@ class StaplePanel:
         self.photos = card_images.PhotoCache(master, (int(CARD_SIZE[0] * s), int(CARD_SIZE[1] * s)), image_folder)
         self._tip: Optional[tk.Toplevel] = None
 
+        if anchor is not None:
+            # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
+            # zeigen, bevor es platziert ist – kurz oben links in der Ecke, und Windows blendet im Vollbild die
+            # Taskleiste ein.
+            anchor.update_idletasks()
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
         self.win.wm_attributes("-topmost", True)
         self._build()
         self._place(anchor)
         apply_frame(self.win)
+        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
         self.win.bind("<Escape>", lambda e: self.close())
         self.load()
 
@@ -108,22 +115,12 @@ class StaplePanel:
             tk.Label(tile, text=caption, fg=MUTED, bg=PANEL, font=self.font_small).pack()
             self.tiles[key] = value
 
-        list_frame = tk.Frame(body, bg=BG)
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(int(4 * s), 0))
-        self.canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
-        bar = tk.Scrollbar(list_frame, command=self.canvas.yview)
-        self.canvas.config(yscrollcommand=bar.set)
-        bar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.inner = tk.Frame(self.canvas, bg=BG)
-        self._inner_id = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
-        self.inner.bind("<Configure>", lambda e: self.canvas.config(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
-        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
-        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+        # Hinweis unten zuerst packen, damit ihn das Raster (füllt den Rest) nicht verdrängt
         tk.Label(body, text="Quelle: Master Duel Meta (aktuelle Top-Listen in Master Duel). Wenige Listen = nur "
                             "eine grobe Richtung.", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
-                 justify=tk.LEFT, wraplength=int(480 * s)).pack(fill=tk.X, pady=(int(4 * s), 0))
+                 justify=tk.LEFT, wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
+        self.grid = CardGrid(body, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
+                             self.font_small)
 
     def _place(self, anchor: Optional[tk.Misc]) -> None:
         """Unter dem Button "Staples", rechtsbündig mit dem Deck-Fenster (liegt über dessen Liste)."""
@@ -131,7 +128,6 @@ class StaplePanel:
         w, h = int(520 * s), int(620 * s)
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
         if anchor is not None:
-            anchor.update_idletasks()
             top = anchor.winfo_toplevel()
             x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
             y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
@@ -176,6 +172,7 @@ class StaplePanel:
         session = {"session": self.session} if self.session is not None else {}
         card_images.download((self.passcodes.get(name_key(card.name)) for card in cards), folder=self.image_folder,
                              **session)
+        self.photos.prepare(self.passcodes.get(name_key(card.name)) for card in cards)  # Anzeige ohne Ruckler
 
     def _poll(self) -> None:
         self._poll_job = None
@@ -221,8 +218,8 @@ class StaplePanel:
         for key, value in counts.items():
             color = GREEN if key == "matching" else (AMBER if value else TEXT)
             self.tiles[key].config(text=str(value), fg=color)
-        for child in self.inner.winfo_children():
-            child.destroy()
+        self._hide_tip()
+        self.grid.clear()
         if comparison.different:
             self._grid("ANDERE KOPIENZAHL ALS ÜBLICH", [
                 (d.card.name, f"{d.mine}× → {d.card.usual}×", f"{share_text(d.card.usual_share)} spielen "
@@ -239,40 +236,17 @@ class StaplePanel:
                  f"du {d.mine}× · " + (f"in {share_text(d.card.share)} der Top-Listen" if d.card.share
                                         else "in keiner Top-Liste"), MUTED) for d in comparison.only_mine])
         if not (comparison.different or comparison.missing or comparison.only_mine):
-            tk.Label(self.inner, text="Dein Deck spielt die Karten wie die Top-Listen.", fg=GREEN, bg=BG,
-                     font=self.font).pack(pady=int(20 * s))
-        self.canvas.yview_moveto(0)
+            self.grid.message("Dein Deck spielt die Karten wie die Top-Listen.", GREEN, self.font)
+        self.grid.finish()
 
     def _grid(self, title: str, cards) -> None:
         """Abschnitt mit Kartenbildern: [(Name, Kurzfassung, zweite Zeile, Details, Farbe)]."""
-        s = self.s
-        tk.Label(self.inner, text=title, fg=GOLD, bg=BG, font=self.font_small_bold, anchor="w").pack(
-            fill=tk.X, pady=(int(8 * s), int(2 * s)))
-        grid = tk.Frame(self.inner, bg=BG)
-        grid.pack(fill=tk.X)
-        for i, (name, short, second, detail, color) in enumerate(cards):
-            tile = tk.Frame(grid, bg=BG, padx=int(3 * s), pady=int(3 * s))
-            tile.grid(row=i // COLUMNS, column=i % COLUMNS, sticky="n")
-            photo = self.photos.get(self.passcodes.get(name_key(name)))
-            width, height = self.photos.size
-            if photo is not None:
-                picture = tk.Label(tile, image=photo, bg=BG, bd=0)
-                hover = [picture]
-            else:  # kein Bild (offline/unbekannt): Name auf einer kartengroßen Fläche
-                picture = tk.Frame(tile, width=width, height=height, bg=PANEL)
-                picture.pack_propagate(False)
-                text = tk.Label(picture, text=name, fg=TEXT, bg=PANEL, font=self.font_small,
-                                wraplength=width - int(8 * s), justify=tk.CENTER)
-                text.pack(expand=True)
-                hover = [picture, text]
-            picture.pack()
-            caption = tk.Label(tile, text=short, fg=color, bg=BG, font=self.font_small_bold)
-            caption.pack()
-            sub = tk.Label(tile, text=second, fg=MUTED, bg=BG, font=self.font_small)
-            sub.pack()
-            for widget in (tile, *hover, caption, sub):
-                widget.bind("<Enter>", lambda e, n=name, d=detail: self._show_tip(e, n, d))
-                widget.bind("<Leave>", lambda e: self._hide_tip())
+        self.grid.section(title)
+        for name, short, second, detail, color in cards:
+            self.grid.card(name, self.passcodes.get(name_key(name)),
+                           [(short, color, self.font_small_bold), (second, MUTED, self.font_small)],
+                           on_enter=lambda e, n=name, d=detail: self._show_tip(e, n, d),
+                           on_leave=lambda e: self._hide_tip())
 
     def _show_tip(self, event, name: str, detail: str) -> None:
         """Kleines Fenster mit Name und Details neben der Maus."""
@@ -293,9 +267,6 @@ class StaplePanel:
             self._tip.destroy()
             self._tip = None
 
-    def _on_wheel(self, event) -> None:
-        self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
-
     # ── Zustand von außen ──
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
@@ -311,9 +282,6 @@ class StaplePanel:
                 self.win.after_cancel(self._poll_job)
             except tk.TclError:
                 pass
-        try:
-            self.canvas.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
+        self.grid.release()
         self.win.destroy()
         self.on_close()

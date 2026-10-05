@@ -70,3 +70,13 @@ Master Duel (from Master Duel Meta) for its archetypes:
 For hybrid decks (e.g. Ryzeal/Mitsurugi) it picks the closest deck type, and you
 can switch to the others. The data is saved locally and refreshed every few days,
 or on demand with "Refresh".
+
+### 8. Matchup Against Disruptions
+Deck → **Matchup** shows which disruption cards (hand traps, negating quick-play
+spells and traps) your opponents actually play, based on the duels the program
+has recorded, and how you do against them: for each card, the share of opponent
+decks that run it and your win rate against those decks (red = clearly worse than
+usual). Hover over a card for details: going first/second, and your win rate
+against decks without it. You can switch between "this deck" and "all decks", and
+between Ranked and all modes. Opponent decks come from Master Duel's Match History,
+so open it every now and then (it keeps the last 20 duels).

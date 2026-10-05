@@ -56,6 +56,7 @@ DWMWA_BORDER_COLOR = 34
 DWMWCP_ROUND = 2
 _SetForegroundWindow = _sig(_user32.SetForegroundWindow, [wintypes.HWND], wintypes.BOOL)
 _GetCursorPos = _sig(_user32.GetCursorPos, [ctypes.POINTER(wintypes.POINT)], wintypes.BOOL)
+_GetAsyncKeyState = _sig(_user32.GetAsyncKeyState, [ctypes.c_int], ctypes.c_short)
 _SetCursorPos = _sig(_user32.SetCursorPos, [ctypes.c_int, ctypes.c_int], wintypes.BOOL)
 _mouse_event = _sig(_user32.mouse_event,
                     [wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_size_t], None)
@@ -148,6 +149,11 @@ def get_cursor_pos() -> Tuple[int, int]:
 
 def set_cursor_pos(x: int, y: int) -> None:
     _SetCursorPos(int(x), int(y))
+
+
+def mouse_button_down() -> bool:
+    """Ist gerade eine Maustaste (links/rechts/Mitte) gedrückt – egal über welchem Fenster?"""
+    return any(_GetAsyncKeyState(key) & 0x8000 for key in (0x01, 0x02, 0x04))
 
 
 def mouse_event(flags: int) -> None:

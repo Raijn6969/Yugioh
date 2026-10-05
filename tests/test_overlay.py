@@ -476,6 +476,50 @@ class WindowFrameTest(unittest.TestCase):
         import window_style
         self.assertEqual(window_style._colorref("#c9a02f"), 0x002FA0C9)
 
+    def test_clicks_do_not_take_focus_from_the_game_but_typing_can(self):
+        # Sonst wird beim Klick der Importer aktiv und Windows blendet über dem Vollbild-Spiel die Taskleiste ein
+        import window_style
+        import win_api
+        root = tk.Tk()
+        try:
+            entry = tk.Entry(root)
+            entry.pack()
+            window_style.no_activate(root)
+            hwnd = int(root.wm_frame(), 16)
+            style = lambda: win_api._GetWindowLong(hwnd, win_api.GWL_EXSTYLE) & win_api.WS_EX_NOACTIVATE  # noqa
+            self.assertTrue(style())
+            window_style.allow_typing(entry)
+            root.update()
+            entry.event_generate("<Button-1>")   # ins Feld klicken → darf aktiv werden (Tastatur)
+            self.assertFalse(style())
+            entry.event_generate("<FocusOut>")   # Feld verlassen → wieder ohne Fokus
+            self.assertTrue(style())
+        finally:
+            root.destroy()
+
+    def test_menu_closes_on_click_outside_but_not_inside(self):
+        import window_style
+        root = tk.Tk()
+        try:
+            root.geometry("200x100+300+300")
+            anchor = tk.Label(root, text="Optionen")
+            anchor.place(x=0, y=0, width=60, height=20)
+            root.update()
+            closed = []
+            mouse = {"down": True, "pos": (305, 305)}  # Klick zum Öffnen ist noch gedrückt
+            with mock.patch.object(window_style.win_api, "mouse_button_down", lambda: mouse["down"]), \
+                    mock.patch.object(window_style.win_api, "get_cursor_pos", lambda: mouse["pos"]):
+                watcher = window_style.ClickOutside(root, anchor, lambda: closed.append(True), lambda: not closed)
+                watcher._check()                                   # Öffnen-Klick zählt nicht
+                mouse.update(down=False); watcher._check()         # noqa: E702
+                mouse.update(down=True, pos=(350, 350)); watcher._check()  # noqa: E702 – Klick ins Menü
+                self.assertEqual(closed, [])
+                mouse.update(down=False); watcher._check()         # noqa: E702
+                mouse.update(down=True, pos=(900, 900)); watcher._check()  # noqa: E702 – Klick daneben
+                self.assertEqual(closed, [True])
+        finally:
+            root.destroy()
+
 
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
 class RoundedButtonTest(unittest.TestCase):

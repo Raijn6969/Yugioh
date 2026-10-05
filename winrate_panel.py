@@ -16,7 +16,7 @@ from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
 from match_history import DRAW, FINISH_SURRENDER, RANKED, WIN, mode_name
 from rounded_button import RoundedButton
-from window_style import apply_frame
+from window_style import apply_frame, no_activate
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 MATCH_LIMIT = 50
@@ -64,12 +64,18 @@ class WinratePanel:
         self.font_head = ("Helvetica", int(12 * s), "bold")
         self.font_big = ("Consolas", int(18 * s), "bold")
 
+        if anchor is not None:
+            # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
+            # zeigen, bevor es platziert ist – kurz oben links in der Ecke, und Windows blendet im Vollbild die
+            # Taskleiste ein.
+            anchor.update_idletasks()
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
         self.win.wm_attributes("-topmost", True)
         self._build()
         self._place(anchor)
         apply_frame(self.win)
+        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
         self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
 
@@ -136,7 +142,6 @@ class WinratePanel:
         w, h = int(520 * s), int(600 * s)
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
         if anchor is not None:
-            anchor.update_idletasks()
             top = anchor.winfo_toplevel()
             x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
             y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)

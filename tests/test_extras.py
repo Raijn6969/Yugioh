@@ -764,6 +764,17 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(staples.closed)
         self.assertIsNone(self.panel.staples)
 
+    def test_matchup_for_the_shown_deck(self):
+        self.panel.set_scan(self.scan)
+        self.panel.matchup_btn.invoke()
+        matchup = self.panel.matchup
+        from tests.test_matchup import wait_for_matchup
+        wait_for_matchup(self.root, matchup)
+        self.assertEqual(matchup.deck_name, self.db.deck_name(c.match.cid for c in self.scan.cards))
+        self.assertIn("Match History", matchup.info_label.cget("text"))  # noch keine Gegner-Decks
+        self.panel.history_btn.invoke()
+        self.assertTrue(matchup.closed)
+
     def test_hover_is_raised_above_other_topmost_windows(self):
         import hover_card
         self.panel.set_scan(self.scan)
@@ -796,6 +807,23 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(self.panel.hover.visible)  # kurze Lücke: bleibt noch stehen
         self.pump(0.4)
         self.assertFalse(self.panel.hover.visible)
+
+    def test_animation_is_not_skipped_when_the_ui_hangs(self):
+        # Beim ersten Anzeigen über dem Vollbild-Spiel kann die Oberfläche kurz hängen: das darf die Analyse-
+        # Animation nicht "verbrauchen" (sonst springt das Fenster gleich zu "Analyse abgeschlossen")
+        import hover_card
+        clock = [100.0]
+        with mock.patch.object(hover_card.time, "monotonic", lambda: clock[0]):
+            card = self.panel.hover
+            card.show((10, 10, 50, 80), "Lukias", lambda: hover_card.HoverContent("Lukias", "", []), duration=1.0)
+            clock[0] += 2.0          # Hänger direkt nach dem Zeigen
+            card._animate()
+            self.assertEqual(card.phase, "loading")
+            for _ in range(40):      # danach normale Bilder (30 ms)
+                clock[0] += 0.03
+                card._animate()
+            self.assertEqual(card.phase, "done")
+            card.hide()
 
     def test_quick_sweeps_do_not_open_the_window(self):
         import extras_panel

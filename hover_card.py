@@ -27,6 +27,8 @@ RED = "#ff5c7a"
 
 ANALYSIS_TIME = 1.0   # Sekunden "Analyse…" bevor die Stats erscheinen
 FRAME_MS = 30         # Animation ~33 Bilder/s, nur solange sie läuft
+MAX_FRAME_GAP = 0.1   # Hängt die Oberfläche länger (z.B. beim ersten Anzeigen über dem Vollbild-Spiel), zählt das
+                      # nicht zur Animation – sonst wäre sie schon vorbei, bevor das erste Bild zu sehen ist
 SEGMENTS = 24         # Ladebalken-Segmente
 ALPHA = 0.99  # < 1: Fenster bleibt 'layered' – nur dann gehen Mausklicks hindurch (WS_EX_TRANSPARENT)
 GLYPHS = "ABCDEF0123456789#$%&*<>/\\=+"
@@ -86,6 +88,7 @@ class HoverCard:
         self._name = ""
         self._compute: Optional[Callable[[], HoverContent]] = None
         self._start = 0.0
+        self._last_frame = 0.0               # Zeitpunkt des letzten Animationsbilds
         self._duration = ANALYSIS_TIME
         self._anchor = (0, 0, 0, 0)
         self._geometry = ""                  # zuletzt gesetzte Position/Größe (nur bei Änderung neu setzen)
@@ -98,7 +101,7 @@ class HoverCard:
         """anchor: Bildschirm-Rechteck der Karte. compute() liefert die Stats am Ende der Analyse."""
         self._cancel()
         self._anchor, self._name, self._compute, self._duration = anchor, name, compute, duration
-        self._start = time.monotonic()
+        self._start = self._last_frame = time.monotonic()
         self.phase, self.content = "loading", None
         if duration > 0:
             self._build_loading()
@@ -145,7 +148,12 @@ class HoverCard:
     # ── Ablauf ──
     def _animate(self) -> None:
         self._job = None
-        progress = min(1.0, (time.monotonic() - self._start) / self._duration) if self._duration > 0 else 1.0
+        now = time.monotonic()
+        gap = now - self._last_frame
+        if gap > MAX_FRAME_GAP:  # Oberfläche hing: die Zeit zählt nicht, die Animation macht dort weiter
+            self._start += gap - FRAME_MS / 1000
+        self._last_frame = now
+        progress = min(1.0, (now - self._start) / self._duration) if self._duration > 0 else 1.0
         if progress >= 1.0:
             self.phase = "done"
             try:

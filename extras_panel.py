@@ -15,6 +15,7 @@ steht hier auch das Tempo (nur noch Reserve für langsame PCs); bei Texterkennun
 "Winrate" (links neben Verlauf): Siege/Niederlagen der eigenen Duelle in Master Duel (winrate_panel); unter den
 Kacheln steht die Winrate des angezeigten Decks (Decks mit denselben Archetypen zählen zusammen).
 "Staples" (links neben Winrate): das angezeigte Deck mit den Top-Listen in Master Duel vergleichen (staple_panel).
+"Matchup" (links neben Staples): die Störkarten deiner Gegner und deine Winrate gegen sie (matchup_panel).
 """
 
 import threading
@@ -35,7 +36,7 @@ from deck_export import DeckScan
 from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
 from hover_card import ANALYSIS_TIME, AMBER, GREEN, NEON, RED, HoverCard, HoverContent, HoverRow
 from rounded_button import RoundedButton
-from window_style import apply_frame
+from window_style import allow_typing, apply_frame, no_activate
 
 BG = "#1e1e1e"
 PANEL = "#2b2b2b"
@@ -120,6 +121,7 @@ class ExtrasPanel:
         self.history = None                    # Verlauf-Fenster, None = zu
         self.winrate = None                    # Winrate-Fenster, None = zu
         self.staples = None                    # Staples-Fenster, None = zu
+        self.matchup = None                    # Matchup-Fenster, None = zu
         self._deck_name: Optional[str] = None  # Name des angezeigten Decks (für dessen Winrate)
         self._history_result = None            # (Scan, Eintrag, fehlende Stats) bzw. Fehlertext vom Laden
         self._visible = True
@@ -147,6 +149,7 @@ class ExtrasPanel:
         self._build()
         self._place_over_card_list()
         apply_frame(self.win)
+        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
         self.win.bind("<Escape>", lambda e: self.close())
         self.hover = HoverCard(master, scale)
         self._poll()
@@ -158,7 +161,7 @@ class ExtrasPanel:
         header.pack(fill=tk.X)
         tk.Label(header, text="◆ DECK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        # Rechts: ✕, Optionen, Verlauf, Winrate, Staples – ohne Untertitel, sonst passen sie nicht in die Breite
+        # Rechts: ✕, Optionen, Verlauf, Winrate, Staples, Matchup – ohne Untertitel, sonst passen sie nicht
         RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
@@ -179,6 +182,10 @@ class ExtrasPanel:
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.staples_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+            self.matchup_btn = RoundedButton(header, text="Matchup", command=self.toggle_matchup, bg="#ad1457",
+                                             font=self.font_small, padx=int(9 * s), pady=int(3 * s),
+                                             radius=int(6 * s))
+            self.matchup_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
         self.options_menu.add_section("Karten lesen", "gilt für Import, Deck-Scan und Export")
         self.options_menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
@@ -275,6 +282,7 @@ class ExtrasPanel:
                               command=self._update_calculator)
             spin.grid(row=1, column=col * 2 + 1, padx=(0, int(8 * s)))
             spin.bind("<KeyRelease>", lambda e: self._update_calculator())
+            allow_typing(spin)
             self.calc_vars[key] = var
         self.calc_result = tk.Label(box, text="", fg=NEON, bg=PANEL, font=self.font_num)
         self.calc_result.grid(row=1, column=8, sticky="e")
@@ -422,10 +430,30 @@ class ExtrasPanel:
         self.winrate = None
 
     def _close_side_panels(self) -> None:
-        """Verlauf, Winrate und Staples liegen an derselben Stelle: höchstens eins offen."""
+        """Verlauf, Winrate, Staples und Matchup liegen an derselben Stelle: höchstens eins offen."""
         self._close_history()
         self._close_winrate()
         self._close_staples()
+        self._close_matchup()
+
+    # ── Matchup (Störkarten der Gegner) ──
+    def toggle_matchup(self) -> None:
+        if self.matchup is not None:
+            self._close_matchup()
+            return
+        from matchup_panel import MatchupPanel  # importiert die Farben von hier
+        self._close_side_panels()
+        self._show_deck_winrate()  # bestimmt den Namen des angezeigten Decks
+        self.matchup = MatchupPanel(self.win, self.stats_db, self.settings, self.save_settings,
+                                    on_close=self._on_matchup_closed, deck_name=self._deck_name,
+                                    anchor=self.matchup_btn)
+
+    def _close_matchup(self) -> None:
+        if self.matchup is not None:
+            self.matchup.close()  # ruft _on_matchup_closed
+
+    def _on_matchup_closed(self) -> None:
+        self.matchup = None
 
     # ── Staples (Vergleich mit den Top-Listen) ──
     def toggle_staples(self) -> None:
@@ -625,7 +653,7 @@ class ExtrasPanel:
             return
         self._visible = visible
         self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
-        for panel in (self.history, self.winrate, self.staples):  # eigene Fenster über diesem
+        for panel in (self.history, self.winrate, self.staples, self.matchup):  # eigene Fenster über diesem
             if panel is not None:
                 panel.set_visible(visible)
         try:

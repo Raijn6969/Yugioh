@@ -47,7 +47,7 @@ from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message
 from dark_menu import DarkMenu
 from editor_watch import EditorWatcher
-from window_style import apply_frame
+from window_style import apply_frame, no_activate
 from rounded_button import RoundedButton
 from tray import TrayIcon
 from utils import DeckCodeError, parse_clipboard
@@ -267,6 +267,7 @@ class MasterDuelImporter:
         self.root.geometry(f"{win_w}x{win_h}+{x_pos}+{y_pos}")
         self.root.deiconify()
         apply_frame(self.root)
+        no_activate(self.root)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
         self.root.update_idletasks()
         self._check_overlay_position()  # gemerkte Position könnte über dem Deck liegen
 

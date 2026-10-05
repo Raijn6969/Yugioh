@@ -9,7 +9,7 @@ landen Config, Cache und Log je nach Startart woanders, und ein fremdes
 import os
 import sys
 
-APP_VERSION = "8.3"
+APP_VERSION = "9.0"
 
 
 def _app_dir() -> str:

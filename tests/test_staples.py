@@ -191,7 +191,7 @@ class StaplePanelTest(unittest.TestCase):
         self.assertIn("Mitsurugi: 9 Top-Liste(n)", panel.status_label.cget("text"))
         self.assertEqual({k: v.cget("text") for k, v in panel.tiles.items()},
                          {"matching": "2", "different": "1", "missing": "1", "only_mine": "2"})
-        texts = self.texts(panel.inner)
+        texts = panel.grid.texts()
         self.assertIn("2× → 3×", texts)        # Mitsurugi Ritual
         self.assertIn("89 %", texts)           # Herald fehlt
         self.assertIn("nur du", texts)         # Selbstgebaut

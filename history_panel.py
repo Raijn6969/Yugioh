@@ -20,7 +20,7 @@ from hover_card import AMBER, NEON
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from utils import parse_deck_code
-from window_style import apply_frame
+from window_style import allow_typing, apply_frame, no_activate
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
 SEARCH_DELAY_MS = 150  # Erst suchen, wenn kurz nicht getippt wurde
@@ -77,15 +77,20 @@ class HistoryPanel:
         self.font_small = ("Helvetica", int(8 * s))
         self.font_head = ("Helvetica", int(12 * s), "bold")
 
+        if anchor is not None:
+            # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
+            # zeigen, bevor es platziert ist – kurz oben links in der Ecke, und Windows blendet im Vollbild die
+            # Taskleiste ein.
+            anchor.update_idletasks()
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
         self.win.wm_attributes("-topmost", True)
         self._build()
         self._place(anchor)
         apply_frame(self.win)
+        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
         self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
-        self.search.focus_force()
 
     # ── Aufbau ──
     def _build(self) -> None:
@@ -108,7 +113,9 @@ class HistoryPanel:
         self.search.pack(fill=tk.X, ipady=int(4 * s))
         self.placeholder = tk.Label(self.search, text=PLACEHOLDER, fg=MUTED, bg=PANEL, font=self.font)
         self.placeholder.place(x=int(4 * s), rely=0.5, anchor="w")
-        self.placeholder.bind("<Button-1>", lambda e: self.search.focus_set())
+        allow_typing(self.search)
+        # Klick auf den Platzhaltertext = Klick ins Suchfeld
+        self.placeholder.bind("<Button-1>", lambda e: self.search.event_generate("<Button-1>"))
         self.query.trace_add("write", lambda *_: self._on_query_changed())
 
         self.count_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w")
@@ -134,7 +141,6 @@ class HistoryPanel:
         w, h = int(480 * s), int(460 * s)
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
         if anchor is not None:
-            anchor.update_idletasks()
             top = anchor.winfo_toplevel()
             x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
             y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)

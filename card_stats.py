@@ -258,6 +258,21 @@ class CardStatsDB:
                 return CardInfo(*row)
         return None
 
+    def infos(self, ids: Iterable[str]) -> Dict[str, CardInfo]:
+        """Karteninfos vieler Karten auf einmal (unbekannte fehlen) – schneller als info() je Karte."""
+        wanted = sorted({str(i) for i in ids if i})
+        result: Dict[str, CardInfo] = {}
+        for base in self._sources():
+            todo = [cid for cid in wanted if cid not in result]
+            if not todo:
+                break
+            with self._connect(base) as con:
+                for start in range(0, len(todo), 500):
+                    chunk = todo[start:start + 500]
+                    result.update((row[0], CardInfo(*row)) for row in con.execute(
+                        f"SELECT {COLUMNS} FROM cards WHERE id IN ({','.join('?' * len(chunk))})", chunk))
+        return result
+
     def missing(self, ids: Iterable[str]) -> list:
         ids = sorted({str(i) for i in ids if i})
         known = set()

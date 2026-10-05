@@ -9,14 +9,12 @@ visible=Funktion: Zeile nur anzeigen, wenn sie True liefert (z.B. Tempo nur bei 
 baut ein offenes Fenster danach neu auf.
 """
 
-import time
 import tkinter as tk
 import tkinter.font as tkfont
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
-from dark_menu import FOCUS_GRACE
 from rounded_button import RoundedButton
-from window_style import GOLD, apply_frame
+from window_style import GOLD, ClickOutside, apply_frame, no_activate
 
 BG = "#2b2b2b"
 MUTED = "#9e9e9e"
@@ -34,7 +32,6 @@ class OptionsPopup:
         self.rows: List[dict] = []
         self.window: Optional[tk.Toplevel] = None
         self.buttons: Dict[str, RoundedButton] = {}  # Beschriftung → Button (solange offen)
-        self._opened_at = 0.0
 
     # ── Inhalt ──
     def add_section(self, title: str, hint: str = "", visible: Optional[Callable[[], bool]] = None) -> None:
@@ -86,6 +83,7 @@ class OptionsPopup:
             return
         s = self.s
         win = tk.Toplevel(self.master, bg=BG)
+        win.withdraw()  # erst zeigen, wenn es platziert ist (sonst kurz oben links → Taskleiste im Vollbild)
         win.overrideredirect(True)
         win.wm_attributes("-topmost", True)
         self.window, self._anchor = win, widget
@@ -94,11 +92,10 @@ class OptionsPopup:
         x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - win.winfo_reqwidth())
         y = widget.winfo_rooty() + widget.winfo_height() + self.gap
         win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.deiconify()
         apply_frame(win)
-        win.bind("<Escape>", lambda e: self.close())
-        win.bind("<FocusOut>", self._on_focus_out)
-        win.focus_force()
-        self._opened_at = time.monotonic()
+        no_activate(win)  # Master Duel bleibt aktiv (sonst Taskleiste über dem Spiel)
+        ClickOutside(win, widget, self.close, lambda: self.is_open)
 
     def rebuild(self) -> None:
         """Offenes Fenster neu aufbauen (z.B. weil eine Zeile jetzt sichtbar/unsichtbar ist)."""
@@ -168,11 +165,3 @@ class OptionsPopup:
                 else:
                     button.config(bg=ACTION)
 
-    def _on_focus_out(self, _event):
-        # Klick woanders hin (Deck-Fenster, Spiel) → zu. Fokuswechsel innerhalb des Fensters ignorieren.
-        def check():
-            if self.is_open and time.monotonic() - self._opened_at >= FOCUS_GRACE:
-                focused = self.window.focus_get()
-                if focused is None or focused.winfo_toplevel() is not self.window:
-                    self.close()
-        self.master.after(10, check)

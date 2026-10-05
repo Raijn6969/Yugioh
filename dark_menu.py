@@ -4,17 +4,15 @@ Gleiche Schnittstelle wie tk.Menu für das, was das Overlay braucht: add_command
 add_checkbutton, invoke(index). RoundedButton(menu=…) klappt es über dem Button auf, popup_below darunter.
 """
 
-import time
 import tkinter as tk
 from typing import Callable, List, Optional
 
-from window_style import apply_frame
+from window_style import ClickOutside, apply_frame, no_activate
 
 BG = "#2b2b2b"
 FG = "white"
 ACTIVE_BG = "#007acc"
 CHECK = "#00ff00"
-FOCUS_GRACE = 0.2  # So lange nach dem Öffnen zählt ein Fokuswechsel nicht als "woanders hingeklickt"
 
 
 class DarkMenu:
@@ -24,7 +22,6 @@ class DarkMenu:
         self.gap = gap  # Abstand zum Button
         self.items: List[dict] = []
         self.window: Optional[tk.Toplevel] = None
-        self._opened_at = 0.0
 
     # ── tk.Menu-kompatibel ──
     def add_command(self, label: str, command: Callable):
@@ -66,6 +63,7 @@ class DarkMenu:
             self.close()  # zweiter Klick auf den Button schließt
             return
         win = tk.Toplevel(self.master, bg=BG)
+        win.withdraw()  # erst zeigen, wenn es platziert ist (sonst kurz oben links → Taskleiste im Vollbild)
         win.overrideredirect(True)
         win.wm_attributes("-topmost", True)
         body = tk.Frame(win, bg=BG, padx=3, pady=4)
@@ -80,12 +78,11 @@ class DarkMenu:
         else:
             y = widget.winfo_rooty() + widget.winfo_height() + self.gap
         win.geometry(f"+{x}+{max(0, y)}")
+        win.deiconify()
         apply_frame(win)
-        win.bind("<Escape>", lambda e: self.close())
-        win.bind("<FocusOut>", self._on_focus_out)
-        win.focus_force()
+        no_activate(win)  # Master Duel bleibt aktiv (sonst Taskleiste über dem Spiel)
         self.window = win
-        self._opened_at = time.monotonic()
+        ClickOutside(win, widget, self.close, lambda: self.is_open)
 
     def close(self) -> None:
         if self.is_open:
@@ -114,11 +111,3 @@ class DarkMenu:
             w.bind("<Leave>", lambda e: highlight(False))
             w.bind("<ButtonRelease-1>", lambda e, i=index: self.invoke(i))
 
-    def _on_focus_out(self, _event):
-        # Klick woanders hin (Overlay, Spiel) → zu. Fokuswechsel innerhalb des Menüs ignorieren.
-        def check():
-            if self.is_open and time.monotonic() - self._opened_at >= FOCUS_GRACE:
-                focused = self.window.focus_get()
-                if focused is None or focused.winfo_toplevel() is not self.window:
-                    self.close()
-        self.master.after(10, check)
