@@ -1,16 +1,20 @@
 """
 Winrate (Button "Winrate" im Deck-Fenster): Siege und Niederlagen der eigenen Duelle in Master Duel.
 
-Oben die Winrate gesamt, als Erster und als Zweiter, darunter die Decks (nach Archetypen benannt, dazu der Name in
-Master Duel) und die letzten Matches mit dem Deck des Gegners (sobald bekannt). Klick auf ein Deck: nur dieses Deck
-(noch ein Klick: wieder alle); „Anzeigen“ zeigt das Deck im Deck-Fenster. Erfasst werden die Duelle von
-match_history im Speicher-Modus.
+Oben die Winrate gesamt, als Erster und als Zweiter, darunter der Münzwurf (wie oft gewonnen, Winrate nach gewonnenem
+bzw. verlorenem Münzwurf, aktuelle Serie). In der Liste: der Verlauf (Winrate der jeweils letzten 10 Matches), die
+Bilanz gegen die Gegner-Decks, die eigenen Decks (nach Archetypen benannt, dazu der Name in Master Duel) und die
+letzten Matches mit dem Deck des Gegners (sobald bekannt). Filter: Ranked/alle Modi und Zeitraum (heute, 7 Tage,
+Saison, alle). Klick auf ein Deck: nur dieses Deck (noch ein Klick: wieder alle); „Anzeigen“ zeigt das Deck im
+Deck-Fenster. Erfasst werden die Duelle von match_history im Speicher-Modus.
 """
 
+import datetime
+import time
 import tkinter as tk
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
-from card_stats import CardStatsDB, DeckWinStats, MatchEntry, WinStats
+from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, WinStats
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
@@ -19,8 +23,48 @@ from rounded_button import RoundedButton
 from window_style import apply_frame, no_activate
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
+PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
+PERIODS = (("today", "Heute"), ("week", "7 Tage"), ("season", "Saison"), ("all", "Alle"))
+DAY_START_HOUR = 5  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im selben Tag
 MATCH_LIMIT = 50
+OPPONENT_LIMIT = 12
+TREND_WINDOW = 10   # Verlauf: Winrate der jeweils letzten 10 Matches
+TREND_MIN = 3       # so viele Matches braucht der Verlauf mindestens
 UNKNOWN_DECK = "Unbekanntes Deck"
+
+
+def period_start(period: str, now: Optional[float] = None) -> Optional[float]:
+    """Beginn des Zeitraums (Unix-Zeit, lokale Uhr); None = alle Matches. Saison = Ranked-Saison in Master Duel
+    (ein Kalendermonat)."""
+    now = time.time() if now is None else now
+    if period == "week":
+        return now - 7 * 86400
+    current = datetime.datetime.fromtimestamp(now)
+    if period == "today":
+        start = current.replace(hour=DAY_START_HOUR, minute=0, second=0, microsecond=0)
+        if current < start:
+            start -= datetime.timedelta(days=1)
+        return start.timestamp()
+    if period == "season":
+        return current.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+    return None
+
+
+def day_summary(db: CardStatsDB, mode: Optional[int], now: Optional[float] = None) -> str:
+    """'Heute 5–2' für die Statuszeile ("" ohne Match heute)."""
+    stats = db.win_stats(mode=mode, since=period_start("today", now))
+    return f"Heute {record_text(stats)}" if stats.matches else ""
+
+
+def trend(matches: List[MatchEntry]) -> List[tuple]:
+    """Verlauf: [(Match, Winrate der letzten TREND_WINDOW Matches bis hierhin)], das älteste zuerst (Matches: das
+    letzte zuerst, wie aus der Datenbank). Am Anfang über alle bisherigen Matches."""
+    ordered = list(reversed(matches))
+    points = []
+    for i, match in enumerate(ordered):
+        window = ordered[max(0, i - TREND_WINDOW + 1):i + 1]
+        points.append((match, sum(m.result == WIN for m in window) / len(window)))
+    return points
 
 
 def rate_text(wins: int, matches: int) -> str:
@@ -41,6 +85,26 @@ def summary(stats: WinStats) -> str:
     if stats.second:
         parts.append(f"Zweiter {rate_text(stats.second_wins, stats.second)}")
     return " · ".join(parts)
+
+
+def coin_streak(matches: List[MatchEntry]) -> Optional[tuple]:
+    """(gewonnen?, Anzahl) der letzten Münzwürfe mit gleichem Ausgang (Matches: das letzte zuerst; unbekannte
+    Münzwürfe zählen nicht); None ohne bekannten Münzwurf."""
+    known = [m.coin for m in matches if m.coin is not None]
+    if not known:
+        return None
+    count = next((i for i, coin in enumerate(known) if coin != known[0]), len(known))
+    return known[0], count
+
+
+def coin_note(stats: WinStats, streak: Optional[tuple]) -> str:
+    """Satz unter den Münzwurf-Kacheln: aktuelle Serie bzw. Hinweis ohne Daten."""
+    if not stats.coin_known:
+        return ("Münzwurf: für diese Matches nicht erfasst – wird seit V9.2 bei jedem Duell mitgeschrieben."
+                if stats.matches else "")
+    if streak is not None and streak[1] >= 2:
+        return f"Münzwurf zuletzt {streak[1]}× in Folge {'gewonnen' if streak[0] else 'verloren'}"
+    return ""
 
 
 class WinratePanel:
@@ -83,6 +147,11 @@ class WinratePanel:
     def mode(self) -> Optional[int]:
         return None if self.settings.get(MODE_KEY) == "all" else RANKED
 
+    @property
+    def period(self) -> str:
+        period = self.settings.get(PERIOD_KEY)
+        return period if period in dict(PERIODS) else "all"
+
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
@@ -103,22 +172,32 @@ class WinratePanel:
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
+        periods = tk.Frame(body, bg=BG)
+        periods.pack(fill=tk.X, pady=(0, int(6 * s)))
+        tk.Label(periods, text="Zeitraum", fg=MUTED, bg=BG, font=self.font_small).pack(
+            side=tk.LEFT, padx=(0, int(6 * s)))
+        self.period_buttons = {}
+        for key, label in PERIODS:
+            button = RoundedButton(periods, text=label, command=lambda k=key: self._set_period(k), **small)
+            button.pack(side=tk.LEFT, padx=(0, int(4 * s)))
+            self.period_buttons[key] = button
         self.info_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
                                    justify=tk.LEFT, wraplength=int(500 * s))
         self.info_label.pack(fill=tk.X)
 
-        tiles = tk.Frame(body, bg=BG)
-        tiles.pack(fill=tk.X, pady=(int(6 * s), int(4 * s)))
         self.tiles = {}
-        for key, caption in (("all", "GESAMT"), ("first", "ALS ERSTER"), ("second", "ALS ZWEITER")):
-            tile = tk.Frame(tiles, bg=PANEL, padx=int(8 * s), pady=int(4 * s))
-            tile.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, int(6 * s)))
-            value = tk.Label(tile, text="–", fg=TEXT, bg=PANEL, font=self.font_big)
-            value.pack()
-            record = tk.Label(tile, text="", fg=MUTED, bg=PANEL, font=self.font_small)
-            record.pack()
-            tk.Label(tile, text=caption, fg=MUTED, bg=PANEL, font=self.font_small).pack()
-            self.tiles[key] = (value, record)
+        for heading, captions in ((None, (("all", "GESAMT"), ("first", "ALS ERSTER"), ("second", "ALS ZWEITER"))),
+                                  ("MÜNZWURF", (("coin", "GEWONNEN"), ("coin_won", "SIEGE WENN GEWONNEN"),
+                                                ("coin_lost", "SIEGE WENN VERLOREN")))):
+            if heading:
+                tk.Label(body, text=heading, fg=GOLD, bg=BG, font=self.font_small_bold, anchor="w").pack(
+                    fill=tk.X, pady=(int(2 * s), int(2 * s)))
+            tiles = tk.Frame(body, bg=BG)
+            tiles.pack(fill=tk.X, pady=(0 if heading else int(6 * s), int(4 * s)))
+            self._tile_row(tiles, captions)
+        self.coin_label = tk.Label(body, text="", fg=TEXT, bg=BG, font=self.font_small, anchor="w",
+                                   justify=tk.LEFT, wraplength=int(500 * s))
+        self.coin_label.pack(fill=tk.X, pady=(0, int(2 * s)))
         self.filter_label = tk.Label(body, text="", fg=NEON, bg=BG, font=self.font_small, anchor="w")
         self.filter_label.pack(fill=tk.X)
 
@@ -136,10 +215,23 @@ class WinratePanel:
         self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
         self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
 
+    def _tile_row(self, parent: tk.Frame, captions) -> None:
+        s = self.s
+        for column, (key, caption) in enumerate(captions):  # gleich breite Spalten: beide Reihen untereinander
+            parent.columnconfigure(column, weight=1, uniform="tile")
+            tile = tk.Frame(parent, bg=PANEL, padx=int(8 * s), pady=int(4 * s))
+            tile.grid(row=0, column=column, sticky="ew", padx=(0, int(6 * s)))
+            value = tk.Label(tile, text="–", fg=TEXT, bg=PANEL, font=self.font_big)
+            value.pack()
+            record = tk.Label(tile, text="", fg=MUTED, bg=PANEL, font=self.font_small)
+            record.pack()
+            tk.Label(tile, text=caption, fg=MUTED, bg=PANEL, font=self.font_small).pack()
+            self.tiles[key] = (value, record)
+
     def _place(self, anchor: Optional[tk.Misc]) -> None:
         """Unter dem Button "Winrate", rechtsbündig mit dem Deck-Fenster (liegt über dessen Liste)."""
         s = self.s
-        w, h = int(520 * s), int(600 * s)
+        w, h = int(520 * s), int(660 * s)
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
         if anchor is not None:
             top = anchor.winfo_toplevel()
@@ -157,6 +249,11 @@ class WinratePanel:
         self.save_settings()
         self.refresh()
 
+    def _set_period(self, key: str) -> None:
+        self.settings[PERIOD_KEY] = key
+        self.save_settings()
+        self.refresh()
+
     def select(self, deck_name: Optional[str]) -> None:
         self.selected = None if deck_name == self.selected else deck_name
         self.refresh()
@@ -167,22 +264,43 @@ class WinratePanel:
         for key, button in self.mode_buttons.items():
             active = (key == "all") == (self.mode is None)
             button.config(bg="#007acc" if active else "#444444")
+        for key, button in self.period_buttons.items():
+            button.config(bg="#007acc" if key == self.period else "#444444")
+        since = period_start(self.period)
         try:
-            decks = self.db.deck_win_stats(self.mode)
+            decks = self.db.deck_win_stats(self.mode, since)
             if self.selected not in {d.deck_name for d in decks}:
                 self.selected = None
-            stats = self.db.win_stats(self.selected, self.mode)
-            matches = self.db.matches(self.selected, self.mode, MATCH_LIMIT)
+            stats = self.db.win_stats(self.selected, self.mode, since)
+            matches = self.db.matches(self.selected, self.mode, MATCH_LIMIT, since)
+            opponents = self.db.opponent_stats(self.selected, self.mode, since)
         except Exception as e:  # Datenbank gesperrt/defekt → Fenster bleibt benutzbar
             self.info_label.config(text=f"Matches nicht lesbar: {e}", fg=RED)
             return
         self._show_info(stats)
         self._show_tiles(stats)
+        note = coin_note(stats, coin_streak(matches))
+        self.coin_label.config(text=note)
+        if note:
+            self.coin_label.pack(fill=tk.X, pady=(0, int(2 * self.s)), before=self.filter_label)
+        else:
+            self.coin_label.pack_forget()
         mode = "Ranked" if self.mode == RANKED else "alle Modi"
+        if self.period != "all":
+            mode += f" · {dict(PERIODS)[self.period]}"
         self.filter_label.config(text=f"Nur „{self.selected}“ · {mode} – Klick aufs Deck zeigt wieder alle"
                                  if self.selected else f"Alle Decks · {mode}")
         for child in self.inner.winfo_children():
             child.destroy()
+        if len(matches) >= TREND_MIN:
+            self._section(f"VERLAUF · Winrate der jeweils letzten {TREND_WINDOW} Matches")
+            self._trend_chart(trend(matches))
+        if opponents:
+            shown = opponents[:OPPONENT_LIMIT]
+            more = f", {len(shown)} häufigste" if len(opponents) > len(shown) else ""
+            self._section(f"GEGEN GEGNER-DECKS ({len(opponents)}{more})")
+            for i, opponent in enumerate(shown):
+                self._opponent_row(opponent, ROW_ALT if i % 2 else BG)
         if decks:
             self._section(f"DECKS ({len(decks)})")
             for i, deck in enumerate(decks):
@@ -197,6 +315,8 @@ class WinratePanel:
         if not self.tracking:
             text, color = ("Matches werden nur mit „Speicher lesen“ übernommen (Deck → Optionen → Karten lesen).",
                            AMBER)
+        elif not stats.matches and self.period != "all":
+            text, color = (f"Keine Matches im Zeitraum „{dict(PERIODS)[self.period]}“.", MUTED)
         elif not stats.matches:
             text, color = ("Noch keine Matches. Jedes Duell wird am Ergebnis-Bildschirm erfasst. Damit dein Deck "
                            "erkannt wird, in Master Duel einmal die Deck-Auswahl öffnen.", MUTED)
@@ -206,8 +326,13 @@ class WinratePanel:
         self.info_label.config(text=text, fg=color)
 
     def _show_tiles(self, stats: WinStats) -> None:
+        coin, coin_record = self.tiles["coin"]
+        coin.config(text=rate_text(stats.coin_won, stats.coin_known), fg=TEXT)
+        coin_record.config(text=f"{stats.coin_won} von {stats.coin_known}" if stats.coin_known else "keine Daten")
         for key, wins, matches in (("all", stats.wins, stats.matches), ("first", stats.first_wins, stats.first),
-                                   ("second", stats.second_wins, stats.second)):
+                                   ("second", stats.second_wins, stats.second),
+                                   ("coin_won", stats.coin_won_wins, stats.coin_won),
+                                   ("coin_lost", stats.coin_lost_wins, stats.coin_lost)):
             value, record = self.tiles[key]
             rate = wins / matches if matches else None
             color = TEXT if rate is None else GREEN if rate >= 0.5 else AMBER
@@ -238,6 +363,61 @@ class WinratePanel:
             widget.config(cursor="hand2")
             widget.bind("<Button-1>", lambda e: self.select(deck.deck_name))
 
+    def _opponent_row(self, opponent: OpponentStats, bg: str) -> None:
+        s = self.s
+        row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
+        row.pack(fill=tk.X)
+        tk.Label(row, text=summary(opponent.stats), fg=MUTED, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
+        tk.Label(row, text=f"vs {opponent.opp_name}", fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
+            side=tk.LEFT, fill=tk.X, expand=True)
+
+    def _trend_chart(self, points: List[tuple]) -> None:
+        """Linie: Winrate der jeweils letzten TREND_WINDOW Matches (älteste links); Hover zeigt das Match."""
+        s = self.s
+        w, h = int(470 * s), int(96 * s)
+        left, right, top, bottom = int(44 * s), int(12 * s), int(10 * s), int(18 * s)
+        chart = tk.Canvas(self.inner, width=w, height=h, bg=BG, highlightthickness=0, bd=0)
+        chart.pack(anchor="w", pady=(0, int(4 * s)))
+        plot_w, plot_h = w - left - right, h - top - bottom
+        x_of = lambda i: left + plot_w * i / max(1, len(points) - 1)  # noqa: E731
+        y_of = lambda rate: top + plot_h * (1 - rate)  # noqa: E731
+        for rate, label in ((1.0, "100 %"), (0.5, "50 %"), (0.0, "0 %")):  # zurückhaltendes Raster
+            y = y_of(rate)
+            chart.create_line(left, y, w - right, y, fill=PANEL, dash=(2, 3) if rate == 0.5 else ())
+            chart.create_text(left - int(5 * s), y, text=label, anchor="e", fill=MUTED, font=self.font_small)
+        chart.create_text(left, h - int(2 * s), text="älter", anchor="sw", fill=MUTED, font=self.font_small)
+        chart.create_text(w - right, h - int(2 * s), text="neuestes", anchor="se", fill=MUTED, font=self.font_small)
+        coords = [value for i, (_, rate) in enumerate(points) for value in (x_of(i), y_of(rate))]
+        chart.create_line(*coords, fill=NEON, width=2, capstyle=tk.ROUND, joinstyle=tk.ROUND)
+        radius = int(4 * s)
+        last_x, last_y = x_of(len(points) - 1), y_of(points[-1][1])
+        chart.create_oval(last_x - radius, last_y - radius, last_x + radius, last_y + radius, fill=NEON,
+                          outline=BG, width=2)
+        chart.create_text(last_x - int(7 * s), last_y - int(7 * s), text=rate_text(round(points[-1][1] * 100), 100),
+                          anchor="se" if points[-1][1] < 0.85 else "ne", fill=TEXT, font=self.font_small_bold)
+
+        def hover(event):
+            chart.delete("hover")
+            i = min(len(points) - 1, max(0, round((event.x - left) / plot_w * (len(points) - 1))))
+            match, rate = points[i]
+            x, y = x_of(i), y_of(rate)
+            chart.create_line(x, top, x, top + plot_h, fill=MUTED, tags="hover")
+            chart.create_oval(x - radius, y - radius, x + radius, y + radius, fill=NEON, outline=BG, width=2,
+                              tags="hover")
+            result = "Sieg" if match.result == WIN else "Remis" if match.result == DRAW else "Niederlage"
+            text = f"{result}{f' vs {match.opp_name}' if match.opp_name else ''} · {when(match.played_at)}\n" \
+                   f"Winrate letzte {min(i + 1, TREND_WINDOW)}: {rate_text(round(rate * 100), 100)}"
+            label = chart.create_text(x + int(8 * s) if x < w / 2 else x - int(8 * s), top + int(2 * s), text=text,
+                                      anchor="nw" if x < w / 2 else "ne", fill=TEXT, font=self.font_small,
+                                      tags="hover")
+            x0, y0, x1, y1 = chart.bbox(label)
+            pad = int(4 * s)
+            chart.tag_lower(chart.create_rectangle(x0 - pad, y0 - pad, x1 + pad, y1 + pad, fill=PANEL, outline=MUTED,
+                                                   tags="hover"), label)
+
+        chart.bind("<Motion>", hover)
+        chart.bind("<Leave>", lambda e: chart.delete("hover"))
+
     def _match_row(self, match: MatchEntry, bg: str) -> None:
         s = self.s
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
@@ -255,6 +435,8 @@ class WinratePanel:
             title += f"  vs  {match.opp_name}"
         tk.Label(text, text=title, fg=TEXT, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
         details = [when(match.played_at)]
+        if match.coin is not None:
+            details.append("Münzwurf gewonnen" if match.coin else "Münzwurf verloren")
         if match.turns:
             details.append(f"{match.turns} Züge" if match.turns != 1 else "1 Zug")
         details.append(mode_name(match.mode))

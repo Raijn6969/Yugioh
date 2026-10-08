@@ -764,6 +764,45 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(staples.closed)
         self.assertIsNone(self.panel.staples)
 
+    def test_side_profiles_only_swap_the_scanned_unchanged_deck(self):
+        import extras_panel
+        swaps = []
+        self.panel.on_side_swap = lambda target, label: swaps.append((target, label))
+        self.panel.side_btn.invoke()
+        self.assertIsNone(self.panel.side)
+        self.assertIn("erst das Deck scannen", self.panel.status_label.cget("text"))
+        self.panel.set_scan(self.scan)
+        self.panel.side_btn.invoke()
+        side = self.panel.side
+        self.assertEqual((side.deck["1"], side.zones["1"], side.unknown), (3, "Main", 0))
+        with mock.patch.object(extras_panel, "current_changes", return_value=None):
+            self.panel._side_swap(["1"], "Zweiter")
+        self.assertEqual(swaps, [(["1"], "Zweiter")])
+        # Deck im Editor inzwischen geändert → nicht tauschen (die Kontrolle würde die Änderung rückgängig machen)
+        with mock.patch.object(extras_panel, "current_changes", return_value="Main #1 ist eine andere Karte"):
+            self.panel._side_swap(["1"], "Zweiter")
+        self.assertEqual(len(swaps), 1)
+        self.assertIn("Neu scannen", self.panel.status_label.cget("text"))
+        # Unsicher erkannte Karte → kein Tausch möglich
+        self.panel.ash_btn.invoke()  # schließt Side (gleicher Platz)
+        self.assertTrue(side.closed)
+        unsure = self.scan._replace(cards=[self.scan.cards[0]._replace(
+            match=self.scan.cards[0].match._replace(sure=False))] + self.scan.cards[1:])
+        self.panel.set_scan(unsure)
+        self.panel.side_btn.invoke()
+        self.assertEqual(self.panel.side.unknown, 1)
+
+    def test_ash_prio_for_the_shown_deck(self):
+        import ash_prio
+        self.panel.set_scan(self.scan)
+        with mock.patch.object(ash_prio, "load", return_value=(None, [], "nicht durchgerechnet")) as load:
+            self.panel.ash_btn.invoke()
+            self.pump(0.3)
+        self.assertEqual(load.call_args.args[0]["1"], 3)  # Deck mit Kopien
+        self.assertEqual(self.panel.ash_prio.info_label.cget("text"), "nicht durchgerechnet")
+        self.panel.ash_btn.invoke()
+        self.assertIsNone(self.panel.ash_prio)
+
     def test_matchup_for_the_shown_deck(self):
         self.panel.set_scan(self.scan)
         self.panel.matchup_btn.invoke()

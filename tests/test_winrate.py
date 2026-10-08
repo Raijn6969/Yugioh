@@ -10,7 +10,7 @@ import match_history as mh
 import md_memory
 from card_stats import CardInfo, CardStatsDB
 from tests.test_memory import FakeReader
-from winrate_panel import summary
+from winrate_panel import coin_note, coin_streak, day_summary, period_start, summary, trend
 
 try:
     import tkinter as tk
@@ -45,6 +45,9 @@ def entry(did, time_, res, myid=1, first_player=1, turn=2, mode=3, finish=1, **e
         decks.reverse()
     return {"mode": mode, "did": did, "time": time_, "myid": myid, "deck": decks, "res": res, "turn": turn,
             "finish": finish, "first_player": first_player, "invalid": False, **extra}
+
+
+entry_ = entry
 
 
 def make_db():
@@ -109,6 +112,62 @@ class StoreMatchesTest(unittest.TestCase):
         self.assertEqual(self.db.win_stats("Snake-Eye").matches, 0)
 
 
+def add(db, did, played_at, result, opp="", deck="Ryzeal", mode=mh.RANKED, first=None):
+    record = mh.MatchRecord(str(did), played_at, mode, result, first, 0, 0, [], [], [], [], "", "live")
+    db.add_matches([(record, deck, "#main", opp, "")])
+
+
+class PeriodTest(unittest.TestCase):
+    def test_period_start(self):
+        import datetime
+        at = lambda *args: datetime.datetime(*args).timestamp()  # noqa: E731
+        night, day = at(2026, 10, 8, 3, 0), at(2026, 10, 8, 18, 30)
+        self.assertEqual(period_start("today", day), at(2026, 10, 8, 5, 0))
+        self.assertEqual(period_start("today", night), at(2026, 10, 7, 5, 0))  # nach Mitternacht: noch "gestern"
+        self.assertEqual(period_start("season", day), at(2026, 10, 1))
+        self.assertEqual(period_start("week", day), day - 7 * 86400)
+        self.assertIsNone(period_start("all", day))
+
+    def test_time_filter_opponents_and_day_summary(self):
+        db = make_db()
+        now = time.time()
+        add(db, 1, now - 10 * 86400, mh.WIN, "Snake-Eye")  # vor 10 Tagen
+        add(db, 2, now - 60, mh.LOSS, "Snake-Eye", first=True)
+        add(db, 3, now - 50, mh.WIN, "Snake-Eye", first=False)
+        add(db, 4, now - 40, mh.WIN, "Yubel")
+        add(db, 5, now - 30, mh.WIN)  # Gegner unbekannt
+        add(db, 6, now - 20, mh.LOSS, "Yubel", mode=mh.FREE)
+        week = now - 7 * 86400
+        self.assertEqual(db.win_stats(mode=mh.RANKED).matches, 5)
+        self.assertEqual(db.win_stats(mode=mh.RANKED, since=week).matches, 4)
+        self.assertEqual([m.did for m in db.matches(mode=mh.RANKED, since=week)], ["5", "4", "3", "2"])
+        self.assertEqual(len(db.deck_win_stats(mh.RANKED, now + 1)), 0)
+        opponents = db.opponent_stats(mode=mh.RANKED, since=week)
+        self.assertEqual([(o.opp_name, o.stats.matches, o.stats.wins) for o in opponents],
+                         [("Snake-Eye", 2, 1), ("Yubel", 1, 1)])
+        self.assertEqual(summary(opponents[0].stats), "50 % (1–1) · Erster 0 % · Zweiter 100 %")
+        self.assertEqual(len(db.opponent_stats()), 2)  # alle Modi, alle Zeit: Yubel 2×
+        start = period_start("today", now)
+        db = make_db()
+        add(db, 6, start - 60, mh.WIN)  # vor 5 Uhr: zählt zu gestern
+        self.assertEqual(day_summary(db, mh.RANKED, start + 3600), "")
+        add(db, 7, start + 60, mh.WIN)
+        add(db, 8, start + 120, mh.LOSS, mode=mh.FREE)
+        self.assertEqual(day_summary(db, mh.RANKED, start + 3600), "Heute 1–0")
+        self.assertEqual(day_summary(db, None, start + 3600), "Heute 1–1")
+        self.assertEqual(day_summary(make_db(), mh.RANKED, now), "")
+
+    def test_trend_is_rolling_win_rate_oldest_first(self):
+        db = make_db()
+        results = [mh.WIN, mh.LOSS] * 6 + [mh.WIN, mh.WIN]  # 14 Matches, das älteste zuerst
+        for i, result in enumerate(results):
+            add(db, i, 1000 + i, result)
+        points = trend(db.matches())
+        self.assertEqual([m.did for m, _ in points][:3], ["0", "1", "2"])
+        self.assertEqual([round(rate, 2) for _, rate in points[:3]], [1.0, 0.5, 0.67])
+        self.assertEqual(points[-1][1], 0.6)  # letzte 10: 6 Siege
+
+
 class OldTableTest(unittest.TestCase):
     def test_table_of_first_version_is_extended(self):
         import sqlite3
@@ -125,7 +184,8 @@ class OldTableTest(unittest.TestCase):
         db.add_matches([(record, "Ryzeal", "#main", "", "")])
         latest, old = db.matches()
         self.assertEqual((latest.did, latest.md_deck, latest.first), ("2", "Ryzeal Mitsu", False))
-        self.assertEqual((old.did, old.md_deck, old.opp_name), ("1", "", "Snake-Eye"))
+        self.assertEqual((old.did, old.md_deck, old.opp_name, old.coin), ("1", "", "Snake-Eye", None))
+        self.assertEqual(latest.coin, None)
 
 
 class FakeIl2Cpp:
@@ -193,15 +253,47 @@ class ClientWorkTest(unittest.TestCase):
 
 
 class CoinTossTest(unittest.TestCase):
-    def test_who_goes_first(self):
+    def test_coin_toss_and_who_goes_first(self):
+        # (Münzwurf gewonnen?, selbst angefangen?) – beide Fälle live gesehen:
         # Münzwurf verloren (Gegner = Spieler 0 wählt), Gegner fängt an → Zweiter
-        self.assertFalse(mh.first_from_coin_toss({"myid": 1, "choice": 0, "pvp_choice": {"choice": 1}}))
-        self.assertTrue(mh.first_from_coin_toss({"myid": 1, "choice": 1, "pvp_choice": {"choice": 1}}))
-        # Münzwurf gewonnen, aber "Zweiter" gewählt
-        self.assertFalse(mh.first_from_coin_toss({"myid": 0, "choice": 0, "pvp_choice": {"choice": 2}}))
-        # Noch nicht gewählt bzw. kein Duell
-        self.assertIsNone(mh.first_from_coin_toss({"myid": 1, "choice": 0}))
-        self.assertIsNone(mh.first_from_coin_toss(None))
+        self.assertEqual(mh.coin_toss({"myid": 1, "choice": 0, "pvp_choice": {"choice": 1}})[:2], (False, False))
+        # Münzwurf gewonnen, selbst "Erster" gewählt
+        self.assertEqual(mh.coin_toss({"myid": 1, "choice": 1, "pvp_choice": {"choice": 0, "cnt": 0}})[:2],
+                         (True, True))
+        # Als Spieler 0 gewonnen und "Erster" gewählt: pvp_choice gilt aus eigener Sicht
+        self.assertEqual(mh.coin_toss({"myid": 0, "choice": 0, "pvp_choice": {"choice": 0, "cnt": 0}})[:2],
+                         (True, True))
+        self.assertEqual(mh.coin_toss({"myid": 0, "choice": 1, "pvp_choice": {"choice": 1, "cnt": 5}})[:2],
+                         (False, False))
+        # Noch nicht gewählt: Münzwurf schon bekannt; kein Münzwurf bzw. kein Duell
+        self.assertEqual(mh.coin_toss({"myid": 1, "choice": 0})[:2], (False, None))
+        self.assertIsNone(mh.coin_toss({"myid": 1}))
+        self.assertIsNone(mh.coin_toss(None))
+
+    def test_duel_settings_before_the_duel(self):
+        # Wie live gelesen (Münzwurf verloren, Gegner fängt an): Duell-Einstellungen mit FirstPlayer und eigenem Deck
+        toss = mh.coin_toss(setup(did=79, me=1, chooser=0, first=0))
+        self.assertEqual(toss, mh.CoinToss(False, False, "79", MY_MAIN, MY_EXTRA))
+        # Münzwurf gewonnen und selbst gewählt: steht nur hier (kein pvp_choice)
+        self.assertEqual(mh.coin_toss(setup(did=80, me=1, chooser=1, first=1))[:3], (True, True, "80"))
+        self.assertEqual(mh.coin_toss(setup(did=81, me=0, chooser=0, first=1))[:3], (True, False, "81"))
+
+    def test_coin_stats_and_streak(self):
+        db = make_db()
+        coins = [(1, True, mh.WIN), (2, True, mh.LOSS), (3, False, mh.WIN), (4, False, mh.LOSS), (5, None, mh.WIN),
+                 (6, False, mh.LOSS)]
+        db.add_matches([(mh.MatchRecord(str(did), did, mh.RANKED, result, None, 0, 0, [], [], [], [], "", "live",
+                                        coin), "", "", "", "") for did, coin, result in coins])
+        stats = db.win_stats()
+        self.assertEqual((stats.coin_won, stats.coin_won_wins, stats.coin_lost, stats.coin_lost_wins), (2, 1, 3, 1))
+        matches = db.matches()
+        self.assertEqual([m.coin for m in matches], [False, None, False, False, True, True])
+        streak = coin_streak(matches)  # das unbekannte Match dazwischen unterbricht die Serie nicht
+        self.assertEqual(streak, (False, 3))
+        self.assertEqual(coin_note(stats, streak), "Münzwurf zuletzt 3× in Folge verloren")
+        self.assertEqual(coin_note(stats, (True, 1)), "")  # keine Serie
+        self.assertIsNone(coin_streak([]))
+        self.assertEqual(coin_note(make_db().win_stats(), None), "")  # gar keine Matches
 
 
 class FakeMemory:
@@ -219,6 +311,14 @@ class FakeMemory:
         for key in path:
             node = node.get(key) if isinstance(node, dict) else None
         return node
+
+
+def setup(did, me, chooser, first):
+    """ClientWork["Duel"] kurz vor dem Duell (Duell-Einstellungen, wie live gelesen)."""
+    decks = [deck([], []), deck([], [])]
+    decks[me] = deck(MY_MAIN, MY_EXTRA)
+    return {"Choice": chooser, "Deck": decks, "FirstPlayer": first, "GameMode": 3, "MyID": me, "did": did,
+            "name": ["Gegner", "Raijn"]}
 
 
 def duel_result(did, result):
@@ -256,11 +356,79 @@ class MatchWatcherTest(unittest.TestCase):
         self.assertEqual(self.step(menu + [mh.RESULT_VIEW]), 0)
         self.assertEqual(self.step(menu + [mh.RESULT_VIEW], DuelResult=duel_result(77, mh.WIN)), 1)
         match = self.new[0][0]
-        self.assertEqual((match.did, match.result, match.first, match.md_deck, match.source),
-                         ("77", mh.WIN, False, "Ryzeal Mitsu", "live"))
+        self.assertEqual((match.did, match.result, match.coin, match.first, match.md_deck, match.source),
+                         ("77", mh.WIN, False, False, "Ryzeal Mitsu", "live"))
         entry, = self.db.matches()
-        self.assertEqual((entry.deck_name, entry.opp_name, entry.played_at), ("Ryzeal / Mitsurugi", "", 1000.0))
+        self.assertEqual((entry.deck_name, entry.opp_name, entry.played_at, entry.coin),
+                         ("Ryzeal / Mitsurugi", "", 1000.0, False))
+        # Die Match History ergänzt den Eintrag, der Münzwurf bleibt
+        history = {"58": {"1": entry_(77, 500, mh.WIN, first_player=0, turn=4)}}
+        self.step(menu + [mh.HISTORY_VIEW], DuelHistory=history)
+        entry, = self.db.matches()
+        self.assertEqual((entry.turns, entry.opp_name, entry.coin), (4, "Snake-Eye", False))
         self.assertEqual(self.step(menu), 0)  # dasselbe Ergebnis zählt nur einmal
+
+    def test_choice_read_after_the_coin_toss_result(self):
+        menu = ["HomeViewController"]
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1})  # gewonnen, wählt noch
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1, "pvp_choice": {"choice": 0}})
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1, "pvp_choice": {}})  # Wahl schon weg
+        self.step(menu + ["DuelClient"], Duel={})
+        self.memory.data.pop("Duel")
+        self.step(menu + [mh.RESULT_VIEW], DuelResult=duel_result(78, mh.LOSS))
+        match = self.new[0][0]
+        self.assertEqual((match.coin, match.first), (True, True))
+
+    def test_choice_of_an_aborted_duel_is_not_reused(self):
+        now = [1000.0]
+        self.watcher.clock = lambda: now[0]
+        menu = ["HomeViewController"]
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1, "pvp_choice": {"choice": 0}})
+        self.step(menu + ["DuelClient"], Duel={})  # Duell bricht ab, kein Ergebnis-Bildschirm
+        now[0] += 600
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1})  # neues Duell, Wahl nicht lesbar
+        self.memory.data.pop("Duel")
+        self.step(menu + [mh.RESULT_VIEW], DuelResult=duel_result(81, mh.WIN))
+        self.assertEqual((self.new[0][0].coin, self.new[0][0].first), (True, None))
+
+    def test_duel_settings_give_first_player_and_deck_without_deck_selection(self):
+        menu = ["HomeViewController"]
+        self.step(menu)
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1})  # gewonnen, eigene Wahl unsichtbar
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel=setup(did=79, me=1, chooser=1, first=0))  # Zweiter gewählt
+        self.step(menu + ["DuelClient"])
+        self.step(menu + [mh.RESULT_VIEW], Duel={"name": ["Gegner", "Raijn"], "result": 1},
+                  DuelResult=duel_result(79, mh.WIN))
+        match = self.new[0][0]
+        self.assertEqual((match.coin, match.first, match.my_main), (True, False, MY_MAIN))
+        entry, = self.db.matches()
+        self.assertEqual(entry.deck_name, "Ryzeal / Mitsurugi")  # Deck nie in der Deck-Auswahl angesehen
+
+    def test_coin_toss_of_another_duel_is_not_used(self):
+        menu = ["HomeViewController"]
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel=setup(did=90, me=1, chooser=1, first=1))
+        self.step(menu + ["DuelClient"])
+        self.step(menu + [mh.RESULT_VIEW], DuelResult=duel_result(91, mh.WIN))  # anderes Duell
+        self.assertEqual((self.new[0][0].coin, self.new[0][0].first), (None, None))
+
+    def test_old_duel_data_at_start_is_not_used_for_the_coin_toss(self):
+        self.step(["HomeViewController"], DuelResult=duel_result(80, mh.WIN),
+                  Duel={"myid": 1, "choice": 1, "pvp_choice": {"choice": 1}})
+        match = self.new[0][0]
+        self.assertEqual((match.coin, match.first), (None, None))
+
+    def test_coin_toss_screen_is_checked_more_often(self):
+        waits = []
+
+        class Stop:
+            def wait(self, seconds):
+                waits.append(seconds)
+                return len(waits) > 2
+
+        self.watcher._stop = Stop()
+        self.memory.views = ["HomeViewController", mh.COIN_TOSS_VIEW]
+        self.watcher._run()
+        self.assertEqual(waits, [mh.CHECK_INTERVAL, mh.COIN_TOSS_INTERVAL, mh.COIN_TOSS_INTERVAL])
 
     def test_match_history_completes_live_entry_without_counting_it_again(self):
         menu = ["HomeViewController"]
@@ -313,6 +481,21 @@ class WinratePanelTest(unittest.TestCase):
             result += self.texts(child)
         return result
 
+    def test_coin_toss_line_and_match_details(self):
+        self.assertIn("nicht erfasst", self.panel.coin_label.cget("text"))  # Matches aus der Match History
+        self.assertEqual(self.panel.tiles["coin"][0].cget("text"), "–")
+        for did in ("8", "9"):
+            record = mh.MatchRecord(did, time.time() + int(did), mh.RANKED, mh.WIN if did == "9" else mh.LOSS,
+                                    False, 0, 0, [], [], [], [], "", "live", False)
+            self.db.add_matches([(record, "Ryzeal / Mitsurugi", "#main", "", "")])
+        self.panel.refresh()
+        tile = lambda key: tuple(label.cget("text") for label in self.panel.tiles[key])  # noqa: E731
+        self.assertEqual(tile("coin"), ("0 %", "0 von 2"))
+        self.assertEqual(tile("coin_won"), ("–", "keine Matches"))
+        self.assertEqual(tile("coin_lost"), ("50 %", "1–1 · 2 Match(es)"))
+        self.assertEqual(self.panel.coin_label.cget("text"), "Münzwurf zuletzt 2× in Folge verloren")
+        self.assertTrue(any("Münzwurf verloren" in text for text in self.texts(self.panel.inner)))
+
     def test_ranked_rates_decks_and_matches(self):
         value, record = self.panel.tiles["all"]
         self.assertEqual((value.cget("text"), record.cget("text")), ("50 %", "1–1 · 2 Match(es)"))
@@ -326,6 +509,31 @@ class WinratePanelTest(unittest.TestCase):
         self.panel.mode_buttons["all"].invoke()
         self.assertEqual(self.settings["WINRATE_MODE"], "all")
         self.assertEqual(self.panel.tiles["all"][1].cget("text"), "2–1 · 3 Match(es)")
+
+    def test_period_buttons_trend_and_opponents(self):
+        self.panel.mode_buttons["all"].invoke()
+        texts = self.texts(self.panel.inner)
+        self.assertTrue(any(t.startswith("VERLAUF") for t in texts))
+        self.assertIn("GEGEN GEGNER-DECKS (1)", texts)
+        self.assertIn("vs Snake-Eye", texts)
+        # Hover über dem Verlauf zeigt das Match
+        chart = next(w for w in self.panel.inner.winfo_children() if isinstance(w, tk.Canvas))
+        self.root.update()
+        chart.event_generate("<Motion>", x=chart.winfo_width() - 5, y=20)
+        tip = [chart.itemcget(i, "text") for i in chart.find_withtag("hover") if chart.type(i) == "text"]
+        self.assertTrue(tip and tip[0].startswith("Sieg vs Snake-Eye"), tip)
+        chart.event_generate("<Leave>")
+        self.assertFalse(chart.find_withtag("hover"))
+        # Zeitraum
+        self.panel.period_buttons["today"].invoke()
+        self.assertEqual(self.settings["WINRATE_PERIOD"], "today")
+        self.assertIn("Heute", self.panel.filter_label.cget("text"))
+        self.panel.settings["WINRATE_PERIOD"] = "week"
+        mh.store_matches(self.db, mh.parse_history({"58": {"9": entry(9, time.time() - 30 * 86400, mh.WIN)}}))
+        self.panel.refresh()
+        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "2–1 · 3 Match(es)")  # ohne das alte Match
+        self.panel.period_buttons["all"].invoke()
+        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "3–1 · 4 Match(es)")
 
     def test_show_deck_in_deck_window(self):
         self.panel._open(self.db.deck_win_stats(mh.RANKED)[0])

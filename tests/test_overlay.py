@@ -139,6 +139,20 @@ class OverlayTest(unittest.TestCase):
         self.assertEqual(app.timer_label.cget("text"), "⏱ 0:01")
         self.assertEqual(str(app.speed_btn.cget("state")), "normal")
 
+    def test_end_time_is_cleared_after_leaving_the_editor(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        app.is_running = True
+        app._on_import_started()
+        app._on_import_finished(True, False, [])
+        self.assertTrue(app.timer_label.cget("text").startswith("⏱"))
+        app.editor_watch.detector = mock.Mock(visible=True)   # noch im Editor: Endzeit bleibt
+        app._clear_timer_after_editor()
+        self.assertTrue(app.timer_label.cget("text").startswith("⏱"))
+        app.editor_watch.detector.visible = False  # Editor verlassen
+        app._clear_timer_after_editor()
+        self.assertEqual(app.timer_label.cget("text"), "")
+
     def test_flat_and_snaps_to_bottom_edge(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
@@ -302,6 +316,29 @@ class OverlayTest(unittest.TestCase):
         self.assertEqual(self.clipboard[0], "ydke://AAAA!!!")
         self.assertFalse(hasattr(app, "history_btn"))  # Verlauf sitzt im Deck-Fenster, nicht im Overlay
 
+    def test_side_swap_runs_import_without_clearing_and_skips_history(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        self.clipboard[0] = "ydke://NICHT!!!"
+        with mock.patch.object(Overlay.resume_state, "load_progress") as load, \
+                mock.patch.object(Overlay, "DeckImporterCore") as core:
+            app.start_side_swap(["1", "1", "2"], "Zweiter")
+            load.assert_not_called()  # kein "Fortsetzen?"-Dialog
+            kwargs = core.call_args.kwargs
+            self.assertEqual(kwargs["card_ids"], ["1", "1", "2"])
+            self.assertEqual(kwargs["resume"], {"done": {"1": 2, "2": 1}})  # alles da → Deck wird nicht geleert
+            core.return_value._card_ids = ["1", "1", "2"]
+            core.call_args.args[3](success=True, has_errors=False, failed_cards=[], notes=[])
+            self.pump(root, 0.1)
+        self.assertEqual(app.status_label.cget("text"), "Getauscht: Zweiter")
+        self.assertEqual(self.make_db().history(), [])  # Varianten nicht in den Verlauf
+        self.assertIsNone(app._swap_label)
+        # Danach wieder ein normaler Import
+        with mock.patch.object(Overlay.resume_state, "load_progress", return_value=None), \
+                mock.patch.object(Overlay, "DeckImporterCore") as core:
+            app.start_import_thread()
+            self.assertIsNone(core.call_args.kwargs["card_ids"])
+
     def test_export_reuses_scan_only_if_deck_unchanged(self):
         import deck_export
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
@@ -348,6 +385,7 @@ class OverlayTest(unittest.TestCase):
         with mock.patch.object(Overlay.subprocess, "Popen") as popen:
             app.restart()
         popen.assert_called_once()
+        self.assertEqual(popen.call_args.kwargs["env"]["MD_IMPORTER_RESTART"], "1")  # wartet auf diese Instanz
         tray.stop.assert_called_once()        # Tray-Icon weg
         self.assertFalse(app._after_ids)      # Timer gestoppt, Fenster zerstört
         self.apps.remove(app)
@@ -608,6 +646,37 @@ class AppIconTest(unittest.TestCase):
             image = create_icon_image(size)
             self.assertEqual((image.size, image.mode), ((size, size), "RGBA"))
             self.assertIsNotNone(image.getbbox())  # nicht leer
+
+
+class MatchStatusTest(unittest.TestCase):
+    """Meldung nach einem erfassten Duell: kurz in der schmalen Statuszeile, ausführlich im Tray."""
+
+    def notify(self, *matches, day=""):
+        from types import SimpleNamespace
+        shown, tray = [], []
+        fake = SimpleNamespace(update_status=lambda text, color: shown.append(text), extras=None,
+                               tray=SimpleNamespace(notify=lambda text, title: tray.append(text)),
+                               _day_summary=lambda: day)
+        Overlay.MasterDuelImporter._on_new_matches(fake, list(matches))
+        return shown[0], tray[0]
+
+    def test_short_status_and_full_tray_text(self):
+        import match_history as mh
+        match = mh.MatchRecord("1", 0, mh.RANKED, mh.WIN, False, 0, 0, [], [], [], [], "Zwölfnote", "live", False)
+        status, tray = self.notify(match)
+        self.assertEqual(status, "Sieg · Zweiter · Münze verloren · Zwölfnote")
+        self.assertTrue(tray.startswith("Sieg als Zweiter (Münzwurf verloren) mit Zwölfnote erfasst"))
+        long_name = match._replace(md_deck="Ryzeal Mitsurugi Fiendsmith", result=mh.LOSS, first=None, coin=None)
+        self.assertEqual(self.notify(long_name)[0], "Niederlage · Ryzeal Mitsur…")
+        self.assertEqual(self.notify(match, long_name)[0], "2 Matches erfasst")
+
+    def test_day_summary_replaces_deck_name_in_status(self):
+        import match_history as mh
+        match = mh.MatchRecord("1", 0, mh.RANKED, mh.LOSS, False, 0, 0, [], [], [], [], "Zwölfnote", "live", False)
+        status, tray = self.notify(match, day="Heute 12–10")
+        self.assertEqual(status, "Niederlage · Zweiter · Münze verloren · Heute 12–10")
+        self.assertIn("mit Zwölfnote", tray)  # Deckname dann nur in der Tray-Meldung
+        self.assertEqual(self.notify(match, match, day="Heute 3–1")[0], "2 Matches erfasst · Heute 3–1")
 
 
 if __name__ == "__main__":

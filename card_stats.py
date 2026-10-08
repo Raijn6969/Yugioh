@@ -20,7 +20,7 @@ import re
 import sqlite3
 import time
 from contextlib import contextmanager
-from typing import Dict, Iterable, List, NamedTuple, Optional
+from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from urllib.request import pathname2url
 
 import requests
@@ -87,6 +87,7 @@ class MatchEntry(NamedTuple):
     opp_name: str             # "" = unbekannt (live erfasst, Match History noch nicht gelesen)
     opp_code: str
     md_deck: str              # Name des Decks in Master Duel ("" = unbekannt)
+    coin: Optional[bool] = None  # Münzwurf gewonnen? (None = unbekannt)
 
 
 class WinStats(NamedTuple):
@@ -98,6 +99,14 @@ class WinStats(NamedTuple):
     second: int = 0
     second_wins: int = 0
     last_played: float = 0.0
+    coin_won: int = 0         # Münzwurf gewonnen (nur Matches, bei denen er bekannt ist)
+    coin_won_wins: int = 0
+    coin_lost: int = 0
+    coin_lost_wins: int = 0
+
+    @property
+    def coin_known(self) -> int:
+        return self.coin_won + self.coin_lost
 
     @property
     def losses(self) -> int:
@@ -109,6 +118,19 @@ class DeckWinStats(NamedTuple):
     stats: WinStats
     deck_code: str            # Deck des letzten Matches
     md_deck: str              # MD-Name des Decks beim letzten Match ("" = unbekannt)
+
+
+class OpponentStats(NamedTuple):
+    opp_name: str             # Gegner-Deck (nach Archetypen benannt)
+    stats: WinStats           # eigene Bilanz gegen dieses Deck
+
+
+class SideProfile(NamedTuple):
+    """Side-Deck-Profil eines Decks: diese Karten raus, jene rein (Passcode → Kopien)."""
+    deck_name: str
+    name: str                 # z.B. "Zweiter"
+    cards_out: Dict[str, int]
+    cards_in: Dict[str, int]
 
 
 class MdDeck(NamedTuple):
@@ -153,17 +175,21 @@ def create_tables(con: sqlite3.Connection) -> None:
     con.execute("""CREATE TABLE IF NOT EXISTS matches (
                        did TEXT PRIMARY KEY, played_at REAL, mode INTEGER, result INTEGER, first INTEGER,
                        turns INTEGER, finish INTEGER, deck_name TEXT, deck_code TEXT, opp_name TEXT, opp_code TEXT,
-                       md_deck TEXT, source TEXT, added_at REAL)""")
-    # Ältere Tabelle (erste Version ohne MD-Deck und Quelle; alte Einträge stammen aus der Match History) ergänzen
+                       md_deck TEXT, source TEXT, added_at REAL, coin INTEGER)""")
+    # Ältere Tabelle ergänzen (erste Version ohne MD-Deck und Quelle – alte Einträge stammen aus der Match History;
+    # bis V9.0 ohne Münzwurf)
     columns = {row[1] for row in con.execute("PRAGMA table_info(matches)")}
-    for column, default in (("md_deck", "''"), ("source", "'history'")):
+    for column, kind in (("md_deck", "TEXT DEFAULT ''"), ("source", "TEXT DEFAULT 'history'"), ("coin", "INTEGER")):
         if column not in columns:
-            con.execute(f"ALTER TABLE matches ADD COLUMN {column} TEXT DEFAULT {default}")
+            con.execute(f"ALTER TABLE matches ADD COLUMN {column} {kind}")
     # Decks in Master Duel (aus der Deck-Auswahl gelesen): Welches Deck gerade gewählt ist, steht nur als ID im Spiel
     con.execute("""CREATE TABLE IF NOT EXISTS md_decks (
                        deck_id TEXT PRIMARY KEY, name TEXT, main TEXT, extra TEXT, seen_at REAL)""")
     # Auswertung der Top-Listen je Archetyp (staple_analysis, Master Duel Meta) als JSON
     con.execute("CREATE TABLE IF NOT EXISTS staple_cache (archetype TEXT PRIMARY KEY, data TEXT, fetched_at REAL)")
+    # Side-Deck-Profile je Deck (Name nach Archetypen wie im Verlauf), Karten als JSON {Passcode: Kopien}
+    con.execute("""CREATE TABLE IF NOT EXISTS side_profiles (deck_name TEXT, name TEXT, cards_out TEXT, cards_in TEXT,
+                       saved_at REAL, PRIMARY KEY (deck_name, name))""")
 
 
 def name_key(name: str) -> str:
@@ -272,6 +298,24 @@ class CardStatsDB:
                     result.update((row[0], CardInfo(*row)) for row in con.execute(
                         f"SELECT {COLUMNS} FROM cards WHERE id IN ({','.join('?' * len(chunk))})", chunk))
         return result
+
+    def search_cards(self, text: str, limit: int = 8) -> List[Tuple[str, str]]:
+        """Karten in Master Duel, deren Name den Text enthält: [(Passcode, Name)], Namensanfang zuerst."""
+        text = text.strip()
+        if len(text) < 2:
+            return []
+        pattern = "%" + text.replace("%", "").replace("_", "") + "%"
+        found: Dict[str, str] = {}  # Name → Passcode (Alternativ-Artworks haben eigene Passcodes: der kleinste)
+        for base in self._sources():
+            with self._connect(base) as con:
+                for cid, name in con.execute(
+                        """SELECT id, name FROM cards WHERE name LIKE ? AND id IN (SELECT id FROM konami)
+                           ORDER BY name LIKE ? DESC, length(name) LIMIT ?""", (pattern, text + "%", limit * 3)):
+                    if name not in found or int(cid) < int(found[name]):
+                        found[name] = cid
+        start = text.lower()
+        ordered = sorted(found.items(), key=lambda item: (not item[0].lower().startswith(start), len(item[0])))
+        return [(cid, name) for name, cid in ordered[:limit]]
 
     def missing(self, ids: Iterable[str]) -> list:
         ids = sorted({str(i) for i in ids if i})
@@ -542,19 +586,21 @@ class CardStatsDB:
     def add_matches(self, rows) -> None:
         """
         rows: [(MatchRecord, Deck-Name, Deck-Code, Gegner-Deck-Name, Gegner-Deck-Code)]. Neue Duelle kommen dazu;
-        ein Live-Eintrag wird durch denselben Eintrag aus der Match History ersetzt (MD-Deckname bleibt).
+        ein Live-Eintrag wird durch denselben Eintrag aus der Match History ersetzt (MD-Deckname und Münzwurf bleiben).
         """
         now = time.time()
         with self._connect() as con:
             for r, name, code, opp_name, opp_code in rows:
-                old = con.execute("SELECT md_deck FROM matches WHERE did = ?", (r.did,)).fetchone()
+                old = con.execute("SELECT md_deck, coin FROM matches WHERE did = ?", (r.did,)).fetchone()
+                coin = r.coin if r.coin is not None else (old[1] if old else None)
                 # Spalten mit Namen: in einer ergänzten Tabelle (siehe create_tables) stehen sie anders
                 con.execute("""INSERT OR REPLACE INTO matches (did, played_at, mode, result, first, turns, finish,
-                                   deck_name, deck_code, opp_name, opp_code, md_deck, source, added_at)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                   deck_name, deck_code, opp_name, opp_code, md_deck, source, added_at, coin)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             (r.did, r.played_at, r.mode, r.result, None if r.first is None else int(r.first),
                              r.turns, r.finish, name, code, opp_name, opp_code,
-                             r.md_deck or (old[0] if old else "") or "", r.source, now))
+                             r.md_deck or (old[0] if old else "") or "", r.source, now,
+                             None if coin is None else int(coin)))
 
     def remember_md_decks(self, decks: Iterable[MdDeck]) -> None:
         with self._connect() as con:
@@ -571,6 +617,30 @@ class CardStatsDB:
         ids = lambda text: [int(k) for k in text.split(",") if k]  # noqa: E731
         return MdDeck(row[0], row[1], ids(row[2]), ids(row[3]))
 
+    # ── Side-Deck-Profile ──
+    def side_profiles(self, deck_name: Optional[str]) -> List[SideProfile]:
+        """Profile eines Decks (None = aller Decks), das älteste zuerst."""
+        with self._connect() as con:
+            rows = con.execute("SELECT deck_name, name, cards_out, cards_in FROM side_profiles "
+                               "WHERE ? IS NULL OR deck_name = ? ORDER BY saved_at", (deck_name, deck_name)).fetchall()
+        result = []
+        for deck, name, cards_out, cards_in in rows:
+            try:
+                result.append(SideProfile(deck, name, json.loads(cards_out), json.loads(cards_in)))
+            except ValueError:
+                continue  # beschädigter Eintrag
+        return result
+
+    def save_side_profile(self, profile: SideProfile) -> None:
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO side_profiles VALUES (?, ?, ?, ?, ?)",
+                        (profile.deck_name, profile.name, json.dumps(profile.cards_out),
+                         json.dumps(profile.cards_in), time.time()))
+
+    def delete_side_profile(self, deck_name: str, name: str) -> None:
+        with self._connect() as con:
+            con.execute("DELETE FROM side_profiles WHERE deck_name = ? AND name = ?", (deck_name, name))
+
     # ── Top-Listen (Staple-Analyse) ──
     def staples(self, archetype: str) -> Optional[dict]:
         with self._connect() as con:
@@ -586,7 +656,7 @@ class CardStatsDB:
                         (archetype.lower(), json.dumps(data), data.get("fetched_at", time.time())))
 
     @staticmethod
-    def _match_filter(deck_name: Optional[str], mode: Optional[int]):
+    def _match_filter(deck_name: Optional[str], mode: Optional[int], since: Optional[float] = None):
         where, args = [], []
         if deck_name is not None:
             where.append("deck_name = ?")
@@ -594,27 +664,32 @@ class CardStatsDB:
         if mode is not None:
             where.append("mode = ?")
             args.append(mode)
+        if since is not None:
+            where.append("played_at >= ?")
+            args.append(since)
         return " AND ".join(where) or "1", args
 
     def matches(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
-                limit: int = 200) -> List[MatchEntry]:
-        """Gespeicherte Matches, das letzte zuerst (optional nur ein Deck bzw. ein Modus)."""
-        where, args = self._match_filter(deck_name, mode)
+                limit: int = 200, since: Optional[float] = None) -> List[MatchEntry]:
+        """Gespeicherte Matches, das letzte zuerst (optional nur ein Deck, ein Modus bzw. ab einem Zeitpunkt)."""
+        where, args = self._match_filter(deck_name, mode, since)
         with self._connect() as con:
             rows = con.execute(f"""SELECT did, played_at, mode, result, first, turns, finish, deck_name, deck_code,
-                                          opp_name, opp_code, md_deck FROM matches WHERE {where}
+                                          opp_name, opp_code, md_deck, coin FROM matches WHERE {where}
                                    ORDER BY played_at DESC LIMIT ?""", (*args, limit)).fetchall()
-        return [MatchEntry(*row[:4], None if row[4] is None else bool(row[4]), *row[5:]) for row in rows]
+        flag = lambda value: None if value is None else bool(value)  # noqa: E731
+        return [MatchEntry(*row[:4], flag(row[4]), *row[5:-1], flag(row[-1])) for row in rows]
 
-    def win_stats(self, deck_name: Optional[str] = None, mode: Optional[int] = None) -> WinStats:
-        where, args = self._match_filter(deck_name, mode)
+    def win_stats(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
+                  since: Optional[float] = None) -> WinStats:
+        where, args = self._match_filter(deck_name, mode, since)
         with self._connect() as con:
             row = con.execute(f"""{self._STATS_SQL} FROM matches WHERE {where}""", args).fetchone()
         return WinStats(*(value or 0 for value in row))
 
-    def deck_win_stats(self, mode: Optional[int] = None) -> List[DeckWinStats]:
+    def deck_win_stats(self, mode: Optional[int] = None, since: Optional[float] = None) -> List[DeckWinStats]:
         """Winrate je Deck (nach Name), das zuletzt gespielte zuerst."""
-        where, args = self._match_filter(None, mode)
+        where, args = self._match_filter(None, mode, since)
         with self._connect() as con:
             rows = con.execute(f"""{self._STATS_SQL}, deck_name,
                                        (SELECT deck_code FROM matches AS m WHERE m.deck_name = matches.deck_name
@@ -626,8 +701,19 @@ class CardStatsDB:
         return [DeckWinStats(row[-3], WinStats(*(value or 0 for value in row[:-3])), row[-2] or "", row[-1] or "")
                 for row in rows]
 
+    def opponent_stats(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
+                       since: Optional[float] = None) -> List[OpponentStats]:
+        """Eigene Bilanz je Gegner-Deck (nur Matches mit bekanntem Gegner), das häufigste zuerst."""
+        where, args = self._match_filter(deck_name, mode, since)
+        with self._connect() as con:
+            rows = con.execute(f"""{self._STATS_SQL}, opp_name FROM matches WHERE {where} AND opp_name != ''
+                                   GROUP BY opp_name ORDER BY COUNT(*) DESC, MAX(played_at) DESC""",
+                               args).fetchall()
+        return [OpponentStats(row[-1], WinStats(*(value or 0 for value in row[:-1]))) for row in rows]
+
     _STATS_SQL = """SELECT COUNT(*), SUM(result = 1), SUM(result = 3), SUM(first = 1), SUM(first = 1 AND result = 1),
-                           SUM(first = 0), SUM(first = 0 AND result = 1), MAX(played_at)"""
+                           SUM(first = 0), SUM(first = 0 AND result = 1), MAX(played_at),
+                           SUM(coin = 1), SUM(coin = 1 AND result = 1), SUM(coin = 0), SUM(coin = 0 AND result = 1)"""
 
     def _describe(self, card_ids: List[str]):
         """(Name, Archetypen, Main, Extra, englische Kartennamen) aus den gespeicherten Kartendaten."""

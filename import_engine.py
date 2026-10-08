@@ -156,7 +156,8 @@ class DeckImporterCore:
         finish_callback: Callable,
         start_callback: Optional[Callable] = None,
         resume: Optional[dict] = None,
-        memory: bool = False
+        memory: bool = False,
+        card_ids: Optional[List[str]] = None
     ):
         self.config = config
         self.tesseract_cmd = tesseract_cmd
@@ -180,6 +181,8 @@ class DeckImporterCore:
 
         # Selbstheilung
         self.resume = resume              # Gespeicherter Stand eines abgebrochenen Imports
+        # Deck direkt statt aus der Zwischenablage (Side-Tausch: Ziel-Deck, zusammen mit resume = alles da)
+        self.preset_ids = list(card_ids) if card_ids is not None else None
         self._progress: Dict[str, int] = {}   # cid → eingefügte Anzahl (für "Fortsetzen")
         self._card_ids: List[str] = []
         self.deck_names: Dict[str, str] = {}  # Passcode → Name in Spielsprache
@@ -258,7 +261,7 @@ class DeckImporterCore:
 
     def _run_import(self):
         try:
-            card_ids = parse_clipboard()
+            card_ids = self.preset_ids if self.preset_ids is not None else parse_clipboard()
         except DeckCodeError as e:
             self.status_callback("Fehler: Deck-Code beschädigt!", "red")
             self.finish_callback(success=False, has_errors=True, failed_cards=[],
@@ -448,7 +451,8 @@ class DeckImporterCore:
                     f"Ob dabei Karten nicht eingefügt wurden, kann der Import nur prüfen, wenn der Punkt "
                     f"'Deck-Kartenzahl' kalibriert ist. Bitte das Deck kurz kontrollieren und beim nächsten "
                     f"Kalibrieren den 6. Punkt setzen.")
-        resume_state.clear_progress()
+        if self.preset_ids is None:  # ein Side-Tausch lässt den Stand eines abgebrochenen Imports stehen
+            resume_state.clear_progress()
         self.finish_callback(success=True, has_errors=has_errors, failed_cards=popup_failed_cards,
                              notes=self.notes, scan=self.final_scan)
 
@@ -1195,8 +1199,8 @@ class DeckImporterCore:
     def _mark_done(self, cid: str, amount: int) -> None:
         """Fortschritt speichern, damit ein abgebrochener Import fortgesetzt werden kann."""
         self._progress[cid] = amount
-        if not self._card_ids:
-            return  # kein laufender Import (z.B. einzelne Funktionen in Tests)
+        if not self._card_ids or self.preset_ids is not None:
+            return  # kein laufender Import (z.B. Tests) bzw. Side-Tausch (nichts fortzusetzen, alles gilt als da)
         try:
             resume_state.save_progress(self._card_ids, self._progress)
         except OSError as e:

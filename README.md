@@ -60,6 +60,20 @@ Everything is read-only. Data is only read from menu screens (deck selection, co
 toss, result screen); during a duel it only checks which screen is open.
 Deck → **Winrate** shows your win rate overall, going first and going second, per deck,
 and lists recent matches. A small notification appears for every recorded match.
+It also tracks the coin toss: how often you won it, your win rate after winning or
+losing it, and your current streak (e.g. "lost the last 3"). Only for duels recorded
+live from version 9.2 on; the Match History doesn't include the coin toss.
+- **Time range:** Today (from 5 am, so a late session counts as one day), 7 days,
+  Season (this month's ranked season) or all.
+- **Trend:** a line of your win rate over the last 10 matches at each point; hover
+  over it to see the match.
+- **Against opponent decks:** your record against each deck you faced (once the
+  Match History has been opened).
+- After each duel the status line shows today's record, e.g. "Win · Second · Coin
+  lost · Today 5–2".
+
+Only one importer can run at a time; starting it again shows a hint instead of a
+second overlay.
 
 ### 7. Staple Check
 Deck → **Staples** compares the deck shown with the current top lists in
@@ -80,3 +94,19 @@ usual). Hover over a card for details: going first/second, and your win rate
 against decks without it. You can switch between "this deck" and "all decks", and
 between Ranked and all modes. Opponent decks come from Master Duel's Match History,
 so open it every now and then (it keeps the last 20 duels).
+
+### 9. Side-Deck Profiles
+Master Duel is best-of-one, so you adjust your deck between matches. Deck → **Side**
+lets you save profiles per deck, e.g. "Second: −3 Droll & Lock Bird, +3 Lightning
+Storm": click cards of your deck to take them out, search cards to put in. One click
+on **Swap** changes the deck in the deck editor (like a small import: it removes the
+cards with a right-click and searches the new ones, then checks the deck), **Back**
+undoes it. Swaps don't end up in the deck history.
+
+### 10. Ash Priority Cheat Sheet
+Deck → **Ash-Prio** shows, for each starting hand of your deck, where in the combo
+a hand trap hurts most and what's left on board afterwards — for Ash Blossom,
+Imperm/Veiler, Nibiru, Droll & Lock and Ghost Ogre. Click a hand to see the whole
+line with the critical step marked and the best way to continue after the hand
+trap. The data comes from the Factory (read-only); your deck is matched to the
+Factory variant with the most cards in common.

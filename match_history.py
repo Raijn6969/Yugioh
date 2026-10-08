@@ -6,8 +6,13 @@ welches Menü vorne ist, und liest Daten ausschließlich auf Menü-Bildschirmen 
   - Deck-Auswahl: Beim Durchblättern der Decks liegen ihre Karten in "DeckList", Namen in "Deck/list". Jedes Deck
     wird mit seiner ID gemerkt (Datenbank, md_decks) – welches gewählt ist, steht nur als ID ("Deck/maindeck_id").
     Ein Deck muss also nur einmal in der Deck-Auswahl angesehen werden; danach reicht die ID.
-  - Münzwurf (DuelStartViewController): "Duel" sagt, wer den Münzwurf gewonnen hat ("choice") und was er gewählt hat
-    ("pvp_choice"/"choice": 1 = anfangen) → Erster/Zweiter.
+  - Münzwurf (DuelStartViewController): "Duel" sagt, wer den Münzwurf gewonnen hat ("choice"); nach der Wahl kommt
+    "pvp_choice" aus eigener Sicht: 1 = man ist Zweiter, 0 = man fängt an – egal, wer gewählt hat und welche
+    Spieler-Nummer man hat (live geprüft: gewonnen/verloren, myid 0 und 1). Kurz vor dem Duell (oft nur Bruchteile
+    einer Sekunde, nicht immer zu sehen) ersetzt das Spiel
+    "Duel" durch die Duell-Einstellungen: "FirstPlayer" (wer anfängt – auch wenn man selbst gewählt hat), "Choice"
+    (Münzwurf-Gewinner), "MyID", "did" (Duell-ID) und das eigene Deck ("Deck"[MyID], Konami-IDs). Darum wird dort
+    häufiger nachgesehen.
   - Ergebnis-Bildschirm: "DuelResult" mit Duell-ID, Modus und Ergebnis → Match wird gespeichert ("live").
   - Match History (falls man sie öffnet): die letzten Duelle vollständig (Zugzahl, beide Decks, wer angefangen hat).
     Ergänzt fehlende Duelle und ersetzt Live-Einträge derselben Duell-ID.
@@ -24,9 +29,11 @@ HISTORY_VIEW = "ColosseumHistoryViewController"  # Menü "Match History"
 COIN_TOSS_VIEW = "DuelStartViewController"        # Münzwurf vor dem Duell (noch Menü)
 RESULT_VIEW = "DuelResultViewController"          # Ergebnis nach dem Duell
 DUEL_VIEWS = ("DuelClient",)                      # das Duell selbst: dann nichts lesen
-CHECK_INTERVAL = 1.5   # Sekunden zwischen zwei Blicken auf die offenen Menüs (Münzwurf dauert ~10 s)
+CHECK_INTERVAL = 1.5   # Sekunden zwischen zwei Blicken auf die offenen Menüs
+COIN_TOSS_INTERVAL = 0.2  # … solange der Münzwurf vorne ist (nach der Wahl bleibt er manchmal < 1 s)
 REREAD_INTERVAL = 6.0  # So oft wird die Match History bei offenem Menü erneut gelesen (Server-Antwort kommt später)
 PENDING_MAX_AGE = 3 * 3600.0  # Münzwurf-Info gilt höchstens so lange für das nächste Ergebnis
+SAME_TOSS = 120.0  # Sekunden: so lange gehört eine schon gelesene Wahl noch zum selben Münzwurf
 
 # Spielmodi (Enum GameMode des Spiels)
 FREE, RANKED, ROOM, RATING = 1, 3, 10, 19
@@ -37,7 +44,7 @@ MAIN_DECK_MODES = (FREE, RANKED, ROOM)  # Modi mit dem normal gewählten Deck (a
 # Ergebnis (Enum ResultType) und Spielende (Enum FinishType, Auswahl)
 WIN, LOSS, DRAW = 1, 2, 3
 FINISH_SURRENDER = 4
-PICK_FIRST = 1  # pvp_choice.choice: der Gewinner des Münzwurfs fängt an
+PVP_SECOND = 1  # pvp_choice.choice aus eigener Sicht: 1 = Zweiter, 0 = Erster
 
 
 class MatchRecord(NamedTuple):
@@ -55,6 +62,7 @@ class MatchRecord(NamedTuple):
     opp_extra: List[int]
     md_deck: str = ""          # Name des eigenen Decks in Master Duel
     source: str = "history"    # "live" oder "history"
+    coin: Optional[bool] = None  # Münzwurf gewonnen? None = unbekannt (nur live erfasst, nicht in der Match History)
 
 
 def mode_name(mode: int) -> str:
@@ -92,19 +100,38 @@ def parse_history(data) -> List[MatchRecord]:
     return sorted(records.values(), key=lambda r: r.played_at)
 
 
-def first_from_coin_toss(duel) -> Optional[bool]:
+class CoinToss(NamedTuple):
+    coin: Optional[bool]               # Münzwurf gewonnen?
+    first: Optional[bool]              # selbst angefangen? (None = noch nicht gewählt)
+    did: Optional[str] = None          # Duell-ID (erst in den Duell-Einstellungen)
+    main: Optional[List[int]] = None   # eigenes Deck (Konami-IDs, aus den Duell-Einstellungen)
+    extra: Optional[List[int]] = None
+
+
+def coin_toss(duel) -> Optional[CoinToss]:
     """
-    ClientWork["Duel"] beim Münzwurf → selbst angefangen? "choice" = Spieler, der den Münzwurf gewonnen hat,
-    "pvp_choice"/"choice" = seine Wahl (1 = anfangen). None, solange noch nicht gewählt.
+    ClientWork["Duel"] beim Münzwurf → wer gewonnen hat und wer anfängt; None ohne Münzwurf.
+    Duell-Einstellungen (kurz vor dem Duell): "FirstPlayer", "Choice", "MyID", "did", "Deck".
+    Vorher: "choice" = Münzwurf-Gewinner, "pvp_choice"/"choice" = ob man selbst Zweiter ist (1) oder anfängt (0).
     """
     if not isinstance(duel, dict):
         return None
+    me = duel.get("MyID")
+    if me in (0, 1) and duel.get("FirstPlayer") in (0, 1):
+        chooser = duel.get("Choice")
+        decks = duel.get("Deck") if isinstance(duel.get("Deck"), list) else []
+        mine = decks[me] if len(decks) == 2 and isinstance(decks[me], dict) else {}
+        main, extra = _cards(mine, "Main"), _cards(mine, "Extra")
+        did = duel.get("did")
+        return CoinToss(chooser == me if chooser in (0, 1) else None, duel["FirstPlayer"] == me,
+                        str(did) if did is not None else None, main or None, extra if main else None)
     me, chooser = duel.get("myid"), duel.get("choice")
-    pick = (duel.get("pvp_choice") or {}).get("choice")
-    if me not in (0, 1) or chooser not in (0, 1) or not isinstance(pick, int):
+    if me not in (0, 1) or chooser not in (0, 1):
         return None
-    first_player = chooser if pick == PICK_FIRST else 1 - chooser
-    return first_player == me
+    pick = (duel.get("pvp_choice") or {}).get("choice")
+    if not isinstance(pick, int):
+        return CoinToss(chooser == me, None)
+    return CoinToss(chooser == me, pick != PVP_SECOND)
 
 
 def md_decks(deck_list, deck_names) -> list:
@@ -119,7 +146,8 @@ def md_decks(deck_list, deck_names) -> list:
     return result
 
 
-def live_record(result, deck, first: Optional[bool], now: float) -> Optional[MatchRecord]:
+def live_record(result, deck, first: Optional[bool], now: float,
+                coin: Optional[bool] = None) -> Optional[MatchRecord]:
     """ClientWork["DuelResult"] + gewähltes Deck (MdDeck oder None) → Match; None ohne Duell-ID/Ergebnis."""
     if not isinstance(result, dict):
         return None
@@ -129,7 +157,7 @@ def live_record(result, deck, first: Optional[bool], now: float) -> Optional[Mat
         return None
     return MatchRecord(str(did), now, int(result.get("mode") or 0), outcome, first, 0, 0,
                        deck.main if deck else [], deck.extra if deck else [], [], [],
-                       deck.name if deck else "", "live")
+                       deck.name if deck else "", "live", coin)
 
 
 def store_matches(db, records: List[MatchRecord]) -> List[MatchRecord]:
@@ -141,7 +169,9 @@ def store_matches(db, records: List[MatchRecord]) -> List[MatchRecord]:
     unique: Dict[str, MatchRecord] = {}
     for record in records:  # dasselbe Duell live und aus der Match History → die vollständige Fassung
         if record.did not in unique or record.source == "history":
-            unique[record.did] = record._replace(md_deck=record.md_deck or unique.get(record.did, record).md_deck)
+            live = unique.get(record.did, record)  # Münzwurf und MD-Deckname kennt nur der Live-Eintrag
+            unique[record.did] = record._replace(md_deck=record.md_deck or live.md_deck,
+                                                 coin=live.coin if record.coin is None else record.coin)
     records = list(unique.values())
     known = db.match_sources(r.did for r in records)
     todo = [r for r in records if r.did not in known or (known[r.did] == "live" and r.source == "history")]
@@ -179,7 +209,9 @@ class MatchWatcher:
         self._started = False        # Daten vom Programmstart (letzte Match History, letztes Ergebnis) übernommen?
         self._views: List[str] = []
         self._last_history = 0.0
-        self._pending: Optional[tuple] = None  # (selbst angefangen?, Deck-ID, Zeit) vom Münzwurf
+        self._pending: Optional[CoinToss] = None  # vom Münzwurf, bis zum Ergebnis
+        self._pending_deck = None                  # gewählte Deck-ID beim Münzwurf
+        self._pending_at = 0.0
         self._stop = threading.Event()
 
     def start(self) -> None:
@@ -189,7 +221,7 @@ class MatchWatcher:
         self._stop.set()
 
     def _run(self) -> None:
-        while not self._stop.wait(CHECK_INTERVAL):
+        while not self._stop.wait(COIN_TOSS_INTERVAL if self._views[-1:] == [COIN_TOSS_VIEW] else CHECK_INTERVAL):
             try:
                 self.check()
             except Exception as e:  # Spiel lädt gerade, Menü im Aufbau … → beim nächsten Mal
@@ -206,9 +238,19 @@ class MatchWatcher:
         if not top or top in DUEL_VIEWS:
             return 0  # im Duell bzw. Ladebildschirm: nichts lesen
         if top == COIN_TOSS_VIEW:
-            first = first_from_coin_toss(memory.client_work("Duel"))
-            if first is not None:
-                self._pending = (first, memory.client_work("Deck", "maindeck_id"), self.clock())
+            toss = coin_toss(memory.client_work("Duel"))
+            if toss is not None:
+                old = self._pending
+                if old is not None and self.clock() - self._pending_at <= SAME_TOSS and old.did in (None, toss.did):
+                    # derselbe Münzwurf (nicht der eines abgebrochenen Duells): Bekanntes nicht wieder vergessen
+                    toss = toss._replace(coin=old.coin if toss.coin is None else toss.coin,
+                                         first=old.first if toss.first is None else toss.first)
+                if old is None or old[:3] != toss[:3]:
+                    dlog(f"[MATCHES] Münzwurf {({True: 'gewonnen', False: 'verloren'}).get(toss.coin, '?')}"
+                         + {True: ", Erster", False: ", Zweiter"}.get(toss.first, "")
+                         + (f" (Duell {toss.did})" if toss.did else ""))
+                self._pending, self._pending_at = toss, self.clock()
+                self._pending_deck = memory.client_work("Deck", "maindeck_id")
             return 0
         db = self.get_db()
         if db is None:
@@ -239,13 +281,21 @@ class MatchWatcher:
         if did is None or str(did) in db.match_sources([str(did)]):
             return None
         mode = int(result.get("mode") or 0)
-        first, deck_id = None, None
-        if self._pending is not None and self.clock() - self._pending[2] <= PENDING_MAX_AGE:
-            first, deck_id = self._pending[0], self._pending[1]
-        self._pending = None  # gehört zu diesem Duell
+        toss, deck_id = CoinToss(None, None), None
+        pending = self._pending
+        if (pending is not None and self.clock() - self._pending_at <= PENDING_MAX_AGE
+                and pending.did in (None, str(did))):  # mit Duell-ID: sicher dieses Duell
+            toss, deck_id = pending, self._pending_deck
+        self._pending = None  # gehört zu diesem Duell (bzw. zu einem abgebrochenen)
+        if toss.coin is None or toss.first is None:
+            dlog(f"[MATCHES] Münzwurf für Duell {did} nicht vollständig gelesen "
+                 f"(Münzwurf {toss.coin}, Erster {toss.first})")
         if mode == RATING:
             deck_id = memory.client_work("Deck", "ratedeck_id")
         elif mode in MAIN_DECK_MODES and deck_id is None:
             deck_id = memory.client_work("Deck", "maindeck_id")
         deck = db.md_deck(str(deck_id)) if deck_id and mode in MAIN_DECK_MODES + (RATING,) else None
-        return live_record(result, deck, first, self.clock())
+        if toss.main:  # Karten aus den Duell-Einstellungen: auch ohne Blick in die Deck-Auswahl bekannt
+            from card_stats import MdDeck
+            deck = MdDeck(str(deck_id or ""), deck.name if deck else "", toss.main, toss.extra or [])
+        return live_record(result, deck, toss.first, self.clock(), toss.coin)

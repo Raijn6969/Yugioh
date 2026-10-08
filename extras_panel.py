@@ -94,7 +94,8 @@ class ExtrasPanel:
                  is_active: Callable[[], bool] = lambda: True, settings: Optional[dict] = None,
                  save_settings: Callable[[], None] = lambda: None,
                  on_import_code: Optional[Callable[[str], None]] = None,
-                 on_copy_code: Optional[Callable[[str], None]] = None):
+                 on_copy_code: Optional[Callable[[str], None]] = None,
+                 on_side_swap: Optional[Callable[[List[str], str], None]] = None):
         self.master = master
         self.settings = settings if settings is not None else {}  # Config des Overlays (Optionen)
         self.save_settings = save_settings
@@ -105,6 +106,7 @@ class ExtrasPanel:
         self.is_active = is_active
         self.on_import_code = on_import_code  # Verlauf: Deck erneut importieren
         self.on_copy_code = on_copy_code      # Verlauf: Deck-Code kopieren
+        self.on_side_swap = on_side_swap      # Side-Profil: (Ziel-Deck, Name) im Deck-Editor tauschen
         self.s = scale = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = ("Helvetica", int(10 * scale))
         self.font_bold = ("Helvetica", int(10 * scale), "bold")
@@ -122,6 +124,8 @@ class ExtrasPanel:
         self.winrate = None                    # Winrate-Fenster, None = zu
         self.staples = None                    # Staples-Fenster, None = zu
         self.matchup = None                    # Matchup-Fenster, None = zu
+        self.side = None                       # Side-Profile, None = zu
+        self.ash_prio = None                   # Ash-Prio-Spickzettel, None = zu
         self._deck_name: Optional[str] = None  # Name des angezeigten Decks (für dessen Winrate)
         self._history_result = None            # (Scan, Eintrag, fehlende Stats) bzw. Fehlertext vom Laden
         self._visible = True
@@ -257,11 +261,18 @@ class ExtrasPanel:
 
         footer = tk.Frame(body, bg=BG)
         footer.pack(fill=tk.X, pady=(int(8 * s), 0))
-        tk.Label(footer, text="Tipp: Im Deck mit der Maus über eine Karte fahren", fg=MUTED, bg=BG,
+        tk.Label(footer, text="Tipp: Maus über eine Karte im Deck", fg=MUTED, bg=BG,
                  font=self.font_small).pack(side=tk.LEFT)
         self.rescan_btn = RoundedButton(footer, text="Neu scannen", command=self._rescan, bg="#5e35b1",
                                         font=self.font_bold, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s))
         self.rescan_btn.pack(side=tk.RIGHT)
+        if self.stats_db is not None:
+            small = dict(font=self.font_small, padx=int(9 * s), pady=int(4 * s), radius=int(6 * s))
+            self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, bg="#0277bd",
+                                         **small)
+            self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+            self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, bg="#2e7d32", **small)
+            self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
 
     def _build_calculator(self, parent: tk.Frame) -> None:
         s = self.s
@@ -430,11 +441,93 @@ class ExtrasPanel:
         self.winrate = None
 
     def _close_side_panels(self) -> None:
-        """Verlauf, Winrate, Staples und Matchup liegen an derselben Stelle: höchstens eins offen."""
+        """Verlauf, Winrate, Staples, Matchup, Side und Ash-Prio liegen an derselben Stelle: höchstens eins offen."""
         self._close_history()
         self._close_winrate()
         self._close_staples()
         self._close_matchup()
+        self._close_side()
+        self._close_ash_prio()
+
+    # ── Side-Profile (Karten für ein Match tauschen) ──
+    def toggle_side(self) -> None:
+        if self.side is not None:
+            self._close_side()
+            return
+        if self.analysis is None or self.scanning or self.offline:
+            self.set_status("Side-Profile gelten für das Deck im Spiel: erst das Deck scannen"
+                            if not self.offline else "Side-Profile gelten für das Deck im Spiel, nicht für den "
+                                                     "Verlauf – „Neu scannen“", AMBER)
+            return
+        from side_panel import SidePanel  # importiert die Farben von hier
+        self._close_side_panels()
+        self._show_deck_winrate()  # bestimmt den Namen des angezeigten Decks
+        deck, zones, names, unknown = self._deck_cards()
+        self.side = SidePanel(self.win, self.stats_db, self._deck_name or "Deck", deck, zones, names,
+                              on_swap=self._side_swap, on_close=self._on_side_closed, anchor=self.side_btn,
+                              unknown=unknown, memory=self.read_method.get() == "memory")
+
+    def _deck_cards(self):
+        """
+        ({Passcode: Kopien}, {Passcode: Zone}, {Passcode: Name}, Zahl nicht sicher erkannter Karten) des Decks.
+        Unsicher erkannte Karten zählen mit: Ein Tausch auf Grundlage einer falsch gelesenen Karte würde die
+        Kontrolle am Ende das Deck "korrigieren" lassen.
+        """
+        deck: Counter = Counter()
+        zones: Dict[str, str] = {}
+        names: Dict[str, str] = {}
+        unknown = sum(1 for c in self.analysis.scan.cards if c.match.cid and not c.match.sure)
+        for zone in ("Main", "Extra"):
+            for entry in self.analysis.entries(zone):
+                if entry.key.startswith("?"):
+                    unknown += entry.copies
+                    continue
+                info = self.analysis.info(entry)
+                deck[entry.key] += entry.copies
+                zones[entry.key] = zone
+                names[entry.key] = info.name if info else entry.name
+        return dict(deck), zones, names, unknown
+
+    def _side_swap(self, target: List[str], label: str) -> None:
+        """Nur tauschen, wenn noch genau das gescannte Deck im Editor liegt: Das Ziel-Deck ist daraus berechnet, die
+        Kontrolle am Ende würde sonst spätere Änderungen von Hand wieder rückgängig machen."""
+        if self.on_side_swap is None:
+            return
+        reason = self.change_reason() or current_changes(self.analysis.scan)
+        if reason:
+            self.set_status(f"Deck hat sich seit dem Scan geändert ({reason}) – erst „Neu scannen“, dann tauschen",
+                            AMBER)
+            return
+        self.on_side_swap(target, label)
+
+    def _close_side(self) -> None:
+        if self.side is not None:
+            self.side.close()  # ruft _on_side_closed
+
+    def _on_side_closed(self) -> None:
+        self.side = None
+
+    # ── Ash-Prio (Spickzettel aus der Factory) ──
+    def toggle_ash_prio(self) -> None:
+        if self.ash_prio is not None:
+            self._close_ash_prio()
+            return
+        if self.analysis is None or self.scanning:
+            self.set_status("Erst das Deck scannen, dann den Spickzettel öffnen", AMBER)
+            return
+        from ash_panel import AshPrioPanel  # importiert die Farben von hier
+        self._close_side_panels()
+        self._show_deck_winrate()
+        deck, _, names, _ = self._deck_cards()
+        self.ash_prio = AshPrioPanel(self.win, self._deck_name or "Deck", deck, on_close=self._on_ash_prio_closed,
+                                     anchor=self.ash_btn, names=names)
+
+    def _close_ash_prio(self) -> None:
+        if self.ash_prio is not None:
+            self.ash_prio.close()  # ruft _on_ash_prio_closed
+
+    def _on_ash_prio_closed(self) -> None:
+        self.ash_prio = None
 
     # ── Matchup (Störkarten der Gegner) ──
     def toggle_matchup(self) -> None:
@@ -653,7 +746,8 @@ class ExtrasPanel:
             return
         self._visible = visible
         self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
-        for panel in (self.history, self.winrate, self.staples, self.matchup):  # eigene Fenster über diesem
+        for panel in (self.history, self.winrate, self.staples, self.matchup, self.side,
+                      self.ash_prio):  # eigene Fenster über diesem
             if panel is not None:
                 panel.set_visible(visible)
         try:

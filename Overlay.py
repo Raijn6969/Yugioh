@@ -7,6 +7,7 @@ oder wenn ein Fenster des Importers selbst vorne ist.
 """
 
 import ctypes
+from collections import Counter
 import tkinter as tk
 import tkinter.font as tkfont
 # Nicht entfernen, obwohl hier nicht direkt benutzt: pyautogui setzt beim Import die
@@ -41,7 +42,7 @@ from deck_analysis import current_changes
 from deck_export import DeckExporter, save_ydk
 from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
-from match_history import LOSS, WIN, MatchWatcher
+from match_history import LOSS, RANKED, WIN, MatchWatcher
 from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message
@@ -55,9 +56,11 @@ from window_automation import get_md_window_size
 import md_layout
 import md_memory
 import resume_state
+import single_instance
 import win_api
 
 MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
+STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Platz neben dem ✕)
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
 SPEED_PROFILES = [
@@ -79,6 +82,7 @@ class MasterDuelImporter:
         self._drag_offset = None  # Mausposition im Fenster beim Start des Verschiebens
         self.extras = None       # Extras-Menü (über der Kartenliste), None = zu
         self._import_code = ""   # Deck-Code des laufenden Imports (kommt danach in den Verlauf)
+        self._swap_label = None  # Name des laufenden Side-Tauschs (None = normaler Import)
         self._core = None        # laufender bzw. letzter Import
         self.card_stats = None   # Lokale Karten-Datenbank (erst beim ersten Öffnen der Extras)
         self._last_scan = None   # Letzter Deck-Scan der Extras (wird übernommen, wenn das Deck gleich ist)
@@ -296,6 +300,7 @@ class MasterDuelImporter:
                 self.editor_watch.md_front = md_active
                 self.editor_watch.paused = bool(self.extras and self.extras.hover.visible)
                 self.match_watch.enabled = self._use_memory()
+                self._clear_timer_after_editor()
                 if md_active and self._use_memory():
                     self._preload_memory()
                 if self._should_show(fg_pid == my_pid, md_active):
@@ -312,6 +317,13 @@ class MasterDuelImporter:
             pass  # Läuft alle 300 ms; ein einzelner Fehlschlag (Fenster gerade geschlossen) ist egal
         finally:
             self._after_ids["focus"] = self.root.after(300, self._check_window_focus)
+
+    def _clear_timer_after_editor(self) -> None:
+        """Die Endzeit des letzten Imports/Exports bleibt stehen, bis man den Deck-Editor verlässt – beim nächsten
+        Öffnen des Editors gehört sie zu nichts mehr."""
+        if self.editor_watch.visible is False and not self.is_running and self._import_t0 is None:
+            if self.timer_label.cget("text"):
+                self.timer_label.config(text="")
 
     def _should_show(self, own_window_in_front: bool, md_in_front: bool) -> bool:
         """
@@ -522,7 +534,7 @@ class MasterDuelImporter:
         """Neue Instanz starten und diese komplett schließen. Ein laufender Import wird abgebrochen
         (sein Fortschritt ist gespeichert und kann beim nächsten Start fortgesetzt werden)."""
         try:
-            subprocess.Popen(self._restart_command(), cwd=APP_DIR)
+            subprocess.Popen(self._restart_command(), cwd=APP_DIR, env=single_instance.restart_env())
         except OSError as e:
             show_message(self.root, "Neustart fehlgeschlagen", str(e), kind="error")
             return
@@ -597,22 +609,29 @@ class MasterDuelImporter:
         self.update_status("Kalibrierung aktiv!", "#00ff00")
         self._set_buttons(tk.NORMAL)
 
-    def start_import_thread(self, memory=None):
-        """memory=True: Karten per ID aus dem Speicher lesen (nur lesend); None = wie in den Optionen eingestellt."""
+    def start_import_thread(self, memory=None, card_ids=None, swap_label=None):
+        """
+        memory=True: Karten per ID aus dem Speicher lesen (nur lesend); None = wie in den Optionen eingestellt.
+        card_ids + swap_label: Side-Tausch (side_profiles) – Ziel-Deck statt Zwischenablage, Deck wird nicht geleert
+        (alles gilt als eingefügt), die Kontrolle am Ende entfernt bzw. sucht die getauschten Karten.
+        """
         if memory is None:
             memory = self._use_memory()
         if not self.config.get("IS_CALIBRATED", False):
             # Erst automatisch versuchen und dann direkt importieren; klappt das nicht → Assistent
-            self.start_auto_calibration(then=lambda: self.start_import_thread(memory=memory))
+            self.start_auto_calibration(then=lambda: self.start_import_thread(memory, card_ids, swap_label))
             return
 
         if not self.is_running:
-            # Abgebrochener Import mit demselben Deck-Code? Dann Fortsetzen anbieten.
-            try:
-                resume = resume_state.load_progress(parse_clipboard())
-            except DeckCodeError:
-                resume = None  # Der Import meldet den beschädigten Code selbst
-            if resume:
+            if card_ids is not None:
+                resume = {"done": dict(Counter(card_ids))}
+            else:
+                # Abgebrochener Import mit demselben Deck-Code? Dann Fortsetzen anbieten.
+                try:
+                    resume = resume_state.load_progress(parse_clipboard())
+                except DeckCodeError:
+                    resume = None  # Der Import meldet den beschädigten Code selbst
+            if resume and card_ids is None:
                 answer = ask_choice(
                     self.root, "Import fortsetzen?",
                     f"Der letzte Import mit diesem Deck wurde abgebrochen "
@@ -629,9 +648,11 @@ class MasterDuelImporter:
                     resume = None
 
             self.is_running = True
+            self._swap_label = swap_label
             self._close_extras()  # Import klickt in Deck und Kartenliste
             try:
-                self._import_code = pyperclip.paste() or ""
+                # Side-Tausch: nicht in den Verlauf (kein neues Deck, sonst landen Varianten in der Statistik)
+                self._import_code = "" if card_ids is not None else pyperclip.paste() or ""
             except Exception:  # Zwischenablage gerade belegt – der Import liest sie gleich selbst
                 self._import_code = ""
             self._last_scan = None  # Import verändert das Deck
@@ -652,7 +673,7 @@ class MasterDuelImporter:
                 self._run_on_ui(self._on_import_started)
 
             core = DeckImporterCore(self.config, TESSERACT_CMD, status_cb, finish_cb,
-                                    start_callback=start_cb, resume=resume, memory=memory)
+                                    start_callback=start_cb, resume=resume, memory=memory, card_ids=card_ids)
             self._core = core
             threading.Thread(target=core.execute_import, daemon=True).start()
 
@@ -667,6 +688,10 @@ class MasterDuelImporter:
             self._import_t0 = None
         # Die Engine kann Einstellungen ergänzt haben (z.B. gemerkte Fenstergröße)
         self._save_config_safely()
+        swap, self._swap_label = self._swap_label, None
+        if swap:
+            self._on_swap_finished(swap, success, has_errors, failed_cards, message, notes)
+            return
         if success:
             self._add_to_history("ok" if not (failed_cards or has_errors) else "Lücken")
             if failed_cards or has_errors:
@@ -684,6 +709,27 @@ class MasterDuelImporter:
             self.update_status("Abbruch / Fehler", "red")
             if message:
                 show_message(self.root, "Import abgebrochen", message, kind="error")
+
+    def start_side_swap(self, card_ids, label):
+        """Side-Profil anwenden bzw. zurücktauschen (aus dem Deck-Fenster): card_ids = Ziel-Deck."""
+        if self.is_running:
+            return
+        self.update_status(f"Side-Tausch: {label}", "cyan")
+        self.start_import_thread(card_ids=list(card_ids), swap_label=label)
+
+    def _on_swap_finished(self, label, success, has_errors, failed_cards, message, notes):
+        if success and not (failed_cards or has_errors):
+            self.update_status(f"Getauscht: {label}", "#00ff00")
+        elif success:
+            self.update_status("Tausch mit Lücken – bitte prüfen", "#ffaa00")
+            show_message(self.root, "Side-Tausch – bitte prüfen",
+                         f"„{label}“ ist durchgelaufen, aber bei diesen Karten stimmt die Anzahl nicht oder ist "
+                         "unsicher. Bitte im Deck prüfen und von Hand korrigieren:",
+                         kind="warning", items=failed_cards, notes=notes)
+        else:
+            self.update_status("Side-Tausch abgebrochen", "red")
+            if message:
+                show_message(self.root, "Side-Tausch abgebrochen", message, kind="error")
 
     # --- DECK-EXPORT ---
     def start_export_thread(self):
@@ -785,22 +831,45 @@ class MasterDuelImporter:
     # --- WINRATE (eigene Duelle aus Master Duel) ---
     def _on_new_matches(self, new):
         if len(new) == 1:
+            # Kurz für die Statuszeile (schmal), ausführlich für die Tray-Meldung
             match = new[0]
-            text = {WIN: "Sieg", LOSS: "Niederlage"}.get(match.result, "Unentschieden")
+            short = [{WIN: "Sieg", LOSS: "Niederlage"}.get(match.result, "Unentschieden")]
+            text = short[0]
             if match.first is not None:
-                text += " als Erster" if match.first else " als Zweiter"
+                short.append("Erster" if match.first else "Zweiter")
+                text += " als " + short[-1]
+            if match.coin is not None:
+                short.append("Münze " + ("gewonnen" if match.coin else "verloren"))
+                text += f" (Münzwurf {'gewonnen' if match.coin else 'verloren'})"
+            day = self._day_summary()
             if match.md_deck:
-                text += f" mit {match.md_deck}"
-            text += " erfasst"
+                deck = match.md_deck
+                if not day:  # Tagesbilanz hat Vorrang, der Deckname steht in der Tray-Meldung
+                    short.append(deck if len(deck) <= STATUS_DECK_CHARS else deck[:STATUS_DECK_CHARS - 1] + "…")
+                text += f" mit {deck}"
+            status, text = " · ".join(short + [day] if day else short), text + " erfasst"
         else:
             wins = sum(1 for m in new if m.result == WIN)
             losses = sum(1 for m in new if m.result == LOSS)
+            day = self._day_summary()
+            status = f"{len(new)} Matches erfasst" + (f" · {day}" if day else "")
             text = f"{len(new)} Matches erfasst: {wins} Sieg(e), {losses} Niederlage(n)"
-        self.update_status(text, "#00ff00")
+        self.update_status(status, "#00ff00")
         if self.tray:
             self.tray.notify(text + " – Winrate im Deck-Fenster", "MD Importer")
         if self.extras:
             self.extras.refresh_winrate()
+
+    def _day_summary(self) -> str:
+        """'Heute 5–2' (Modus wie im Winrate-Fenster: Ranked bzw. alle); "" ohne Daten."""
+        from winrate_panel import MODE_KEY, day_summary  # erst hier: zieht die Deck-Fenster-Module nach
+        db = self._stats_db()
+        if db is None:
+            return ""
+        try:
+            return day_summary(db, None if self.config.get(MODE_KEY) == "all" else RANKED)
+        except Exception:  # Datenbank gerade gesperrt – nur Zusatz
+            return ""
 
     # --- EXTRAS (Draw-Chance & Starter) ---
     def toggle_extras(self):
@@ -813,7 +882,8 @@ class MasterDuelImporter:
         self.extras = ExtrasPanel(self.root, self.card_stats, TESSERACT_CMD, on_rescan=self._start_extras_scan,
                                   on_close=self._on_extras_closed, is_active=lambda: self.is_visible,
                                   settings=self.config, save_settings=self._on_settings_changed,
-                                  on_import_code=self._import_from_history, on_copy_code=self._copy_from_history)
+                                  on_import_code=self._import_from_history, on_copy_code=self._copy_from_history,
+                                  on_side_swap=self.start_side_swap)
         if not (self._last_scan and self.extras.try_reuse(self._last_scan)):
             self._start_extras_scan()
 
@@ -867,6 +937,16 @@ class MasterDuelImporter:
 
 
 def main():
+    if not single_instance.acquire():
+        # Schon ein Importer offen: kein zweites Overlay (jedes Duell würde doppelt erfasst)
+        root = tk.Tk()
+        root.withdraw()
+        show_message(root, "MD Importer läuft bereits",
+                     "Der Importer ist schon offen – sein Symbol ist unten rechts im Infobereich der Taskleiste "
+                     "(evtl. hinter dem Pfeil ^). Dort gibt es Neustart und Beenden.\n\n"
+                     "Das Overlay erscheint, sobald Master Duel den Deck-Editor zeigt.", kind="info")
+        root.destroy()
+        return
     root = tk.Tk()
     MasterDuelImporter(root, tray=True)
     root.mainloop()
