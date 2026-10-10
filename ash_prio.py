@@ -51,6 +51,11 @@ class Variant(NamedTuple):
     overlap: float           # Anteil gleicher Karten (0–1)
 
 
+def available(path: str = FACTORY_DB) -> bool:
+    """Gibt es auf diesem PC eine Factory? (Sonst zeigt das Deck-Fenster keinen Ash-Prio-Button.)"""
+    return os.path.exists(path)
+
+
 def connect(path: str = FACTORY_DB) -> sqlite3.Connection:
     """Factory-Datenbank nur lesend öffnen (die Factory läuft evtl. gerade und schreibt)."""
     uri = "file:" + pathname2url(os.path.abspath(path)) + "?mode=ro"

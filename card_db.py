@@ -14,7 +14,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import requests
 
-from app_paths import APP_DIR
+from app_paths import DATA_DIR
 from debug_log import dlog
 from utils import YGOPRO_API_URL, clean_text
 
@@ -37,7 +37,7 @@ def ocr_fold(text: str) -> str:
 
 
 def db_file(lang: str) -> str:
-    return os.path.join(APP_DIR, f"md_card_list_{lang}.json")
+    return os.path.join(DATA_DIR, f"md_card_list_{lang}.json")
 
 
 class CardMatch(NamedTuple):

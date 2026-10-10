@@ -9,7 +9,6 @@ cget(...), invoke(). Mit menu=… öffnet ein Klick stattdessen ein Auswahlmenü
 
 import tkinter as tk
 import tkinter.font as tkfont
-from typing import Optional
 
 from PIL import Image, ImageDraw, ImageTk
 

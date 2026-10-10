@@ -10,6 +10,7 @@ import win32gui
 import win32process
 
 import win_api
+from input_utils import focus_master_duel
 
 MD_WINDOW_TITLES = ("MASTER DUEL", "Master Duel", "master duel")
 MD_PROCESS_NAME = "masterduel.exe"
@@ -30,10 +31,17 @@ def find_md_window() -> Optional[int]:
     return _cached_hwnd
 
 
+def is_md_process(pid: int) -> bool:
+    """Gehört der Prozess zu Master Duel? Am Fenstertitel allein erkennt man es nicht: Ein Browser mit einem
+    Master-Duel-Video heißt z.B. auch "… Master Duel … - YouTube"."""
+    exe = win_api.process_image_name(pid) if pid else None
+    return bool(exe) and exe.lower().endswith(MD_PROCESS_NAME)
+
+
 def _search_md_window() -> Optional[int]:
     for title in MD_WINDOW_TITLES:
         hwnd = win_api.find_window(title)
-        if hwnd:
+        if hwnd and is_md_process(win_api.window_pid(hwnd)):
             return hwnd
 
     found = []
@@ -41,8 +49,7 @@ def _search_md_window() -> Optional[int]:
     def check(hwnd, _):
         if win32gui.IsWindowVisible(hwnd):
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
-            exe = win_api.process_image_name(pid)
-            if exe and exe.lower().endswith(MD_PROCESS_NAME):
+            if is_md_process(pid):
                 found.append(hwnd)
                 return False  # Suche beenden
         return True
@@ -100,8 +107,15 @@ class WindowAutomator:
         if abs(x - self.last_bot_pos[0]) > 20 or abs(y - self.last_bot_pos[1]) > 20:
             raise UserInterrupt("Manuelle Mausbewegung erkannt! Abbruch.")
 
+    def check_focus(self):
+        """Vor jedem Klick wie vor jeder Tastatureingabe: Master Duel muss vorne sein. Hat sich ein anderes Fenster
+        davorgeschoben, wird Master Duel zurückgeholt; klappt das nicht → FocusLostError (Import hält an)."""
+        if find_md_window():
+            focus_master_duel()
+
     def iron_grip_click(self, x: int, y: int, button: str = 'left'):
         self.check_user_interruption()
+        self.check_focus()
         win_api.set_cursor_pos(x, y)
         time.sleep(0.015)
 
@@ -119,6 +133,7 @@ class WindowAutomator:
     def scroll(self, x: int, y: int, notches: int):
         """Mausrad über (x, y) drehen: positiv = nach oben, negativ = nach unten (in Rasten)."""
         self.check_user_interruption()
+        self.check_focus()
         win_api.set_cursor_pos(x, y)
         time.sleep(0.015)
         step = win_api.WHEEL_DELTA if notches > 0 else -win_api.WHEEL_DELTA

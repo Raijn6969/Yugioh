@@ -46,6 +46,12 @@ ARRAY_DATA = 0x20        # Il2CppArray: Header + bounds + max_length
 MANAGER_CLASS = ("YgomGame.Menu", "ContentViewControllerManager")
 EDITOR_CLASS = ("YgomGame", "DeckEditViewController2")
 CLIENT_WORK_CLASS = ("YgomSystem.Utility", "ClientWork")
+# Spielfeld während eines Replays (replay_recorder): DuelClient.instance → <effectWorker> (RunEffectWorker) →
+# <goManager> (DuelGameObjectManager) → cardRoots (eine CardRoot je Karte, die das Spiel gerade zeigt)
+DUEL_CLIENT_CLASS = ("YgomGame.Duel", "DuelClient")
+CARD_INTS = {"uid": "<uniqueId>k__BackingField", "team": "<team>k__BackingField", "zone": "position",
+             "index": "<index>k__BackingField", "card": "<cardId>k__BackingField", "atk": "m_Atk", "def": "m_Def"}
+CARD_BYTES = {"face": "<isFace>k__BackingField", "attack": "<isAttack>k__BackingField"}
 CLASS_STATIC_FIELDS = 0xB8
 DICT_ENTRY_SIZE = 24     # Dictionary<string, object>.Entry: hashCode, next, key, value
 MAX_ITEMS = 5000         # Schutz vor kaputten Längen (Spiel lädt gerade um o.Ä.)
@@ -70,6 +76,19 @@ class ListScroll(NamedTuple):
     columns: int        # Karten pro Reihe
     wheel_step: float   # so weit scrollt eine Mausrad-Raste
     view_height: float = 684.0  # Höhe des sichtbaren Bereichs (Scroll-Leiste: Griff = Sichtbereich / Liste)
+
+
+class BoardCard(NamedTuple):
+    """Eine Karte auf dem Spielfeld (Zonen: Konstanten Engine.Pos*, siehe replay_recorder)."""
+    uid: int        # bleibt gleich, solange die Karte im Duell ist (Bewegungen verfolgen)
+    team: int       # Spieler (MyID aus ClientWork["Duel"] = man selbst)
+    zone: int
+    index: int
+    card: int       # Konami-ID, 0 = verdeckt bzw. nicht bekannt (z.B. Hand des Gegners)
+    face: int       # offen?
+    attack: int     # Angriffsposition?
+    atk: int
+    def_: int
 
 
 class MemoryUnavailable(RuntimeError):
@@ -358,6 +377,72 @@ class DeckEditorMemory:
             return [self._value(addr) for addr in struct.unpack(f"<{size}Q", data)]
         return None
 
+    # ── Spielfeld (nur für Replays, siehe replay_recorder) ──
+    def _member(self, obj: int, name: str) -> int:
+        return self.r.u64(obj + self.il.field(obj, name)) if obj else 0
+
+    def duel_worker(self) -> int:
+        """RunEffectWorker des laufenden Duells/Replays (0 = keins)."""
+        klass = getattr(self, "_duel_client_klass", 0) or self.il.find_class(*DUEL_CLIENT_CLASS)
+        self._duel_client_klass = klass
+        statics = self.r.u64(klass + CLASS_STATIC_FIELDS)
+        instance = self.r.u64(statics + self.il.fields(klass)["instance"]) if statics else 0
+        return self._member(instance, "<effectWorker>k__BackingField")
+
+    def duel_board(self, worker: int) -> List[BoardCard]:
+        """Alle Karten, die das Spiel gerade zeigt (Feld, Hand, oberste Karten von Deck/Friedhof …)."""
+        roots = self._member(self._member(worker, "<goManager>k__BackingField"), "cardRoots")
+        if not roots:
+            return []
+        items = self.r.u64(roots + self.il.field(roots, "_items"))
+        size = self.r.i32(roots + self.il.field(roots, "_size"))
+        if not items or not 0 <= size <= MAX_ITEMS:
+            return []
+        cards = []
+        for addr in struct.unpack(f"<{size}Q", self.r.read(items + ARRAY_DATA, 8 * size)) if size else ():
+            if not addr:
+                continue
+            offsets = self.il.fields(self.r.u64(addr))
+            lo = min(offsets[n] for n in (*CARD_INTS.values(), *CARD_BYTES.values()))
+            hi = max(offsets[n] for n in (*CARD_INTS.values(), *CARD_BYTES.values())) + 4
+            block = self.r.read(addr + lo, hi - lo)  # ein Lesezugriff je Karte
+            ints = {k: struct.unpack_from("<i", block, offsets[n] - lo)[0] for k, n in CARD_INTS.items()}
+            flags = {k: block[offsets[n] - lo] for k, n in CARD_BYTES.items()}
+            cards.append(BoardCard(ints["uid"], ints["team"], ints["zone"], ints["index"], ints["card"],
+                                   flags["face"], flags["attack"], ints["atk"], ints["def"]))
+        return cards
+
+    def duel_lp(self, worker: int) -> Dict[int, int]:
+        """Lebenspunkte {Spieler: LP}."""
+        lp = self._member(worker, "<lp>k__BackingField")
+        if not lp or not self._class_of(lp).startswith("Dictionary"):
+            return {}
+        entries = self.r.u64(lp + self.il.field(lp, "_entries"))
+        count = self.r.i32(lp + self.il.field(lp, "_count"))
+        if not entries or not 0 <= count <= 8:
+            return {}
+        data = self.r.read(entries + ARRAY_DATA, 16 * count)
+        result = {}
+        for i in range(count):
+            hash_code, _, key, value = struct.unpack_from("<iiii", data, 16 * i)
+            if hash_code >= 0:
+                result[key] = value
+        return result
+
+    def duel_phase(self, worker: int) -> Tuple[str, str]:
+        """(Zug, Phase) wie auf dem Phasen-Knopf, z.B. ("Turn 2", "Main 1"); "" wenn nicht lesbar."""
+        button = self._member(worker, "<phaseSelect>k__BackingField")
+        texts = []
+        for name in ("m_TurnNum", "m_PhaseName"):
+            label = self._member(button, name)
+            text = ""
+            if label:
+                offsets = self.il.fields(self.r.u64(label))
+                if "m_text" in offsets:
+                    text = self._string(self.r.u64(label + offsets["m_text"]))
+            texts.append(text)
+        return texts[0], texts[1]
+
     def _unity_alive(self, obj: int) -> bool:
         """Geschlossene Fenster: Unity hat das Objekt zerstört (m_CachedPtr = 0), es liegt nur noch im Speicher."""
         offsets = self.il.fields(self.r.u64(obj))
@@ -520,13 +605,29 @@ def is_ready() -> bool:
     return _shared is not None
 
 
+_preload_failures = 0              # Fehlversuche seit der letzten Verbindung (z.B. nach einem Spiel-Update)
+_last_error: Optional[str] = None
+
+
 def preload() -> Optional[str]:
     """Im Hintergrund aufrufen, sobald Master Duel läuft. Returns: Fehlergrund oder None."""
+    global _preload_failures, _last_error
     try:
         shared()
+        _preload_failures, _last_error = 0, None
         return None
     except Exception as e:  # Spiel noch im Ladebildschirm o.Ä. – später erneut versuchen
+        _preload_failures, _last_error = _preload_failures + 1, str(e)
         return str(e)
+
+
+def preload_failures() -> int:
+    """Wie oft das Vorladen seit der letzten Verbindung gescheitert ist."""
+    return _preload_failures
+
+
+def last_error() -> Optional[str]:
+    return _last_error
 
 
 def wait_for(read, condition, timeout: float = 1.0, interval: float = 0.02):

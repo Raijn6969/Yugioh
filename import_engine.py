@@ -1895,7 +1895,7 @@ class DeckImporterCore:
             if not s_c:
                 empty_reads += 1
                 if empty_reads >= 5:
-                    dlog(f"      -> BLIND-TRUST: Multi-Channel OCR fehlgeschlagen. Tesseract ist blind.\n")
+                    dlog("      -> BLIND-TRUST: Multi-Channel OCR fehlgeschlagen. Tesseract ist blind.\n")
                     return BLIND_CARD, "(LEER)", False, False
             else:
                 empty_reads = 0

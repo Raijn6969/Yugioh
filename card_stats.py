@@ -25,13 +25,13 @@ from urllib.request import pathname2url
 
 import requests
 
-from app_paths import APP_DIR, BUNDLE_DIR
+from app_paths import BUNDLE_DIR, DATA_DIR
 from debug_log import dlog
 from handtrap_rules import classify_handtrap
 from starter_rules import EXTRA_FRAMES, RULES_VERSION, classify
 from utils import YGOPRO_API_URL
 
-DB_FILE = os.path.join(APP_DIR, "md_card_stats.db")
+DB_FILE = os.path.join(DATA_DIR, "md_card_stats.db")
 BASE_DB_NAME = "md_card_stats_base.db"
 BASE_DB_FILE = os.path.join(BUNDLE_DIR, BASE_DB_NAME)
 BATCH = 50  # IDs pro Anfrage (YGOPRODeck erlaubt mehrere IDs, der Link bleibt kurz genug)
@@ -133,6 +133,17 @@ class SideProfile(NamedTuple):
     cards_in: Dict[str, int]
 
 
+class Replay(NamedTuple):
+    """Replay-Mitschnitt (replay_recorder): Kopfdaten und die Schritte."""
+    start: int                 # Startzeit des Duells → gehört zum Match mit dieser Zeit
+    replay_did: str
+    my_id: int
+    first_player: Optional[int]
+    names: List[str]
+    decks: List[dict]
+    frames: List[dict]
+
+
 class MdDeck(NamedTuple):
     """Ein Deck in Master Duel (aus der Deck-Auswahl gemerkt): Karten als Konami-IDs."""
     deck_id: str
@@ -187,6 +198,9 @@ def create_tables(con: sqlite3.Connection) -> None:
                        deck_id TEXT PRIMARY KEY, name TEXT, main TEXT, extra TEXT, seen_at REAL)""")
     # Auswertung der Top-Listen je Archetyp (staple_analysis, Master Duel Meta) als JSON
     con.execute("CREATE TABLE IF NOT EXISTS staple_cache (archetype TEXT PRIMARY KEY, data TEXT, fetched_at REAL)")
+    # Replay-Mitschnitte (replay_recorder), Schritte als komprimiertes JSON
+    con.execute("""CREATE TABLE IF NOT EXISTS replays (start INTEGER PRIMARY KEY, replay_did TEXT, my_id INTEGER,
+                       first_player INTEGER, names TEXT, decks TEXT, frames BLOB, steps INTEGER, recorded_at REAL)""")
     # Side-Deck-Profile je Deck (Name nach Archetypen wie im Verlauf), Karten als JSON {Passcode: Kopien}
     con.execute("""CREATE TABLE IF NOT EXISTS side_profiles (deck_name TEXT, name TEXT, cards_out TEXT, cards_in TEXT,
                        saved_at REAL, PRIMARY KEY (deck_name, name))""")
@@ -574,6 +588,14 @@ class CardStatsDB:
         return self._describe([str(c) for c in card_ids])[0]
 
     # ── Matches (Winrate-Tracker) ──
+    def unconfirmed_matches(self) -> int:
+        """Live erfasste Duelle seit dem letzten Blick in die Match History (ohne Gegner-Deck und Zugzahl). Die Match
+        History zeigt nur die letzten Duelle (match_history.HISTORY_SIZE) – was darüber hinausgeht, bleibt ohne."""
+        with self._connect() as con:
+            return con.execute("""SELECT COUNT(*) FROM matches WHERE source = 'live' AND played_at >
+                                      COALESCE((SELECT MAX(played_at) FROM matches WHERE source = 'history'), 0)"""
+                               ).fetchone()[0]
+
     def match_sources(self, dids: Iterable[str]) -> Dict[str, str]:
         """{Duell-ID: "live"/"history"} der schon gespeicherten Matches."""
         dids = sorted({str(d) for d in dids})
@@ -617,6 +639,43 @@ class CardStatsDB:
         ids = lambda text: [int(k) for k in text.split(",") if k]  # noqa: E731
         return MdDeck(row[0], row[1], ids(row[2]), ids(row[3]))
 
+    # ── Replay-Mitschnitte ──
+    REPLAY_BEFORE = 1800   # Live erfasste Matches tragen die Zeit des Ergebnisses: Start bis 30 Min. davor
+    REPLAY_AFTER = 10      # Match History: Startzeit (wenige Sekunden Abweichung)
+
+    def save_replay(self, info, frames: List[dict]) -> bool:
+        """Mitschnitt speichern. Gibt es zu diesem Duell schon einen längeren, bleibt der. Returns: gespeichert?"""
+        import zlib
+        with self._connect() as con:
+            old = con.execute("SELECT steps FROM replays WHERE start = ?", (info.start,)).fetchone()
+            if old is not None and old[0] > len(frames):
+                return False
+            con.execute("INSERT OR REPLACE INTO replays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (info.start, info.replay_did, info.my_id, info.first_player, json.dumps(info.names),
+                         json.dumps(info.decks), zlib.compress(json.dumps(frames, separators=(",", ":")).encode()),
+                         len(frames), time.time()))
+        return True
+
+    def replay_for(self, played_at: float) -> Optional[Replay]:
+        """Mitschnitt zu einem Match (über die Startzeit; bei live erfassten die letzte davor)."""
+        import zlib
+        with self._connect() as con:
+            row = con.execute("""SELECT start, replay_did, my_id, first_player, names, decks, frames FROM replays
+                                 WHERE start BETWEEN ? AND ? ORDER BY start DESC LIMIT 1""",
+                              (played_at - self.REPLAY_BEFORE, played_at + self.REPLAY_AFTER)).fetchone()
+        if row is None:
+            return None
+        try:
+            frames = json.loads(zlib.decompress(row[6]).decode())
+        except (zlib.error, ValueError):
+            return None
+        return Replay(row[0], row[1], row[2], row[3], json.loads(row[4]), json.loads(row[5]), frames)
+
+    def replay_starts(self) -> List[int]:
+        """Startzeiten aller Mitschnitte (fürs Kennzeichnen in der Match-Liste)."""
+        with self._connect() as con:
+            return [row[0] for row in con.execute("SELECT start FROM replays ORDER BY start")]
+
     # ── Side-Deck-Profile ──
     def side_profiles(self, deck_name: Optional[str]) -> List[SideProfile]:
         """Profile eines Decks (None = aller Decks), das älteste zuerst."""
@@ -657,7 +716,9 @@ class CardStatsDB:
 
     @staticmethod
     def _match_filter(deck_name: Optional[str], mode: Optional[int], since: Optional[float] = None):
-        where, args = [], []
+        # Duelle ohne einen Zug (Gegner vor dem Start weg: Master Duel führt sie trotzdem, ohne Duell-ID) zählen
+        # nicht – gespeichert bleiben sie. Live erfasste Duelle haben noch keine Zugzahl (0 = unbekannt).
+        where, args = ["NOT (source = 'history' AND turns = 0)"], []
         if deck_name is not None:
             where.append("deck_name = ?")
             args.append(deck_name)

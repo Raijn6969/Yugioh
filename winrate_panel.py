@@ -18,7 +18,7 @@ from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, Win
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
-from match_history import DRAW, FINISH_SURRENDER, RANKED, WIN, mode_name
+from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
 from rounded_button import RoundedButton
 from window_style import apply_frame, no_activate
 
@@ -119,6 +119,8 @@ class WinratePanel:
         self.on_close = on_close
         self.tracking = tracking      # Speicher-Modus an → Matches werden übernommen
         self.closed = False
+        self.duel = None                       # Duell-Übersicht (duel_view), None = zu
+        self._shown_matches: List[MatchEntry] = []
         self.selected: Optional[str] = None   # gewähltes Deck, None = alle
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = ("Helvetica", int(10 * s))
@@ -273,6 +275,11 @@ class WinratePanel:
                 self.selected = None
             stats = self.db.win_stats(self.selected, self.mode, since)
             matches = self.db.matches(self.selected, self.mode, MATCH_LIMIT, since)
+            self._shown_matches = matches
+            try:
+                self._replay_starts = self.db.replay_starts()
+            except Exception:  # ältere Datenbank ohne Mitschnitte
+                self._replay_starts = []
             opponents = self.db.opponent_stats(self.selected, self.mode, since)
         except Exception as e:  # Datenbank gesperrt/defekt → Fenster bleibt benutzbar
             self.info_label.config(text=f"Matches nicht lesbar: {e}", fg=RED)
@@ -308,7 +315,7 @@ class WinratePanel:
         if matches:
             self._section("LETZTE MATCHES")
             for i, match in enumerate(matches):
-                self._match_row(match, ROW_ALT if i % 2 else BG)
+                self._match_row(match, ROW_ALT if i % 2 else BG, i)
         self.canvas.yview_moveto(0)
 
     def _show_info(self, stats: WinStats) -> None:
@@ -323,6 +330,15 @@ class WinratePanel:
         else:
             text, color = (f"{stats.matches} Match(es), zuletzt {when(stats.last_played)} · Duelle werden am "
                            f"Ergebnis-Bildschirm erfasst; ein neues Deck einmal in der Deck-Auswahl ansehen.", MUTED)
+            try:
+                unconfirmed = self.db.unconfirmed_matches()
+            except Exception:
+                unconfirmed = 0
+            if unconfirmed >= REMIND_AT[0]:  # im Fenster durchgehend, nicht nur bei 15/18 wie die Meldung
+                text = history_reminder(unconfirmed) or (
+                    f"{unconfirmed} Duelle seit dem letzten Blick in die Match History – bitte bald öffnen "
+                    f"(sie zeigt nur die letzten {HISTORY_SIZE}, sonst fehlen die Gegner-Decks).")
+                color = AMBER
         self.info_label.config(text=text, fg=color)
 
     def _show_tiles(self, stats: WinStats) -> None:
@@ -418,9 +434,9 @@ class WinratePanel:
         chart.bind("<Motion>", hover)
         chart.bind("<Leave>", lambda e: chart.delete("hover"))
 
-    def _match_row(self, match: MatchEntry, bg: str) -> None:
+    def _match_row(self, match: MatchEntry, bg: str, index: int = 0) -> None:
         s = self.s
-        row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
+        row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s), cursor="hand2")
         row.pack(fill=tk.X)
         result, color = (("SIEG", GREEN) if match.result == WIN else ("REMIS", AMBER) if match.result == DRAW
                          else ("NIEDERLAGE", RED))
@@ -435,6 +451,8 @@ class WinratePanel:
             title += f"  vs  {match.opp_name}"
         tk.Label(text, text=title, fg=TEXT, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
         details = [when(match.played_at)]
+        if self._has_replay(match):
+            details.insert(0, "▶ Replay")
         if match.coin is not None:
             details.append("Münzwurf gewonnen" if match.coin else "Münzwurf verloren")
         if match.turns:
@@ -443,6 +461,25 @@ class WinratePanel:
         if match.finish == FINISH_SURRENDER:
             details.append("Aufgabe")
         tk.Label(text, text="  ·  ".join(details), fg=MUTED, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
+        for widget in (row, text, *row.winfo_children(), *text.winfo_children()):  # Klick: Duell ansehen
+            widget.config(cursor="hand2")
+            widget.bind("<Button-1>", lambda e, i=index: self.view_duel(i))
+
+    def _has_replay(self, match: MatchEntry) -> bool:
+        """Gibt es einen Mitschnitt? (wie CardStatsDB.replay_for: Startzeit bis 30 Min. vor dem Ergebnis)"""
+        from card_stats import CardStatsDB
+        return any(match.played_at - CardStatsDB.REPLAY_BEFORE <= start <= match.played_at + CardStatsDB.REPLAY_AFTER
+                   for start in getattr(self, "_replay_starts", []))
+
+    def view_duel(self, index: int) -> None:
+        """Duell-Übersicht für dieses Match (◀/▶ blättern durch die angezeigten Matches)."""
+        from duel_view import DuelView
+        if self.duel is not None:
+            self.duel.close()
+        self.duel = DuelView(self.win, self.db, list(self._shown_matches), index, on_close=self._on_duel_closed)
+
+    def _on_duel_closed(self) -> None:
+        self.duel = None
 
     def _open(self, deck: DeckWinStats) -> None:
         self.on_open(deck.deck_name, deck.deck_code)
@@ -454,11 +491,15 @@ class WinratePanel:
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
             self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
+            if self.duel is not None:
+                self.duel.set_visible(visible)
 
     def close(self) -> None:
         if self.closed:
             return
         self.closed = True
+        if self.duel is not None:
+            self.duel.close()
         try:
             self.canvas.unbind_all("<MouseWheel>")
         except tk.TclError:

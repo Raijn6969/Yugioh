@@ -143,7 +143,7 @@ class CardDbTest(unittest.TestCase):
 
     def test_card_list_is_cached(self):
         folder = tempfile.mkdtemp()
-        with mock.patch.object(card_db, "APP_DIR", folder), \
+        with mock.patch.object(card_db, "DATA_DIR", folder), \
                 mock.patch.object(card_db, "_download", return_value=[("1", "Bonfire", "spell")]) as download:
             card_db.load_card_list("en")
             card_db.load_card_list("en")
@@ -208,6 +208,21 @@ class LayoutCheckTest(unittest.TestCase):
         for main in (40, 41, 60):
             mask = self.mask_for(paint_deck_editor(self.frame, main, 15, screen=(1920, 1080)))
             self.assertIsNone(deck_export.check_layout(mask, self.frame, self.zones(main, 15)), main)
+
+    def test_striped_background_is_not_taken_for_a_card(self):
+        # Echter Fall (43 Karten): Der Hintergrund hat hellere Streifen (Farben aus dem Screenshot gemessen);
+        # mit der alten Grenze galt der leere Platz hinter der letzten Karte als Karte → Scan abgebrochen
+        import numpy as np
+        image = paint_deck_editor(self.frame, 43, 15, screen=(1920, 1080))
+        pixels = np.asarray(image).copy()
+        empty = (pixels == BACKGROUND).all(axis=2)
+        stripe = np.ones(empty.shape, dtype=bool)
+        stripe[::3] = False  # mehr helle als dunkle Zeilen: beim echten Scan waren über 50 % zu hell
+        pixels[empty & stripe] = (18, 55, 83)
+        pixels[empty & ~stripe] = (5, 42, 66)
+        mask = self.mask_for(Image.fromarray(pixels))
+        self.assertIsNone(deck_export.check_layout(mask, self.frame, self.zones(43, 15)))
+        self.assertIn("hinter der letzten Karte", deck_export.check_layout(mask, self.frame, self.zones(42, 15)))
 
     def test_wrong_count_is_detected(self):
         # Zahl falsch gelesen (41 statt 44): hinter der letzten erwarteten Karte liegt noch eine

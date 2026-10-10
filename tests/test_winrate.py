@@ -99,6 +99,35 @@ class StoreMatchesTest(unittest.TestCase):
         self.assertIn("#main\n1001\n1001\n1001\n1002", latest.deck_code)
         self.assertIn("#extra\n1004\n!side", latest.deck_code)
 
+    def test_reminder_counts_live_duels_since_the_last_match_history(self):
+        mh.store_matches(self.db, self.records)  # Match History: letztes Duell bei 400
+        live = lambda did, at: (mh.MatchRecord(str(did), at, mh.RANKED, mh.WIN, True, 0, 0, [], [], [], [],  # noqa
+                                               "", "live"), "Ryzeal", "", "", "")
+        self.db.add_matches([live(1000 + i, 500 + i) for i in range(14)] + [live(999, 100)])  # 99: älter als die History
+        self.assertEqual(self.db.unconfirmed_matches(), 14)
+        self.assertEqual(mh.history_reminder(14), "")
+        self.db.add_matches([live(1014, 514)])
+        self.assertIn("bald die Match History öffnen: 15 Duelle", mh.history_reminder(self.db.unconfirmed_matches()))
+        self.assertEqual(mh.history_reminder(16), "")
+        self.assertIn("öffnen: 18 Duelle", mh.history_reminder(18))
+        self.assertIn("fehlt das Gegner-Deck schon", mh.history_reminder(21))  # ab 20 nach jedem Duell
+        # Match History geöffnet: die Duelle sind bestätigt
+        mh.store_matches(self.db, mh.parse_history({"58": {"1": entry(1014, 520, mh.WIN)}}))
+        self.assertEqual(self.db.unconfirmed_matches(), 0)
+
+    def test_duels_without_a_turn_are_stored_but_not_counted(self):
+        # Gegner vor dem Start weg: Match History führt es als Niederlage ohne Zug und ohne Duell-ID
+        records = self.records + mh.parse_history({"58": {"9": entry(0, 500, mh.LOSS, turn=0, first_player=None)}})
+        mh.store_matches(self.db, records)
+        self.assertIn("0", self.db.match_sources(["0"]))  # gespeichert
+        self.assertEqual(self.db.win_stats(mode=mh.RANKED).matches, 3)
+        self.assertNotIn("0", [m.did for m in self.db.matches()])
+        self.assertEqual(sum(o.stats.matches for o in self.db.opponent_stats()), 4)
+        # Live erfasst (Zugzahl noch unbekannt) zählt dagegen
+        live = mh.MatchRecord("10", 600, mh.RANKED, mh.WIN, None, 0, 0, [], [], [], [], "", "live")
+        self.db.add_matches([(live, "Ryzeal / Mitsurugi", "", "", "")])
+        self.assertEqual(self.db.win_stats(mode=mh.RANKED).matches, 4)
+
     def test_win_rates_overall_first_second_and_per_deck(self):
         mh.store_matches(self.db, self.records)
         ranked = self.db.win_stats(mode=mh.RANKED)

@@ -46,6 +46,10 @@ to `"slow"`. This gives Master Duel more time to load between actions, so
 the program won't click ahead too fast. Options are `"fast"`, `"normal"`,
 or `"slow"`.
 
+**Where your data lives:** settings, the card database and logs are stored next to
+the program. If that folder is read-only (for example under `C:\Program Files`),
+they go to `%APPDATA%\MD_Importer` instead.
+
 ### 6. Win-Rate Tracker
 With "Read memory" enabled (Deck → Options), every duel you play is recorded
 automatically when the result screen appears: win or loss, whether you went first
@@ -72,8 +76,21 @@ live from version 9.2 on; the Match History doesn't include the coin toss.
 - After each duel the status line shows today's record, e.g. "Win · Second · Coin
   lost · Today 5–2".
 
-Only one importer can run at a time; starting it again shows a hint instead of a
-second overlay.
+If "Read memory" can't connect for a few minutes (usually after a Master Duel
+update), you get a one-time notice: imports then use text recognition, and duels
+aren't recorded until it works again.
+
+Only one importer can run at a time. On start, a short note "MD-Importer <version>
+läuft jetzt." appears above the taskbar for 5 seconds; starting it again only shows
+that note instead of a second overlay.
+
+You don't need to open the Match History after every duel: it shows the last 20, so
+once every 20 duels is enough. After 15 duels without it you get a reminder (again at
+18, and after every duel from 20 on, because then opponent decks start getting lost).
+Duels without a single turn (opponent left before the start) are kept but not counted.
+
+Your own database (matches, coin tosses, side profiles, deck history) is backed up
+once a day to `backups/`; the last 7 copies are kept.
 
 ### 7. Staple Check
 Deck → **Staples** compares the deck shown with the current top lists in
@@ -110,3 +127,19 @@ Imperm/Veiler, Nibiru, Droll & Lock and Ghost Ogre. Click a hand to see the whol
 line with the critical step marked and the best way to continue after the hand
 trap. The data comes from the Factory (read-only); your deck is matched to the
 Factory variant with the most cards in common.
+
+### 11. Duel View and Replays
+Click a match in the **Winrate** window to open it on a duel field (like the Factory's
+Shadow Arena, without the side columns): your deck at the bottom, your opponent's at
+the top, result, first/second, coin toss and turns in the middle. Use ◀/▶ to browse.
+
+**Replays without the save limit:** watch a duel as a replay in Master Duel (Match
+History → Replay) while the importer is running, and it records the field step by
+step. The match then shows "▶ Replay" and plays back in the duel view: cards in their
+zones, hands, graveyard/extra deck/banished with counts, life points, turn and phase.
+The field is only read while a replay from the Match History is playing — never
+during a real duel.
+
+**Share a replay:** "Als HTML" in the duel view saves the replay as a single HTML file
+in your Downloads folder (card images included, works offline in any browser, also on
+phones). Your opponent's name is hidden by default ("Gegnername: aus").

@@ -32,6 +32,8 @@ DUEL_VIEWS = ("DuelClient",)                      # das Duell selbst: dann nicht
 CHECK_INTERVAL = 1.5   # Sekunden zwischen zwei Blicken auf die offenen Menüs
 COIN_TOSS_INTERVAL = 0.2  # … solange der Münzwurf vorne ist (nach der Wahl bleibt er manchmal < 1 s)
 REREAD_INTERVAL = 6.0  # So oft wird die Match History bei offenem Menü erneut gelesen (Server-Antwort kommt später)
+HISTORY_SIZE = 20     # so viele Duelle zeigt die Match History in Master Duel
+REMIND_AT = (15, 18)  # Erinnerung, die Match History zu öffnen (ab HISTORY_SIZE nach jedem Duell)
 PENDING_MAX_AGE = 3 * 3600.0  # Münzwurf-Info gilt höchstens so lange für das nächste Ergebnis
 SAME_TOSS = 120.0  # Sekunden: so lange gehört eine schon gelesene Wahl noch zum selben Münzwurf
 
@@ -158,6 +160,18 @@ def live_record(result, deck, first: Optional[bool], now: float,
     return MatchRecord(str(did), now, int(result.get("mode") or 0), outcome, first, 0, 0,
                        deck.main if deck else [], deck.extra if deck else [], [], [],
                        deck.name if deck else "", "live", coin)
+
+
+def history_reminder(unconfirmed: int) -> str:
+    """Hinweis, die Match History zu öffnen ("" = noch nicht nötig): Sie zeigt nur die letzten HISTORY_SIZE Duelle,
+    ältere bekommen danach nie mehr Gegner-Deck und Zugzahl."""
+    if unconfirmed >= HISTORY_SIZE:
+        return (f"Match History öffnen: {unconfirmed} Duelle seit dem letzten Mal – bei den ältesten fehlt das "
+                f"Gegner-Deck schon (sie zeigt nur die letzten {HISTORY_SIZE}).")
+    if unconfirmed in REMIND_AT:
+        return (f"Bitte bald die Match History öffnen: {unconfirmed} Duelle seit dem letzten Mal, sie zeigt nur die "
+                f"letzten {HISTORY_SIZE} (sonst fehlen die Gegner-Decks).")
+    return ""
 
 
 def store_matches(db, records: List[MatchRecord]) -> List[MatchRecord]:

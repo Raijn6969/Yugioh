@@ -29,6 +29,8 @@ class OverlayTest(unittest.TestCase):
             mock.patch.object(Overlay, "show_message", lambda master, title, *a, **k: self.warnings.append(title)),
             # Auto-Ausblenden aus: im Test ist Master Duel nicht im Vordergrund
             mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),
+            # Keine Sicherung der echten Datenbank aus dem Test heraus (eigener Test in test_db_backup)
+            mock.patch.object(Overlay.MasterDuelImporter, "_backup_database", lambda self: None),
             # Abfrage der Lesemethode beim ersten Start: im Test nichts gewählt (eigener Test unten)
             mock.patch.object(Overlay, "ask_choice", return_value=None),
             # Nie die echte Zwischenablage oder die echte Datenbank (Verlauf) des Spielers anfassen
@@ -415,6 +417,9 @@ class DarkDialogTest(unittest.TestCase):
     def setUp(self):
         self.root = tk.Tk()
         self.root.withdraw()
+        backup = mock.patch.object(Overlay.MasterDuelImporter, "_backup_database", lambda self: None)
+        backup.start()
+        self.addCleanup(backup.stop)  # keine Sicherung der echten Datenbank aus dem Test heraus
 
     def tearDown(self):
         self.root.destroy()
@@ -651,14 +656,45 @@ class AppIconTest(unittest.TestCase):
 class MatchStatusTest(unittest.TestCase):
     """Meldung nach einem erfassten Duell: kurz in der schmalen Statuszeile, ausführlich im Tray."""
 
-    def notify(self, *matches, day=""):
+    def notify(self, *matches, day="", reminder=""):
         from types import SimpleNamespace
-        shown, tray = [], []
+        shown, tray, self.later = [], [], []
         fake = SimpleNamespace(update_status=lambda text, color: shown.append(text), extras=None,
                                tray=SimpleNamespace(notify=lambda text, title: tray.append(text)),
-                               _day_summary=lambda: day)
+                               _day_summary=lambda: day, _history_reminder=lambda: reminder, _after_ids={},
+                               _unconfirmed_matches=lambda: self.unconfirmed,
+                               status_label=SimpleNamespace(cget=lambda option: shown[-1]),
+                               root=SimpleNamespace(after=lambda ms, func: self.later.append(func) or "id"))
+        for name in ("_show_history_reminder", "_check_history_reminder"):
+            setattr(fake, name, getattr(Overlay.MasterDuelImporter, name).__get__(fake))
+        self.unconfirmed = 15
         Overlay.MasterDuelImporter._on_new_matches(fake, list(matches))
+        self.shown, self.tray = shown, tray
         return shown[0], tray[0]
+
+    def test_reminder_to_open_match_history(self):
+        import match_history as mh
+        match = mh.MatchRecord("1", 0, mh.RANKED, mh.WIN, True, 0, 0, [], [], [], [], "", "live", True)
+        self.notify(match)
+        self.assertEqual((len(self.tray), self.later), (1, []))  # nicht nötig → keine Erinnerung
+        self.notify(match, reminder=mh.history_reminder(15))
+        self.assertIn("Match History", self.tray[1])
+        self.later.pop(0)()  # nach ein paar Sekunden in der Statuszeile
+        self.assertEqual(self.shown[-1], Overlay.SHORT_REMINDER)
+        self.later.pop(0)()  # Match History noch nicht geöffnet → Hinweis bleibt
+        self.assertEqual(self.shown[-1], Overlay.SHORT_REMINDER)
+        self.unconfirmed = 0  # jetzt geöffnet → Hinweis verschwindet beim nächsten Blick
+        self.later.pop(0)()
+        self.assertEqual(self.shown[-1], "Match History übernommen")
+        self.assertEqual(self.later, [])
+
+    def test_no_reminder_if_match_history_was_opened_in_the_meantime(self):
+        import match_history as mh
+        match = mh.MatchRecord("1", 0, mh.RANKED, mh.WIN, True, 0, 0, [], [], [], [], "", "live", True)
+        self.notify(match, reminder=mh.history_reminder(15))
+        self.unconfirmed = 0  # in den Sekunden bis zum Hinweis geöffnet
+        self.later.pop(0)()
+        self.assertNotIn(Overlay.SHORT_REMINDER, self.shown)
 
     def test_short_status_and_full_tray_text(self):
         import match_history as mh
@@ -677,6 +713,36 @@ class MatchStatusTest(unittest.TestCase):
         self.assertEqual(status, "Niederlage · Zweiter · Münze verloren · Heute 12–10")
         self.assertIn("mit Zwölfnote", tray)  # Deckname dann nur in der Tray-Meldung
         self.assertEqual(self.notify(match, match, day="Heute 3–1")[0], "2 Matches erfasst · Heute 3–1")
+
+
+class MemoryWarningTest(unittest.TestCase):
+    """Verbindet sich der Speicher-Modus minutenlang nicht (Spiel-Update), einmal Bescheid geben."""
+
+    def preload(self, app, failures):
+        with mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                mock.patch.object(Overlay.md_memory, "preload_failures", return_value=failures), \
+                mock.patch.object(Overlay.md_memory, "preload", lambda: None):
+            app._memory_preload_at = -1000.0
+            Overlay.MasterDuelImporter._preload_memory(app)
+            app._memory_thread.join()
+
+    def make_app(self):
+        from types import SimpleNamespace
+        app = SimpleNamespace(_memory_thread=None, _memory_preload_at=0.0, _memory_warned=False, shown=[], tray=[])
+        app.update_status = lambda text, color: app.shown.append(text)
+        app.tray = SimpleNamespace(notify=lambda text, title: app.shown.append("tray: " + text))
+        app._warn_memory_unavailable = lambda: Overlay.MasterDuelImporter._warn_memory_unavailable(app)
+        return app
+
+    def test_warns_once_after_repeated_failures(self):
+        app = self.make_app()
+        self.preload(app, Overlay.MEMORY_WARN_AFTER - 1)
+        self.assertEqual(app.shown, [])  # Spiel lädt evtl. noch
+        self.preload(app, Overlay.MEMORY_WARN_AFTER)
+        self.preload(app, Overlay.MEMORY_WARN_AFTER + 1)
+        self.assertEqual(app.shown[0], "Speicher-Modus nicht verfügbar")
+        self.assertEqual(len(app.shown), 2)  # Statuszeile + Tray, nur einmal
+        self.assertIn("Winrate", app.shown[1])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 """Extras-Menü: Ziehchancen, Starter-Einstufung, lokale Karten-Datenbank, Deck-Raster, Deck-Überwachung, UI."""
 
+import contextlib
+import io
 import os
 import random
 import tempfile
@@ -260,8 +262,11 @@ class CardStatsDbTest(unittest.TestCase):
         listing = os.path.join(tempfile.mkdtemp(), "list.json")
         with open(listing, "w", encoding="utf-8") as f:
             f.write('{"starter": {"ash": "fester Grund"}, "kein_starter": {"lukias": "nein", "Gibt es nicht": "x"}}')
-        rows = build_card_db.curated_rows(cards, listing)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            rows = build_card_db.curated_rows(cards, listing)
         self.assertEqual(sorted(rows), [("1", 0, "nein"), ("2", 1, "fester Grund"), ("3", 1, "fester Grund")])
+        self.assertIn("'Gibt es nicht'", output.getvalue())  # unbekannter Name wird beim Bauen gemeldet
         base = os.path.join(tempfile.mkdtemp(), "base.db")
         con = sqlite3.connect(base)
         create_tables(con)
@@ -668,7 +673,8 @@ class ExtrasPanelTest(unittest.TestCase):
         self.cursor = (0, 0)
         self.patches = [mock.patch.object(extras_panel.DeckWatcher, "start", lambda self: None),
                         mock.patch.object(extras_panel.md_layout, "md_frame", return_value=FRAME),
-                        mock.patch.object(extras_panel.win_api, "get_cursor_pos", lambda: self.cursor)]
+                        mock.patch.object(extras_panel.win_api, "get_cursor_pos", lambda: self.cursor),
+                        mock.patch("ash_prio.available", return_value=True)]  # unabhängig von der Factory hier
         for p in self.patches:
             p.start()
         self.panel = extras_panel.ExtrasPanel(self.root, self.db, "", on_rescan=lambda: None,
@@ -791,6 +797,17 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.set_scan(unsure)
         self.panel.side_btn.invoke()
         self.assertEqual(self.panel.side.unknown, 1)
+
+    def test_no_ash_prio_button_without_factory(self):
+        import ash_prio
+        import extras_panel
+        with mock.patch.object(ash_prio, "available", return_value=False):
+            panel = extras_panel.ExtrasPanel(self.root, self.db, "", on_rescan=lambda: None, on_close=lambda: None)
+        try:
+            self.assertFalse(hasattr(panel, "ash_btn"))
+            self.assertTrue(hasattr(panel, "side_btn"))
+        finally:
+            panel.close()
 
     def test_ash_prio_for_the_shown_deck(self):
         import ash_prio

@@ -268,9 +268,11 @@ class ExtrasPanel:
         self.rescan_btn.pack(side=tk.RIGHT)
         if self.stats_db is not None:
             small = dict(font=self.font_small, padx=int(9 * s), pady=int(4 * s), radius=int(6 * s))
-            self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, bg="#0277bd",
-                                         **small)
-            self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+            import ash_prio
+            if ash_prio.available():  # Daten kommen aus der Factory – ohne sie (z.B. bei Freunden) kein Button
+                self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, bg="#0277bd",
+                                             **small)
+                self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
             self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, bg="#2e7d32", **small)
             self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
 

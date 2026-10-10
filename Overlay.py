@@ -43,16 +43,18 @@ from deck_export import DeckExporter, save_ydk
 from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
 from match_history import LOSS, RANKED, WIN, MatchWatcher
+from replay_recorder import ReplayRecorder
 from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
-from dark_dialog import ask_choice, show_message
+from dark_dialog import ask_choice, show_message, show_toast
 from dark_menu import DarkMenu
+from debug_log import dlog
 from editor_watch import EditorWatcher
 from window_style import apply_frame, no_activate
 from rounded_button import RoundedButton
 from tray import TrayIcon
 from utils import DeckCodeError, parse_clipboard
-from window_automation import get_md_window_size
+from window_automation import get_md_window_size, is_md_process
 import md_layout
 import md_memory
 import resume_state
@@ -60,6 +62,11 @@ import single_instance
 import win_api
 
 MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
+MEMORY_WARN_AFTER = 6  # so viele Fehlversuche (je MEMORY_RETRY mit Master Duel vorne) bis zum Hinweis
+STARTED_TOAST_MS = 5000  # Startmeldung "läuft jetzt" über der Taskleiste
+REMINDER_DELAY_MS = 6000  # erst das Ergebnis zeigen, dann die Erinnerung an die Match History
+SHORT_REMINDER = "Bitte Match History öffnen (Gegner-Decks)"
+REMINDER_CHECK_MS = 3000  # so oft prüfen, ob die Match History inzwischen geöffnet wurde (solange der Hinweis steht)
 STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Platz neben dem ✕)
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
@@ -88,9 +95,14 @@ class MasterDuelImporter:
         self._last_scan = None   # Letzter Deck-Scan der Extras (wird übernommen, wenn das Deck gleich ist)
         self._memory_thread = None    # Vorladen für den Speicher-Modus (läuft im Hintergrund)
         self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
+        self._memory_warned = False  # Hinweis "Speicher-Modus nicht verfügbar" schon gezeigt (einmal pro Sitzung)
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
         self.editor_watch = EditorWatcher(TESSERACT_CMD)
         # Winrate-Tracker: erfasst Duelle am Ergebnis-Bildschirm von Master Duel (Speicher-Modus, nur lesend)
+        # Replay-Mitschnitt: liest das Feld nur während eines Replays aus der Match History (replay_recorder)
+        self.replay_watch = ReplayRecorder(self._stats_db, connected=md_memory.is_ready, memory=md_memory.shared,
+                                           on_saved=lambda info, steps: self._run_on_ui(self._on_replay_saved, info,
+                                                                                        steps))
         self.match_watch = MatchWatcher(self._stats_db, lambda new: self._run_on_ui(self._on_new_matches, new),
                                         connected=md_memory.is_ready, memory=md_memory.shared)
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
@@ -113,7 +125,17 @@ class MasterDuelImporter:
         # Starte den unsichtbaren Radar für den Fenster-Fokus
         self.editor_watch.start()
         self.match_watch.start()
+        self.replay_watch.start()
         self._check_window_focus()
+        self._backup_database()
+
+    def _backup_database(self):
+        """Einmal am Tag die eigene Datenbank sichern (im Hintergrund; danach stündlich nachsehen, falls das
+        Programm über Mitternacht läuft)."""
+        import card_stats
+        import db_backup
+        threading.Thread(target=db_backup.backup, args=(card_stats.DB_FILE,), daemon=True, name="backup").start()
+        self._after_ids["backup"] = self.root.after(db_backup.CHECK_INTERVAL_MS, self._backup_database)
 
     def load_config(self):
         base_config = {
@@ -276,15 +298,11 @@ class MasterDuelImporter:
         self._check_overlay_position()  # gemerkte Position könnte über dem Deck liegen
 
     # --- SMART VISIBILITY TRACKER ---
-    def _is_md_active(self, fg_hwnd, fg_pid):
-        """Prüft, ob das aktive Fenster Master Duel ist (egal ob Vollbild oder Fenster)"""
-        title = win32gui.GetWindowText(fg_hwnd).upper()
-        if "MASTER DUEL" in title:
-            return True
-
-        # Fallback-Check über den Prozessnamen (für randloses Vollbild)
-        exe_path = win_api.process_image_name(fg_pid)
-        return bool(exe_path) and "masterduel.exe" in exe_path.lower()
+    @staticmethod
+    def _is_md_active(fg_hwnd, fg_pid):
+        """Ist das aktive Fenster Master Duel (Vollbild oder Fenster)? Nur über den Prozess – sonst erschien das
+        Overlay auch über einem Browser mit einem Master-Duel-Video (Titel enthält "Master Duel")."""
+        return is_md_process(fg_pid)
 
     def _check_window_focus(self):
         """Loop, der alle 300ms prüft, welches Fenster in Windows gerade vorne liegt."""
@@ -300,6 +318,7 @@ class MasterDuelImporter:
                 self.editor_watch.md_front = md_active
                 self.editor_watch.paused = bool(self.extras and self.extras.hover.visible)
                 self.match_watch.enabled = self._use_memory()
+                self.replay_watch.enabled = self._use_memory()
                 self._clear_timer_after_editor()
                 if md_active and self._use_memory():
                     self._preload_memory()
@@ -366,9 +385,22 @@ class MasterDuelImporter:
             return
         if time.monotonic() - self._memory_preload_at < MEMORY_RETRY:
             return
+        if not self._memory_warned and md_memory.preload_failures() >= MEMORY_WARN_AFTER:
+            self._memory_warned = True
+            self._warn_memory_unavailable()
         self._memory_preload_at = time.monotonic()
         self._memory_thread = threading.Thread(target=md_memory.preload, daemon=True)
         self._memory_thread.start()
+
+    def _warn_memory_unavailable(self):
+        """Der Speicher-Modus verbindet sich seit Minuten nicht (meist ein Master-Duel-Update): Der Import weicht
+        still auf die Texterkennung aus, der Winrate-Tracker würde aber unbemerkt nichts mehr erfassen."""
+        text = ("Speicher-Modus verbindet sich nicht (Master-Duel-Update?). Der Import nutzt die Texterkennung, "
+                "Duelle werden gerade nicht für die Winrate erfasst.")
+        dlog(f"[MEMORY] {text} Letzter Fehler: {md_memory.last_error()}")
+        self.update_status("Speicher-Modus nicht verfügbar", "#ffaa00")
+        if self.tray:
+            self.tray.notify(text, "MD Importer")
 
     # --- FENSTER LOGIK ---
     def start_move(self, event):
@@ -545,6 +577,7 @@ class MasterDuelImporter:
         self._close_extras()
         self.editor_watch.stop()
         self.match_watch.stop()
+        self.replay_watch.stop()
         if self.tray:
             self.tray.stop()
             self.tray = None
@@ -605,7 +638,7 @@ class MasterDuelImporter:
         size = get_md_window_size()
         if size:
             self.config["CALIBRATED_SIZE"] = list(size)
-        self.save_config()
+        self._save_config_safely()
         self.update_status("Kalibrierung aktiv!", "#00ff00")
         self._set_buttons(tk.NORMAL)
 
@@ -857,8 +890,57 @@ class MasterDuelImporter:
         self.update_status(status, "#00ff00")
         if self.tray:
             self.tray.notify(text + " – Winrate im Deck-Fenster", "MD Importer")
+        reminder = self._history_reminder()
+        if reminder:
+            if self.tray:
+                self.tray.notify(reminder, "MD Importer")
+            self._after_ids["reminder"] = self.root.after(REMINDER_DELAY_MS, self._show_history_reminder)
         if self.extras:
             self.extras.refresh_winrate()
+
+    def _on_replay_saved(self, info, steps):
+        """Replay mitgeschnitten → kurze Meldung (ansehen: Winrate → Match anklicken)."""
+        opponent = next((n for i, n in enumerate(info.names) if i != info.my_id), "")
+        self.update_status(f"Replay aufgenommen ({steps} Schritte)", "#00ff00")
+        if self.tray:
+            self.tray.notify(f"Replay{' gegen ' + opponent if opponent else ''} aufgenommen ({steps} Schritte) – "
+                             f"ansehen: Deck-Fenster → Winrate → Match anklicken", "MD Importer")
+        if self.extras:
+            self.extras.refresh_winrate()
+
+    def _show_history_reminder(self):
+        """Hinweis in der Statuszeile – nur, solange er stimmt: Wurde die Match History inzwischen geöffnet, kommt er
+        gar nicht erst bzw. verschwindet wieder (vorher blieb er stehen, bis zufällig etwas anderes kam)."""
+        if not self._unconfirmed_matches():
+            return
+        self.update_status(SHORT_REMINDER, "#ffaa00")
+        self._after_ids["reminder"] = self.root.after(REMINDER_CHECK_MS, self._check_history_reminder)
+
+    def _check_history_reminder(self):
+        if self.status_label.cget("text") != SHORT_REMINDER:
+            return  # inzwischen steht etwas anderes da
+        if self._unconfirmed_matches():
+            self._after_ids["reminder"] = self.root.after(REMINDER_CHECK_MS, self._check_history_reminder)
+            return
+        day = self._day_summary()
+        self.update_status("Match History übernommen" + (f" · {day}" if day else ""), "#00ff00")
+
+    def _unconfirmed_matches(self) -> int:
+        """Duelle ohne Gegner-Deck seit dem letzten Blick in die Match History (Fehler: 1 = Hinweis bleibt)."""
+        db = self._stats_db()
+        try:
+            return db.unconfirmed_matches() if db is not None else 0
+        except Exception:  # Datenbank gerade gesperrt → später nochmal
+            return 1
+
+    def _history_reminder(self) -> str:
+        """Hinweis, die Match History zu öffnen (sonst fehlen Gegner-Decks), "" wenn nicht nötig."""
+        from match_history import history_reminder
+        db = self._stats_db()
+        try:
+            return history_reminder(db.unconfirmed_matches()) if db is not None else ""
+        except Exception:  # Datenbank gerade gesperrt – nur Zusatz
+            return ""
 
     def _day_summary(self) -> str:
         """'Heute 5–2' (Modus wie im Winrate-Fenster: Ranked bzw. alle); "" ohne Daten."""
@@ -936,19 +1018,22 @@ class MasterDuelImporter:
                 self.extras.show_error(error)
 
 
+def started_text() -> str:
+    return f"MD-Importer {APP_VERSION} läuft jetzt."
+
+
 def main():
     if not single_instance.acquire():
-        # Schon ein Importer offen: kein zweites Overlay (jedes Duell würde doppelt erfasst)
+        # Schon ein Importer offen: kein zweites Overlay (jedes Duell würde doppelt erfasst), nur kurz Bescheid geben
         root = tk.Tk()
         root.withdraw()
-        show_message(root, "MD Importer läuft bereits",
-                     "Der Importer ist schon offen – sein Symbol ist unten rechts im Infobereich der Taskleiste "
-                     "(evtl. hinter dem Pfeil ^). Dort gibt es Neustart und Beenden.\n\n"
-                     "Das Overlay erscheint, sobald Master Duel den Deck-Editor zeigt.", kind="info")
-        root.destroy()
+        show_toast(root, started_text(), duration_ms=STARTED_TOAST_MS)
+        root.after(STARTED_TOAST_MS + 100, root.destroy)
+        root.mainloop()
         return
     root = tk.Tk()
     MasterDuelImporter(root, tray=True)
+    show_toast(root, started_text(), duration_ms=STARTED_TOAST_MS)
     root.mainloop()
 
 

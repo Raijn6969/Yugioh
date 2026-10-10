@@ -66,5 +66,82 @@ class WinApiTest(unittest.TestCase):
         self.assertEqual(len(win_api.get_pixel(0, 0) or (0, 0, 0)), 3)
 
 
+class ClickFocusTest(unittest.TestCase):
+    """Vor jedem Klick muss Master Duel vorne sein – sonst landet der Klick in einem anderen Programm."""
+
+    def make_automator(self):
+        a = wa.WindowAutomator.__new__(wa.WindowAutomator)
+        a.last_bot_pos = (0, 0)
+        a.check_user_interruption = lambda: None
+        return a
+
+    def click(self, md_in_front):
+        import input_utils
+        events = []
+        with mock.patch.object(wa, "find_md_window", return_value=123), \
+                mock.patch.object(input_utils, "md_in_front", return_value=md_in_front), \
+                mock.patch.object(input_utils, "FOCUS_TIMEOUT", 0.05), \
+                mock.patch.object(win_api, "set_foreground_window", lambda hwnd: False), \
+                mock.patch.object(win_api, "set_cursor_pos", lambda x, y: None), \
+                mock.patch.object(win_api, "mouse_event", events.append), \
+                mock.patch.object(win_api, "mouse_wheel", events.append):
+            a = self.make_automator()
+            a.iron_grip_click(10, 10)
+            a.scroll(10, 10, 1)
+        return events
+
+    def test_clicks_while_master_duel_is_in_front(self):
+        self.assertEqual(len(self.click(md_in_front=True)), 3)  # Klick runter/hoch + 1 Raste
+
+    def test_no_click_when_another_window_stays_in_front(self):
+        import input_utils
+        with self.assertRaises(input_utils.FocusLostError):
+            self.click(md_in_front=False)
+
+
+class DataDirTest(unittest.TestCase):
+    """Schreibgeschützter Programmordner (z.B. C:\\Programme): Daten nach %APPDATA%\\MD_Importer."""
+
+    def test_writable_program_folder_is_used(self):
+        import tempfile
+        import app_paths
+        folder = tempfile.mkdtemp()
+        self.assertEqual(app_paths._data_dir(folder), folder)
+
+    def test_read_only_program_folder_falls_back_to_appdata(self):
+        import tempfile
+        import app_paths
+        appdata = tempfile.mkdtemp()
+        with mock.patch.object(app_paths, "_writable", return_value=False), \
+                mock.patch.dict(os.environ, {"APPDATA": appdata}):
+            folder = app_paths._data_dir(r"C:\\Program Files\\MD_Importer")
+        self.assertEqual(folder, os.path.join(appdata, "MD_Importer"))
+        self.assertTrue(os.path.isdir(folder))
+
+
+class MasterDuelDetectionTest(unittest.TestCase):
+    """Master Duel nur am Prozess erkennen: Ein Browser mit "Master Duel" im Titel (YouTube-Video) ist es nicht."""
+
+    EXES = {1: r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            2: r"D:\\Steam\\steamapps\\common\\Yu-Gi-Oh!  Master Duel\\masterduel.exe"}
+
+    def test_browser_with_master_duel_video_is_not_master_duel(self):
+        import Overlay
+        with mock.patch.object(win_api, "process_image_name", self.EXES.get):
+            self.assertFalse(Overlay.MasterDuelImporter._is_md_active(10, 1))
+            self.assertTrue(Overlay.MasterDuelImporter._is_md_active(20, 2))
+
+    def test_window_title_alone_is_not_enough_to_find_master_duel(self):
+        with mock.patch.object(win_api, "process_image_name", self.EXES.get), \
+                mock.patch.object(win_api, "find_window", return_value=10), \
+                mock.patch.object(win_api, "window_pid", return_value=1), \
+                mock.patch.object(wa.win32gui, "EnumWindows", lambda callback, extra: None):
+            self.assertIsNone(wa._search_md_window())
+        with mock.patch.object(win_api, "process_image_name", self.EXES.get), \
+                mock.patch.object(win_api, "find_window", return_value=20), \
+                mock.patch.object(win_api, "window_pid", return_value=2):
+            self.assertEqual(wa._search_md_window(), 20)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -190,6 +190,19 @@ def set_dwm_attribute(hwnd: int, attribute: int, value: int) -> bool:
     return _DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(data), ctypes.sizeof(data)) == 0
 
 
+_SystemParametersInfoW = _sig(_user32.SystemParametersInfoW,
+                              [wintypes.UINT, wintypes.UINT, ctypes.c_void_p, wintypes.UINT], wintypes.BOOL)
+_SPI_GETWORKAREA = 0x0030
+
+
+def work_area() -> Optional[Tuple[int, int, int, int]]:
+    """(links, oben, rechts, unten) des Hauptbildschirms ohne Taskleiste; None bei Fehler."""
+    rect = wintypes.RECT()
+    if not _SystemParametersInfoW(_SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
+        return None
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
 def virtual_screen_rect() -> Tuple[int, int, int, int]:
     """(x, y, Breite, Höhe) des gesamten Desktops über alle Monitore."""
     return (_GetSystemMetrics(76), _GetSystemMetrics(77),   # SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN

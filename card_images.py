@@ -13,9 +13,9 @@ from typing import Dict, Iterable, Optional, Tuple
 
 import requests
 
-from app_paths import APP_DIR
+from app_paths import DATA_DIR
 
-FOLDER = os.path.join(APP_DIR, "card_images")
+FOLDER = os.path.join(DATA_DIR, "card_images")
 IMAGE_URL = "https://images.ygoprodeck.com/images/cards_small/{id}.jpg"
 TIMEOUT = 20
 PAUSE = 0.05   # nach jedem Download (die Seite freundlich behandeln)

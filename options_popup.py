@@ -81,7 +81,6 @@ class OptionsPopup:
         if self.is_open:
             self.close()
             return
-        s = self.s
         win = tk.Toplevel(self.master, bg=BG)
         win.withdraw()  # erst zeigen, wenn es platziert ist (sonst kurz oben links → Taskleiste im Vollbild)
         win.overrideredirect(True)

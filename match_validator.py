@@ -51,16 +51,16 @@ class MatchValidator:
         dlog(f"        [AUDIT] Matcher prüft Target: '{target}' vs OCR: '{ocr}'\n")
 
         if not target or not ocr:
-            dlog(f"        [AUDIT] -> NONE (Leer)\n")
+            dlog("        [AUDIT] -> NONE (Leer)\n")
             return False, "NONE"
 
         if target == ocr:
-            dlog(f"        [AUDIT] -> EXACT (100% Identisch)\n")
+            dlog("        [AUDIT] -> EXACT (100% Identisch)\n")
             return True, "EXACT"
 
         # --- INTELLIGENTES HARD VETO: KNIGHT / NIGHT ---
         if knight_night_conflict(target, ocr):
-            dlog(f"        [AUDIT] VETO: Kritischer Knight/Night-Konflikt erkannt! Match verweigert.\n")
+            dlog("        [AUDIT] VETO: Kritischer Knight/Night-Konflikt erkannt! Match verweigert.\n")
             return False, "NONE"
 
         # --- BASE-CARD HIJACKING VETO (Der Exorzist) ---
@@ -142,7 +142,7 @@ class MatchValidator:
                             break
 
             if has_core_break:
-                dlog(f"        [AUDIT] VETO: Infix-Hijacking erkannt (Core-Bruch). Blockiere Ratio-Check.\n")
+                dlog("        [AUDIT] VETO: Infix-Hijacking erkannt (Core-Bruch). Blockiere Ratio-Check.\n")
             else:
                 if is_match:
                     is_fuzzy = True
@@ -178,7 +178,7 @@ class MatchValidator:
             dlog(f"        [AUDIT] -> FUZZY ({reason})\n")
             return True, "FUZZY"
 
-        dlog(f"        [AUDIT] -> ABGELEHNT\n")
+        dlog("        [AUDIT] -> ABGELEHNT\n")
         return False, "NONE"
 
     def evaluate_fallback(
@@ -187,11 +187,11 @@ class MatchValidator:
     ) -> bool:
 
         if first_slot_text == "BLIND_CARD":
-            dlog(f"    [FALLBACK ACTIVE] Blind-Card erkannt. Master Duel Suche wird vertraut. Erzwinge Klick.\n")
+            dlog("    [FALLBACK ACTIVE] Blind-Card erkannt. Master Duel Suche wird vertraut. Erzwinge Klick.\n")
             return True
 
         if knight_night_conflict(target_clean, first_slot_text):
-            dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen kritischem Knight/Night-Konflikt.\n")
+            dlog("    [FAILSAFE BLOCK] Fallback blockiert wegen kritischem Knight/Night-Konflikt.\n")
             return False
 
         # --- DYNAMISCHER STAMM-SCHILD IM FALLBACK ---
@@ -245,7 +245,7 @@ class MatchValidator:
         for tag, i1, i2, j1, j2 in sm_fallback.get_opcodes():
             if tag in ('insert', 'replace') and i1 > 0 and i2 < len(target_clean):
                 if (j2 - j1) >= 3 and (j2 - j1) >= (i2 - i1) + 2:
-                    dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Infix-Hijacking (Core-Bruch).\n")
+                    dlog("    [FAILSAFE BLOCK] Fallback blockiert wegen Infix-Hijacking (Core-Bruch).\n")
                     return False
 
         if similarity >= 0.65:
@@ -270,7 +270,7 @@ class MatchValidator:
                     dlog(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen zu geringem Char-Overlap (overlap={overlap:.2f} < 0.80).\n")
                     return False
             else:
-                dlog(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen Prefix-Mismatch (Schild aktiv).\n")
+                dlog("    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen Prefix-Mismatch (Schild aktiv).\n")
                 return False
         else:
             dlog(f"    [FAILSAFE BLOCK] sim={similarity:.3f} zu niedrig / Längen-Delta zu groß für Fallback.\n")

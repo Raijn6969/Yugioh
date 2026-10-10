@@ -33,6 +33,9 @@ from utils import clean_text
 from window_automation import UserInterrupt, WindowAutomator
 
 LAYOUT_MISS_SHARE = 0.10  # Liegt an mehr Kartenplätzen keine Karte, stimmt das Raster nicht
+# Hintergrund des Deck-Bereichs: dunkelblau mit helleren Streifen (bis ~85 in der unteren Reihe, gemessen an
+# einem 43-Karten-Deck). Vorher 75: Leere Plätze in Reihe 5 galten dann als Karte → "hinter der letzten Karte …"
+BACKGROUND_MAX = 100
 MAX_COPIES = 3
 SIGNATURE_SIZE = (8, 12)  # Mini-Abbild der Kartenmitte (Breite, Höhe) zum Wiedererkennen
 
@@ -132,7 +135,7 @@ def card_coverage(mask: np.ndarray, frame: md_layout.Frame, ref_x: float, ref_y:
 def background_mask(image: Image.Image) -> np.ndarray:
     """True = dunkelblauer Hintergrund des Deck-Bereichs."""
     rgb = np.asarray(image.convert("RGB")).astype(int)
-    return (rgb.max(axis=2) < 75) & (rgb[..., 2] >= rgb[..., 0])
+    return (rgb.max(axis=2) < BACKGROUND_MAX) & (rgb[..., 2] >= rgb[..., 0])
 
 
 def card_center_box(frame: md_layout.Frame, ref_x: float, ref_y: float) -> Tuple[int, int, int, int]:

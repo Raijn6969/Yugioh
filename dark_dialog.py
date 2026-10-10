@@ -1,14 +1,16 @@
 """
 Dunkle Hinweis- und Auswahlfenster im Stil des Overlays (statt der hellen Windows-Messagebox).
 Ohne Windows-Titelleiste wie das Overlay; verschiebbar an der Kopfzeile. show_message schließt mit OK,
-Enter oder Escape; ask_choice wartet auf einen der Buttons (Escape = abbrechen).
+Enter oder Escape; ask_choice wartet auf einen der Buttons (Escape = abbrechen). show_toast ist ein kurzer Hinweis
+ohne Button über der Taskleiste, der von selbst verschwindet.
 """
 
 import tkinter as tk
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from rounded_button import RoundedButton
-from window_style import apply_frame
+from window_style import apply_frame, no_activate
+import win_api
 
 BG = "#1e1e1e"
 PANEL = "#2b2b2b"
@@ -24,6 +26,7 @@ KINDS = {
     "question": ("#4fc3f7", "?"),
 }
 MAX_LIST_LINES = 10  # Längere Listen bekommen eine Scrollleiste
+TOAST_MS = 5000      # so lange bleibt show_toast stehen
 
 
 def show_message(master: tk.Misc, title: str, message: str, kind: str = "info",
@@ -102,6 +105,32 @@ def ask_choice(master: tk.Misc, title: str, message: str,
     win.bind("<Escape>", lambda e: choose(None))
     _show(master, win, wait=True)
     return result["value"]
+
+
+def show_toast(master: tk.Misc, text: str, duration_ms: int = TOAST_MS) -> tk.Toplevel:
+    """
+    Dezenter Hinweis ohne Button, mittig direkt über der Taskleiste (bzw. am unteren Rand, wenn keine da ist).
+    Verschwindet nach duration_ms, ein Klick schließt ihn sofort. Nimmt dem Spiel nicht den Fokus.
+    """
+    scale = max(1.0, master.winfo_screenheight() / 1080.0)
+    win = tk.Toplevel(master, bg=BG)
+    win.overrideredirect(True)
+    win.wm_attributes("-topmost", True)
+    win.wm_attributes("-alpha", 0.95)
+    label = tk.Label(win, text=text, fg=KINDS["info"][0], bg=BG, font=("Helvetica", int(10 * scale), "bold"),
+                     padx=int(16 * scale), pady=int(6 * scale))
+    label.pack()
+    win.update_idletasks()
+    width, height = win.winfo_reqwidth(), win.winfo_reqheight()
+    left, _top, right, bottom = win_api.work_area() or (0, 0, win.winfo_screenwidth(), win.winfo_screenheight())
+    gap = int(8 * scale)  # etwas Luft zur Taskleiste
+    win.geometry(f"{width}x{height}+{(left + right - width) // 2}+{bottom - height - gap}")
+    apply_frame(win)
+    no_activate(win)
+    for widget in (win, label):
+        widget.bind("<Button-1>", lambda _event: win.destroy())
+    win.after(duration_ms, win.destroy)
+    return win
 
 
 def _window(master: tk.Misc, title: str, message: str, kind: str):
