@@ -17,7 +17,9 @@ from typing import Dict
 from starter_rules import _DECK, _sentences, _split_effect
 
 KEYS = ("ash", "imperm", "droll", "ogre")
-ASH = re.compile(rf"\b(?:add|special summon|send)\b[^.;]*?{_DECK}|{_DECK} as (?:\w+ )?materials?")
+ASH = re.compile(rf"\b(?:add|special summon|send)\b[^.;]*?{_DECK}"
+                 # Material aus dem Deck ("using 2 monsters from your hand, Deck, or field as material"), nicht Extra Deck
+                 r"|\busing\b[^.;]*?from your [^.;]*?(?<!extra )\bdeck\b[^.;]*?\bas (?:\w+ )?materials?\b")
 DROLL = re.compile(rf"\badd\b[^.;]*?{_DECK}")
 # Effekte, die nicht auf dem Feld aktiviert werden (Hand, Friedhof, verbannt)
 OFF_FIELD = re.compile(r"\(from your hand\)|if this card is in your (?:hand|gy|graveyard)|discard this card|"
