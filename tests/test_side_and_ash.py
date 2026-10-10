@@ -154,7 +154,8 @@ class AshPrioTest(unittest.TestCase):
         variant, sheets, hint = ash_prio.load({"999": 40}, self.path)
         self.assertIsNone(variant)
         self.assertIn("noch nicht durchgerechnet", hint)
-        self.assertIn("nicht gefunden", ash_prio.load(DECK, self.path + ".fehlt")[2])
+        # ohne Factory und ohne Schnappschuss
+        self.assertIn("keine Starthände", ash_prio.load(DECK, self.path + ".fehlt", snapshot="fehlt.json.gz")[2])
         # Passende Liste, aber noch ohne Handtrap-Prüfung
         con = sqlite3.connect(self.path)
         con.execute("UPDATE combo_results SET data = '{\"steps\": []}'")
@@ -163,6 +164,17 @@ class AshPrioTest(unittest.TestCase):
         variant, _, hint = ash_prio.load(DECK, self.path)
         self.assertIsNone(variant)
         self.assertIn("„Meine Liste“, 100 % gleiche Karten", hint)
+
+    def test_snapshot_for_pcs_without_factory(self):
+        target = os.path.join(tempfile.mkdtemp(), "snap.json.gz")
+        self.assertEqual(ash_prio.build_snapshot(self.path, target), 1)  # nur die geprüfte Variante
+        self.assertEqual(ash_prio.build_snapshot(self.path + ".fehlt", target), 0)  # alte Datei bleibt
+        variant, sheets, note = ash_prio.load(dict(DECK), self.path + ".fehlt", snapshot=target)
+        self.assertEqual((variant.key, [s.hand for s in sheets]), ("v1", ["Hand 0", "Hand 1"]))
+        self.assertTrue(note.startswith("Stand der Factory vom"))
+        self.assertEqual(ash_prio.advice(sheets[0], "ash"), ash_prio.advice(ash_prio.load(DECK, self.path)[1][0], "ash"))
+        self.assertIsNone(ash_prio.load({"999": 40}, self.path + ".fehlt", snapshot=target)[0])
+        self.assertIsNone(ash_prio.load(DECK, self.path + ".fehlt", snapshot=target + ".fehlt")[0])
 
     def test_factory_db_is_opened_read_only(self):
         con = ash_prio.connect(self.path)
@@ -228,6 +240,31 @@ class PanelTest(unittest.TestCase):
         self.addCleanup(other.close)
         self.assertEqual([p.name for p in other._profiles()], ["Zweiter"])
         self.assertEqual(db.side_profiles(None)[0].deck_name, "Deck")
+
+    def test_ash_panel_uses_card_texts_without_starting_hands(self):
+        from ash_panel import AshPrioPanel
+        db = make_db()
+        with db._connect() as con:
+            con.execute("UPDATE cards SET desc = ? WHERE id = ?",
+                        ('If this card is Normal Summoned: You can add 1 "Bird" monster from your Deck to your hand.',
+                         DROLL))
+        panel = AshPrioPanel(self.root, "Deck", {DROLL: 3, STORM: 1}, on_close=lambda: None,
+                             path=os.path.join(tempfile.mkdtemp(), "fehlt.db"), db=db)
+        self.addCleanup(panel.close)
+        with mock.patch.object(ash_prio, "snapshot_file", return_value="fehlt.json.gz"):
+            for _ in range(100):
+                self.pump(0.05)
+                if panel._result is not None or panel.text_rows:
+                    break
+            self.pump(0.2)
+        texts = lambda: [w.cget("text") for f in panel.inner.winfo_children()  # noqa: E731
+                         for w in [f, *f.winfo_children(), *[g for c in f.winfo_children() for g in c.winfo_children()]]
+                         if isinstance(w, tk.Label)]
+        self.assertIn("Droll & Lock Bird  ×3", texts())
+        self.assertTrue(any(t.startswith("Ash Blossom trifft: You can add 1") for t in texts()))
+        self.assertIn("Ohne Angriffsfläche für Ash Blossom: Lightning Storm", texts())
+        panel.choose("nibiru")
+        self.assertTrue(texts()[0].startswith("Nibiru trifft ab der 5. Beschwörung"))
 
     def test_ash_panel_loads_in_background(self):
         from ash_panel import AshPrioPanel

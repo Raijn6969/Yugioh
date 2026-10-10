@@ -3,6 +3,10 @@ Ash-Prio (Button "Ash-Prio" im Deck-Fenster): Spickzettel je Starthand – an we
 am meisten schadet und was danach noch steht (aus der Factory, siehe ash_prio). Oben die Handtrap wählen (Ash,
 Imperm, …), Klick auf eine Hand zeigt die ganze Linie mit der gefährlichen Stelle und wie man danach weiterspielt.
 Weiß man, wo Ash trifft, kann man vorher einen anderen Effekt anbieten oder genau diesen Schritt schützen.
+
+Gibt es für das Deck keine Starthände (keine Factory und nicht im mitgelieferten Schnappschuss), zeigt das Fenster
+eine Einschätzung aus den Kartentexten (handtrap_targets): welche Karten des Decks die gewählte Handtrap treffen
+kann und mit welchem Effekt, Starter zuerst – ohne die Reihenfolge der Combo.
 """
 
 import threading
@@ -10,6 +14,7 @@ import tkinter as tk
 from typing import Callable, Dict, List, Optional
 
 import ash_prio
+import handtrap_targets
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
@@ -21,11 +26,13 @@ POLL_MS = 100
 class AshPrioPanel:
     def __init__(self, master: tk.Misc, deck_name: str, deck: Dict[str, int], on_close: Callable[[], None],
                  anchor: Optional[tk.Misc] = None, path: str = ash_prio.FACTORY_DB,
-                 names: Optional[Dict[str, str]] = None):
+                 names: Optional[Dict[str, str]] = None, db=None):
         self.master = master
         self.deck_name = deck_name
         self.deck = dict(deck)
         self.names = dict(names or {})         # {Passcode: Name}: Alt-Arts der Factory-Variante zuordnen
+        self.db = db                           # CardStatsDB: Kartentexte für die Einschätzung ohne Factory
+        self.text_rows: List[tuple] = []       # ohne Starthände: (Passcode, Name, Kopien, Starter?, {Handtrap: Effekt})
         self.on_close = on_close
         self.path = path
         self.closed = False
@@ -114,7 +121,30 @@ class AshPrioPanel:
 
     # ── Laden (Factory-Datenbank, im Hintergrund) ──
     def _load(self) -> None:
-        self._result = ash_prio.load(self.deck, self.path, self.names)
+        result = ash_prio.load(self.deck, self.path, self.names)
+        if result[0] is None:
+            self.text_rows = self._text_rows()
+        self._result = result
+
+    def _text_rows(self) -> List[tuple]:
+        """Einschätzung aus den Kartentexten (läuft im Hintergrund-Thread)."""
+        if self.db is None:
+            return []
+        try:
+            infos = self.db.infos(self.deck)
+        except Exception:
+            return []
+        rows = []
+        for cid, copies in self.deck.items():
+            info = infos.get(cid)
+            if info is None:
+                continue
+            try:
+                starter = bool(self.db.starter(cid).starter)
+            except Exception:
+                starter = False
+            rows.append((cid, info.name, copies, starter, handtrap_targets.card_targets(info)))
+        return sorted(rows, key=lambda r: (not r[3], r[1]))
 
     def _poll(self) -> None:
         if self.closed:
@@ -123,13 +153,18 @@ class AshPrioPanel:
             self._poll_job = self.win.after(POLL_MS, self._poll)
             return
         self.variant, self.sheets, hint = self._result
-        if self.variant is None:
+        if self.variant is None and self.text_rows:
+            self.info_label.config(
+                text=f"{hint} Einschätzung aus den Kartentexten: welche deiner Karten die gewählte Handtrap treffen "
+                     f"kann, Starter zuerst. Die Reihenfolge der Combo kennt das nicht.", fg=MUTED)
+        elif self.variant is None:
             self.info_label.config(text=hint, fg=AMBER)
         else:
+            source = f" · {hint}" if hint else ""
             self.info_label.config(
-                text=f"Aus der Factory: „{self.variant.name}“ ({self.variant.overlap * 100:.0f} % gleiche Karten), "
-                     f"{len(self.sheets)} Starthände, die stärksten zuerst. Board = Unterbrechungen am Ende des "
-                     f"Zuges. Klick auf eine Hand zeigt die ganze Linie.", fg=MUTED)
+                text=f"Aus der Factory: „{self.variant.name}“ ({self.variant.overlap * 100:.0f} % gleiche Karten"
+                     f"{source}), {len(self.sheets)} Starthände, die stärksten zuerst. Board = Unterbrechungen am "
+                     f"Ende des Zuges. Klick auf eine Hand zeigt die ganze Linie.", fg=MUTED)
         self.render()
 
     # ── Anzeige ──
@@ -148,10 +183,45 @@ class AshPrioPanel:
             button.config(bg="#007acc" if key == self.handtrap else "#444444")
         for child in self.inner.winfo_children():
             child.destroy()
+        if self.variant is None and self.text_rows:
+            self._render_text()
+            return
         for i, sheet in enumerate(self.sheets):
             self._hand_row(sheet, ROW_ALT if i % 2 else BG)
             if sheet.hand == self.open_hand:
                 self._line(sheet)
+
+    def _render_text(self) -> None:
+        """Ohne Starthände: Karten, die die gewählte Handtrap treffen kann (mit dem Effekt)."""
+        s = self.s
+        if self.handtrap == "nibiru":
+            tk.Label(self.inner, text="Nibiru trifft ab der 5. Beschwörung im Zug. Aus den Kartentexten lässt sich "
+                                      "das nicht abschätzen – nur die Starthände der Factory zeigen, wo er zuschlägt.",
+                     fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
+                     wraplength=int(440 * s)).pack(fill=tk.X, pady=int(6 * s))
+            return
+        hit = [row for row in self.text_rows if self.handtrap in row[4]]
+        safe = [row[1] for row in self.text_rows if self.handtrap not in row[4]]
+        name = dict(ash_prio.HANDTRAPS)[self.handtrap]
+        if not hit:
+            tk.Label(self.inner, text=f"Keine Karte deines Decks bietet {name} eine erkennbare Angriffsfläche.",
+                     fg=GREEN, bg=BG, font=self.font_small, anchor="w").pack(fill=tk.X, pady=int(6 * s))
+        for i, (cid, card, copies, starter, targets) in enumerate(hit):
+            bg = ROW_ALT if i % 2 else BG
+            row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(4 * s))
+            row.pack(fill=tk.X)
+            head = tk.Frame(row, bg=bg)
+            head.pack(fill=tk.X)
+            if starter:
+                tk.Label(head, text="STARTER", fg=NEON, bg=bg, font=self.font_small_bold).pack(side=tk.RIGHT)
+            tk.Label(head, text=f"{card}  ×{copies}", fg=TEXT, bg=bg, font=self.font_bold, anchor="w").pack(
+                side=tk.LEFT, fill=tk.X, expand=True)
+            tk.Label(row, text=f"{name} trifft: {targets[self.handtrap]}", fg=MUTED, bg=bg, font=self.font_small,
+                     anchor="w", justify=tk.LEFT, wraplength=int(440 * s)).pack(fill=tk.X)
+        if safe:
+            tk.Label(self.inner, text=f"Ohne Angriffsfläche für {name}: " + ", ".join(sorted(safe)), fg=MUTED, bg=BG,
+                     font=self.font_small, anchor="w", justify=tk.LEFT, wraplength=int(460 * s)).pack(
+                fill=tk.X, pady=(int(8 * s), 0))
 
     def _hand_row(self, sheet: ash_prio.HandSheet, bg: str) -> None:
         s = self.s

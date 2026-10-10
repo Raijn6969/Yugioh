@@ -7,11 +7,18 @@ sys.path.insert(0, SPECPATH)
 from build_card_db import TARGET as CARD_DB, ensure_fresh
 ensure_fresh()
 
+# Ash-Prio für PCs ohne Factory: Schnappschuss der Factory-Ergebnisse (nur lesend, ~150 KB). Ohne Factory auf diesem
+# PC bleibt ein vorhandener alter Schnappschuss; gibt es keinen, zeigt Ash-Prio die Einschätzung aus den Kartentexten.
+import os
+from ash_prio import build_snapshot, snapshot_file
+print(f"[ash_prio] Schnappschuss: {build_snapshot()} Varianten")
+EXTRA_DATAS = [(snapshot_file(), '.')] if os.path.exists(snapshot_file()) else []
+
 a = Analysis(
     ['overlay.py'],
     pathex=[],
     binaries=[],
-    datas=[('Tesseract-OCR', 'Tesseract-OCR'), (CARD_DB, '.')],
+    datas=[('Tesseract-OCR', 'Tesseract-OCR'), (CARD_DB, '.')] + EXTRA_DATAS,
     hiddenimports=['pystray._win32'],  # pystray lädt sein Windows-Backend erst zur Laufzeit
     hookspath=[],
     hooksconfig={},

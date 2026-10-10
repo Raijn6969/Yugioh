@@ -126,7 +126,11 @@ a hand trap hurts most and what's left on board afterwards — for Ash Blossom,
 Imperm/Veiler, Nibiru, Droll & Lock and Ghost Ogre. Click a hand to see the whole
 line with the critical step marked and the best way to continue after the hand
 trap. The data comes from the Factory (read-only); your deck is matched to the
-Factory variant with the most cards in common.
+Factory variant with the most cards in common. Without the Factory on the PC, the
+importer uses a snapshot of its results that is packed into the .exe at build time.
+For decks the Factory doesn't know, Ash-Prio reads the card texts instead and lists
+which of your cards each hand trap can hit and with which effect (starters first) —
+without the order of the combo.
 
 ### 11. Duel View and Replays
 Click a match in the **Winrate** window to open it on a duel field (like the Factory's

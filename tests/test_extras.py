@@ -674,7 +674,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.patches = [mock.patch.object(extras_panel.DeckWatcher, "start", lambda self: None),
                         mock.patch.object(extras_panel.md_layout, "md_frame", return_value=FRAME),
                         mock.patch.object(extras_panel.win_api, "get_cursor_pos", lambda: self.cursor),
-                        mock.patch("ash_prio.available", return_value=True)]  # unabhängig von der Factory hier
+                        ]
         for p in self.patches:
             p.start()
         self.panel = extras_panel.ExtrasPanel(self.root, self.db, "", on_rescan=lambda: None,
@@ -798,16 +798,18 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.side_btn.invoke()
         self.assertEqual(self.panel.side.unknown, 1)
 
-    def test_no_ash_prio_button_without_factory(self):
+    def test_ash_prio_without_factory_falls_back_to_card_texts(self):
         import ash_prio
-        import extras_panel
-        with mock.patch.object(ash_prio, "available", return_value=False):
-            panel = extras_panel.ExtrasPanel(self.root, self.db, "", on_rescan=lambda: None, on_close=lambda: None)
-        try:
-            self.assertFalse(hasattr(panel, "ash_btn"))
-            self.assertTrue(hasattr(panel, "side_btn"))
-        finally:
-            panel.close()
+        self.panel.set_scan(self.scan)
+        with mock.patch.object(ash_prio, "load", return_value=(None, [], "Keine Starthände.")):
+            self.panel.ash_btn.invoke()  # Button gibt es immer (auch ohne Factory)
+            for _ in range(60):
+                self.pump(0.05)
+                if self.panel.ash_prio.text_rows:
+                    break
+        panel = self.panel.ash_prio
+        self.assertIs(panel.db, self.db)
+        self.assertIn("Kartentexten", panel.info_label.cget("text"))
 
     def test_ash_prio_for_the_shown_deck(self):
         import ash_prio
@@ -816,7 +818,7 @@ class ExtrasPanelTest(unittest.TestCase):
             self.panel.ash_btn.invoke()
             self.pump(0.3)
         self.assertEqual(load.call_args.args[0]["1"], 3)  # Deck mit Kopien
-        self.assertEqual(self.panel.ash_prio.info_label.cget("text"), "nicht durchgerechnet")
+        self.assertTrue(self.panel.ash_prio.info_label.cget("text").startswith("nicht durchgerechnet"))
         self.panel.ash_btn.invoke()
         self.assertIsNone(self.panel.ash_prio)
 

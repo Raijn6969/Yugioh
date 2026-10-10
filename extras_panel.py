@@ -268,11 +268,9 @@ class ExtrasPanel:
         self.rescan_btn.pack(side=tk.RIGHT)
         if self.stats_db is not None:
             small = dict(font=self.font_small, padx=int(9 * s), pady=int(4 * s), radius=int(6 * s))
-            import ash_prio
-            if ash_prio.available():  # Daten kommen aus der Factory – ohne sie (z.B. bei Freunden) kein Button
-                self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, bg="#0277bd",
-                                             **small)
-                self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+            # Starthände aus der Factory (bzw. dem mitgelieferten Schnappschuss), sonst Einschätzung aus Kartentexten
+            self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, bg="#0277bd", **small)
+            self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
             self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, bg="#2e7d32", **small)
             self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
 
@@ -522,7 +520,7 @@ class ExtrasPanel:
         self._show_deck_winrate()
         deck, _, names, _ = self._deck_cards()
         self.ash_prio = AshPrioPanel(self.win, self._deck_name or "Deck", deck, on_close=self._on_ash_prio_closed,
-                                     anchor=self.ash_btn, names=names)
+                                     anchor=self.ash_btn, names=names, db=self.stats_db)
 
     def _close_ash_prio(self) -> None:
         if self.ash_prio is not None:

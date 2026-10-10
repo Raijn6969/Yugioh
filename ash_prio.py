@@ -7,16 +7,23 @@ combo_results). Pro Handtrap steht dort die für uns schlimmste Stelle (Schritt 
 bleibt (Unterbrechungen auf dem Board) und wie man danach am besten weiterspielt.
 
 Das Deck im Deck-Fenster wird der Variante mit den meisten gleichen Karten zugeordnet.
+
+Ohne Factory auf dem PC (z.B. bei Freunden): Schnappschuss der Ergebnisse, der beim Bauen der exe mit eingepackt wird
+(build_snapshot, MD_Importer.spec). Kennt auch der das Deck nicht, schätzt das Ash-Prio-Fenster aus den Kartentexten
+(handtrap_targets).
 """
 
+import gzip
 import json
 import os
 import sqlite3
+import time
 from collections import Counter
 from typing import Dict, List, Mapping, NamedTuple, Optional, Tuple
 from urllib.request import pathname2url
 
 FACTORY_DB = os.environ.get("MD_FACTORY_DB", r"C:\Python\Sim\data\factory.db")
+SNAPSHOT_NAME = "ash_prio_snapshot.json.gz"
 MIN_OVERLAP = 0.6   # so viel des Decks muss mit der Variante übereinstimmen
 HAND_LIMIT = 40
 
@@ -51,8 +58,14 @@ class Variant(NamedTuple):
     overlap: float           # Anteil gleicher Karten (0–1)
 
 
+def snapshot_file() -> str:
+    """Schnappschuss neben dem Programm (in der exe im Entpack-Ordner)."""
+    from app_paths import BUNDLE_DIR
+    return os.path.join(BUNDLE_DIR, SNAPSHOT_NAME)
+
+
 def available(path: str = FACTORY_DB) -> bool:
-    """Gibt es auf diesem PC eine Factory? (Sonst zeigt das Deck-Fenster keinen Ash-Prio-Button.)"""
+    """Gibt es auf diesem PC eine Factory?"""
     return os.path.exists(path)
 
 
@@ -133,12 +146,83 @@ def hand_sheets(con: sqlite3.Connection, variant_key: str, limit: int = HAND_LIM
     return sheets
 
 
-def load(deck: Mapping[str, int], path: str = FACTORY_DB,
-         names: Optional[Mapping[str, str]] = None) -> Tuple[Optional[Variant], List[HandSheet], str]:
-    """(Variante, Starthände, Hinweis) für das Deck ({Passcode: Kopien}, names: {Passcode: Name} für Alt-Arts);
-    der Hinweis erklärt, warum nichts da ist."""
+# ── Schnappschuss (für PCs ohne Factory) ──
+def build_snapshot(path: str = FACTORY_DB, target: Optional[str] = None, hands: int = HAND_LIMIT) -> int:
+    """Alle Varianten mit Handtrap-Prüfung samt Starthänden in eine Datei (gzip-JSON, ~150 KB). Nur lesend.
+    Returns: Anzahl Varianten (0 = keine Factory, eine alte Datei bleibt dann liegen)."""
     if not os.path.exists(path):
-        return None, [], f"Factory nicht gefunden ({path})."
+        return 0
+    target = target or snapshot_file()
+    con = connect(path)
+    try:
+        tested = {row[0] for row in con.execute(
+            "SELECT DISTINCT deck FROM combo_results WHERE data LIKE '%\"stress\"%'")}
+        variants, ids = [], set()
+        for key, name, main, extra in con.execute("SELECT key, name, main, extra FROM variants"):
+            if key not in tested:
+                continue
+            sheets = [dict(s._asdict(), threats={k: t._asdict() for k, t in s.threats.items()})
+                      for s in hand_sheets(con, key, hands)]
+            if sheets:
+                variants.append({"key": key, "name": name or key, "main": main, "extra": extra, "sheets": sheets})
+                ids.update(_cards(main) + _cards(extra))
+        names: Dict[str, str] = {}
+        try:
+            for cid, name in con.execute(f"SELECT id, name FROM cards WHERE id IN ({','.join('?' * len(ids))})",
+                                         sorted(ids)):
+                if name not in names or int(cid) < int(names[name]):
+                    names[name] = cid
+        except (sqlite3.Error, ValueError):
+            pass
+    finally:
+        con.close()
+    data = {"built": time.time(), "variants": variants, "names": names}
+    tmp = target + ".tmp"
+    with gzip.open(tmp, "wt", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, target)
+    return len(variants)
+
+
+def _sheet_from_json(data: dict) -> HandSheet:
+    return HandSheet(data["hand"], data["score"], data["steps"],
+                     {k: Threat(**t) for k, t in data["threats"].items()})
+
+
+def load_snapshot(deck: Mapping[str, int], names: Mapping[str, str],
+                  target: Optional[str] = None) -> Tuple[Optional[Variant], List[HandSheet], str]:
+    target = target or snapshot_file()
+    try:
+        with gzip.open(target, "rt", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None, [], ""
+    by_name = data.get("names", {})
+    normalized: Counter = Counter()
+    for cid, n in deck.items():
+        normalized[by_name.get(names.get(cid, ""), cid)] += n
+    best = max(data.get("variants", []), key=lambda v: overlap(normalized, _cards(v["main"]) + _cards(v["extra"])),
+               default=None)
+    if best is None:
+        return None, [], ""
+    share = overlap(normalized, _cards(best["main"]) + _cards(best["extra"]))
+    if share < MIN_OVERLAP:
+        return None, [], ""
+    built = time.strftime("%d.%m.%Y", time.localtime(data.get("built", 0)))
+    return (Variant(best["key"], best["name"], share), [_sheet_from_json(s) for s in best["sheets"]],
+            f"Stand der Factory vom {built}")
+
+
+def load(deck: Mapping[str, int], path: str = FACTORY_DB,
+         names: Optional[Mapping[str, str]] = None,
+         snapshot: Optional[str] = None) -> Tuple[Optional[Variant], List[HandSheet], str]:
+    """(Variante, Starthände, Hinweis) für das Deck ({Passcode: Kopien}, names: {Passcode: Name} für Alt-Arts);
+    der Hinweis erklärt, warum nichts da ist. Ohne Factory: aus dem mitgelieferten Schnappschuss."""
+    if not os.path.exists(path):
+        variant, sheets, note = load_snapshot(deck, names or {}, snapshot)
+        if variant is not None:
+            return variant, sheets, note
+        return None, [], "Für dieses Deck gibt es keine Starthände der Factory."
     try:
         con = connect(path)
         try:
@@ -150,8 +234,7 @@ def load(deck: Mapping[str, int], path: str = FACTORY_DB,
                     return None, [], (f"Die Factory kennt eine passende Liste („{close.name}“, {close.overlap * 100:.0f} % "
                                       f"gleiche Karten), hat sie aber noch nicht gegen Handtraps geprüft. Sobald sie "
                                       f"das getan hat, erscheint sie hier.")
-                return None, [], ("Die Factory hat dieses Deck noch nicht durchgerechnet. Dort als Auftrag anlegen "
-                                  "(oder als Deck importieren – sie übernimmt den Verlauf), dann erscheint es hier.")
+                return None, [], "Die Factory hat dieses Deck noch nicht durchgerechnet."
             return variant, hand_sheets(con, variant.key), ""
         finally:
             con.close()
