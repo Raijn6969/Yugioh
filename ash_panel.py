@@ -7,6 +7,10 @@ Weiß man, wo Ash trifft, kann man vorher einen anderen Effekt anbieten oder gen
 Gibt es für das Deck keine Starthände (keine Factory und nicht im mitgelieferten Schnappschuss), zeigt das Fenster
 eine Einschätzung aus den Kartentexten (handtrap_targets): welche Karten des Decks die gewählte Handtrap treffen
 kann und mit welchem Effekt, Starter zuerst – ohne die Reihenfolge der Combo.
+
+Oben die Ash-Prio auf einen Blick als Kartenbilder: die Karten, die die gewählte Handtrap am häufigsten trifft (in
+wie vielen Starthänden, Ø Schaden am Board). Klick auf eine Karte zeigt darunter nur die Hände, in denen sie es ist.
+Die Bildleiste wird auf eine Zeichenfläche gemalt (wie card_grid); fehlende Bilder werden einmal online geladen.
 """
 
 import threading
@@ -14,6 +18,7 @@ import tkinter as tk
 from typing import Callable, Dict, List, Optional
 
 import ash_prio
+import card_images
 import handtrap_targets
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from hover_card import AMBER, GREEN, NEON, RED
@@ -21,12 +26,15 @@ from rounded_button import RoundedButton
 from window_style import apply_frame, no_activate
 
 POLL_MS = 100
+CARD_SIZE = (58, 85)   # Bildleiste
+COLUMNS = 7
+MAX_CARDS = 14         # zwei Reihen – die Liste darunter braucht auch noch Platz
 
 
 class AshPrioPanel:
     def __init__(self, master: tk.Misc, deck_name: str, deck: Dict[str, int], on_close: Callable[[], None],
                  anchor: Optional[tk.Misc] = None, path: str = ash_prio.FACTORY_DB,
-                 names: Optional[Dict[str, str]] = None, db=None):
+                 names: Optional[Dict[str, str]] = None, db=None, image_folder: str = card_images.FOLDER):
         self.master = master
         self.deck_name = deck_name
         self.deck = dict(deck)
@@ -40,9 +48,15 @@ class AshPrioPanel:
         self.open_hand: Optional[str] = None   # aufgeklappte Hand
         self.variant: Optional[ash_prio.Variant] = None
         self.sheets: List[ash_prio.HandSheet] = []
+        self.focus: Optional[str] = None       # angeklickte Karte der Bildleiste (filtert die Liste)
+        self.card_ids: Dict[str, str] = {}     # {Kartenname: Passcode} für die Bilder
         self._result = None                    # vom Hintergrund-Thread
+        self._shown = False
+        self._images_ready = False             # fehlende Bilder sind inzwischen geladen
         self._poll_job = None
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
+        self.image_folder = image_folder
+        self.photos = card_images.PhotoCache(master, (int(CARD_SIZE[0] * s), int(CARD_SIZE[1] * s)), image_folder)
         self.font = ("Helvetica", int(10 * s))
         self.font_bold = ("Helvetica", int(10 * s), "bold")
         self.font_small = ("Helvetica", int(8 * s))
@@ -60,7 +74,8 @@ class AshPrioPanel:
         no_activate(self.win)
         self.win.bind("<Escape>", lambda e: self.close())
         self.info_label.config(text="Lese die Ergebnisse der Factory…", fg=MUTED)
-        threading.Thread(target=self._load, daemon=True, name="ash-prio").start()
+        self._thread = threading.Thread(target=self._load, daemon=True, name="ash-prio")
+        self._thread.start()
         self._poll()
 
     # ── Aufbau ──
@@ -89,6 +104,8 @@ class AshPrioPanel:
                                    padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
             button.pack(side=tk.LEFT, padx=(0, int(4 * s)))
             self.buttons[key] = button
+        self.strip = tk.Canvas(body, bg=BG, highlightthickness=0, bd=0, height=1)
+        self.strip.pack(fill=tk.X)
 
         list_frame = tk.Frame(body, bg=BG)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(int(4 * s), 0))
@@ -107,7 +124,7 @@ class AshPrioPanel:
 
     def _place(self, anchor: Optional[tk.Misc]) -> None:
         s = self.s
-        w, h = int(520 * s), int(640 * s)
+        w, h = int(520 * s), int(760 * s)
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
         if anchor is not None:
             top = anchor.winfo_toplevel()
@@ -124,7 +141,34 @@ class AshPrioPanel:
         result = ash_prio.load(self.deck, self.path, self.names)
         if result[0] is None:
             self.text_rows = self._text_rows()
+            passcodes = [row[0] for row in self.text_rows if row[4]]
+        else:
+            wanted = {t.name for key, _ in ash_prio.HANDTRAPS
+                      for t in ash_prio.targets(result[1], key, self.names.values())[:MAX_CARDS]}
+            self.card_ids = self._card_ids(wanted)
+            passcodes = [self.card_ids[name] for name in wanted if name in self.card_ids]
+        self.photos.prepare(passcodes)  # verkleinern im Hintergrund, dann zeigt das Fenster sie sofort
         self._result = result
+        missing = self.photos.missing(passcodes)
+        if missing:  # einmal online laden, dann nachträglich zeigen
+            card_images.download(missing, folder=self.image_folder)
+            self.photos.prepare(missing)
+            self._images_ready = True
+
+    def _card_ids(self, names) -> Dict[str, str]:
+        """{Kartenname: Passcode} – Artwork wie im Deck; Karten, die nicht im Deck sind, aus der Kartendatenbank."""
+        ids: Dict[str, str] = {}
+        for cid, name in sorted(self.names.items()):
+            if cid in self.deck:
+                ids.setdefault(name, cid)
+        missing = [name for name in names if name not in ids]
+        if missing and self.db is not None:
+            try:
+                for name, found in self.db.ids_by_name(missing).items():
+                    ids[name] = min(found, key=lambda cid: (len(cid), cid))  # das Original (kleinster Passcode)
+            except Exception:
+                pass  # ohne Bild: die Leiste zeigt dann den Namen
+        return ids
 
     def _text_rows(self) -> List[tuple]:
         """Einschätzung aus den Kartentexten (läuft im Hintergrund-Thread)."""
@@ -147,11 +191,20 @@ class AshPrioPanel:
         return sorted(rows, key=lambda r: (not r[3], r[1]))
 
     def _poll(self) -> None:
+        self._poll_job = None
         if self.closed:
             return
-        if self._result is None:
+        if self._result is not None and not self._shown:
+            self._shown = True
+            self._show()
+        if self._images_ready:
+            self._images_ready = False
+            self.photos.forget_missing()
+            self._render_strip()
+        if not self._shown or self._thread.is_alive() or self._images_ready:
             self._poll_job = self.win.after(POLL_MS, self._poll)
-            return
+
+    def _show(self) -> None:
         self.variant, self.sheets, hint = self._result
         if self.variant is None and self.text_rows:
             self.info_label.config(
@@ -170,11 +223,18 @@ class AshPrioPanel:
     # ── Anzeige ──
     def choose(self, key: str) -> None:
         self.handtrap = key
+        self.focus = None  # andere Handtrap trifft andere Karten
         self.render()
 
     def toggle(self, hand: str) -> None:
         self.open_hand = None if self.open_hand == hand else hand
         self.render()
+
+    def pick(self, card: str) -> None:
+        """Klick auf ein Bild: nur die Hände, in denen die Handtrap diese Karte trifft (nochmal: alle)."""
+        self.focus = None if self.focus == card else card
+        self.render()
+        self.canvas.yview_moveto(0)
 
     def render(self) -> None:
         if self.closed:
@@ -183,13 +243,78 @@ class AshPrioPanel:
             button.config(bg="#007acc" if key == self.handtrap else "#444444")
         for child in self.inner.winfo_children():
             child.destroy()
+        self._render_strip()
         if self.variant is None and self.text_rows:
             self._render_text()
             return
-        for i, sheet in enumerate(self.sheets):
+        names = list(self.names.values())
+        for i, sheet in enumerate(s for s in self.sheets
+                                  if self.focus is None or ash_prio.hits(s, self.handtrap, self.focus, names)):
             self._hand_row(sheet, ROW_ALT if i % 2 else BG)
             if sheet.hand == self.open_hand:
                 self._line(sheet)
+
+    def strip_cards(self) -> List[tuple]:
+        """Bildleiste: [(Name, Passcode, [(Text, Farbe, Schrift)])], die wichtigsten zuerst."""
+        if self.variant is None:
+            if self.handtrap == "nibiru":
+                return []
+            return [(name, cid, [(f"×{copies}", MUTED, self.font_small)]
+                     + ([("STARTER", NEON, self.font_small_bold)] if starter else []))
+                    for cid, name, copies, starter, hit in self.text_rows if self.handtrap in hit][:MAX_CARDS]
+        cards = []
+        for target in ash_prio.targets(self.sheets, self.handtrap, self.names.values())[:MAX_CARDS]:
+            color = RED if target.loss >= 3 else AMBER if target.loss >= 1 else GREEN
+            cards.append((target.name, self.card_ids.get(target.name),
+                          [(f"{target.hands} von {len(self.sheets)}", TEXT, self.font_small_bold),
+                           (f"−{ash_prio.number(target.loss)} Board", color, self.font_small)]))
+        return cards
+
+    def _render_strip(self) -> None:
+        """Die Karten mit Ash-Prio als Bilder (auf einer Zeichenfläche – schnell, ruckelt nicht)."""
+        s, strip = self.s, self.strip
+        strip.delete("all")
+        cards = self.strip_cards() if self._shown else []
+        if not cards:
+            strip.config(height=1)
+            return
+        name = dict(ash_prio.HANDTRAPS)[self.handtrap]
+        title = (f"{name} trifft hier am häufigsten (Starthände, Ø Schaden)" if self.variant
+                 else f"Diese Karten kann {name} treffen")
+        strip.create_text(int(2 * s), int(4 * s), text=title + " · Klick filtert", fill=MUTED,
+                          font=self.font_small, anchor="nw")
+        width, height = self.photos.size
+        pad, line = int(6 * s), int(14 * s)
+        lines = max(len(c[2]) for c in cards)
+        row_height = height + int(4 * s) + line * lines + pad
+        top0 = int(22 * s)
+        for i, (card, passcode, texts) in enumerate(cards):
+            x = int(2 * s) + (i % COLUMNS) * (width + pad)
+            top = top0 + (i // COLUMNS) * row_height
+            tag = f"card{i}"
+            strip.create_rectangle(x, top, x + width, top + row_height - pad, fill=BG, outline="", tags=(tag,))
+            photo = self.photos.get(passcode)
+            if photo is not None:
+                strip.create_image(x, top, image=photo, anchor="nw", tags=(tag,))
+            else:
+                strip.create_rectangle(x, top, x + width, top + height, fill=PANEL, outline="", tags=(tag,))
+                strip.create_text(x + width // 2, top + height // 2, text=card, fill=TEXT, font=self.font_small,
+                                  width=width - int(6 * s), justify=tk.CENTER, tags=(tag,))
+            if card == self.focus:
+                strip.create_rectangle(x - 2, top - 2, x + width + 1, top + height + 1, outline=GOLD, width=3,
+                                       tags=(tag,))
+            for j, (text, color, font) in enumerate(texts):
+                strip.create_text(x + width // 2, top + height + int(3 * s) + j * line, text=text, fill=color,
+                                  font=font, anchor="n", tags=(tag,))
+            strip.tag_bind(tag, "<Button-1>", lambda e, c=card: self.pick(c))
+            strip.tag_bind(tag, "<Enter>", lambda e: strip.config(cursor="hand2"))
+            strip.tag_bind(tag, "<Leave>", lambda e: strip.config(cursor=""))
+        rows = (len(cards) + COLUMNS - 1) // COLUMNS
+        strip.config(height=top0 + rows * row_height)
+
+    def strip_texts(self) -> List[str]:
+        """Texte der Bildleiste (für Tests)."""
+        return [self.strip.itemcget(i, "text") for i in self.strip.find_all() if self.strip.type(i) == "text"]
 
     def _render_text(self) -> None:
         """Ohne Starthände: Karten, die die gewählte Handtrap treffen kann (mit dem Effekt)."""
@@ -200,7 +325,7 @@ class AshPrioPanel:
                      fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
                      wraplength=int(440 * s)).pack(fill=tk.X, pady=int(6 * s))
             return
-        hit = [row for row in self.text_rows if self.handtrap in row[4]]
+        hit = [row for row in self.text_rows if self.handtrap in row[4] and self.focus in (None, row[1])]
         safe = [row[1] for row in self.text_rows if self.handtrap not in row[4]]
         name = dict(ash_prio.HANDTRAPS)[self.handtrap]
         if not hit:

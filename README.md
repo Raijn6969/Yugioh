@@ -127,7 +127,10 @@ undoes it. Swaps don't end up in the deck history.
 ### 10. Ash Priority Cheat Sheet
 Deck → **Ash-Prio** shows, for each starting hand of your deck, where in the combo
 a hand trap hurts most and what's left on board afterwards — for Ash Blossom,
-Imperm/Veiler, Nibiru, Droll & Lock and Ghost Ogre. Click a hand to see the whole
+Imperm/Veiler, Nibiru, Droll & Lock and Ghost Ogre. At the top, card images show at a
+glance which of your cards the chosen hand trap hits most often (in how many starting
+hands, and how much board it costs on average); click a card to list only those hands.
+Click a hand to see the whole
 line with the critical step marked and the best way to continue after the hand
 trap. The data comes from the Factory (read-only); your deck is matched to the
 Factory variant with the most cards in common. Without the Factory on the PC, the

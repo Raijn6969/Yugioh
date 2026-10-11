@@ -176,6 +176,21 @@ class AshPrioTest(unittest.TestCase):
         self.assertIsNone(ash_prio.load({"999": 40}, self.path + ".fehlt", snapshot=target)[0])
         self.assertIsNone(ash_prio.load(DECK, self.path + ".fehlt", snapshot=target + ".fehlt")[0])
 
+    def test_cards_hit_most_often_on_a_glance(self):
+        sheets = ash_prio.load(DECK, self.path)[1]
+        self.assertEqual(ash_prio.targets(sheets, "ash"), [ash_prio.Target("Branded Fusion", 2, 5.0)])  # 5,5 und 4,5
+        self.assertEqual(ash_prio.targets(sheets, "nibiru"), [ash_prio.Target("Albion", 2, 2.5)])
+        self.assertEqual(ash_prio.targets(sheets, "droll"), [])  # findet keinen Angriffspunkt
+        self.assertTrue(ash_prio.hits(sheets[0], "ash", "Branded Fusion"))
+        self.assertFalse(ash_prio.hits(sheets[0], "ash", "Albion"))
+        # Namen mit Doppelpunkt, Normalbeschwörung, Schritte ohne Karte
+        welcome = "Elfnotes: Welcome Home: schickt Elfnote Tinia (Feld)"
+        self.assertEqual(ash_prio.step_card(welcome, ["Elfnote Tinia", "Elfnotes: Welcome Home"]),
+                         "Elfnotes: Welcome Home")
+        self.assertEqual(ash_prio.step_card("Normalbeschwörung: Dracotail Lukias"), "Dracotail Lukias")
+        self.assertEqual(ash_prio.step_card("Ketu Dracotail: sucht Dracotail Lukias  [Kette 1]"), "Ketu Dracotail")
+        self.assertIsNone(ash_prio.step_card("Main Phase beenden → End Phase"))
+
     def test_factory_db_is_opened_read_only(self):
         con = ash_prio.connect(self.path)
         with self.assertRaises(sqlite3.OperationalError):
@@ -189,6 +204,9 @@ class PanelTest(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         self.addCleanup(self.root.destroy)  # nach dem Schließen der Fenster (Cleanups laufen rückwärts)
+        download = mock.patch("card_images.download", return_value=0)  # Kartenbilder nie aus dem Netz
+        download.start()
+        self.addCleanup(download.stop)
 
     def pump(self, seconds=0.3):
         end = time.time() + seconds
@@ -263,8 +281,11 @@ class PanelTest(unittest.TestCase):
         self.assertIn("Droll & Lock Bird  ×3", texts())
         self.assertTrue(any(t.startswith("Ash Blossom trifft: You can add 1") for t in texts()))
         self.assertIn("Ohne Angriffsfläche für Ash Blossom: Lightning Storm", texts())
+        self.assertEqual([(name, cid) for name, cid, _ in panel.strip_cards()], [("Droll & Lock Bird", DROLL)])
+        self.assertIn("×3", panel.strip_texts())
         panel.choose("nibiru")
         self.assertTrue(texts()[0].startswith("Nibiru trifft ab der 5. Beschwörung"))
+        self.assertEqual(panel.strip_texts(), [])  # Nibiru: keine Bildleiste
 
     def test_ash_panel_loads_in_background(self):
         from ash_panel import AshPrioPanel
@@ -285,3 +306,28 @@ class PanelTest(unittest.TestCase):
         self.assertIn("Nach Ash Blossom am besten weiter:", texts)
         panel.choose("nibiru")
         self.assertEqual(panel.buttons["nibiru"].cget("bg"), "#007acc")
+
+    def test_ash_panel_shows_the_cards_hit_most_as_images(self):
+        from ash_panel import AshPrioPanel
+        path = os.path.join(tempfile.mkdtemp(), "factory.db")
+        make_factory(path, hands=3)
+        panel = AshPrioPanel(self.root, "Deck", DECK, on_close=lambda: None, path=path,
+                             image_folder=tempfile.mkdtemp())
+        self.addCleanup(panel.close)
+        for _ in range(100):
+            self.pump(0.05)
+            if panel.sheets:
+                break
+        strip = panel.strip_texts()
+        self.assertIn("Branded Fusion", strip)  # ohne Bild: der Name auf der Kartenfläche
+        self.assertIn("3 von 3", strip)
+        self.assertIn("−4,5 Board", strip)  # 5,5 / 4,5 / 3,5
+        self.assertGreater(int(panel.strip.cget("height")), 50)
+        panel.sheets.append(panel.sheets[0]._replace(hand="Andere", steps=["Andere Karte: sucht X"]))
+        panel.pick("Branded Fusion")
+        self.assertEqual(len(panel.inner.winfo_children()), 3)  # nur die Hände, in denen Ash die Karte trifft
+        panel.pick("Branded Fusion")
+        self.assertEqual(len(panel.inner.winfo_children()), 4)
+        panel.choose("nibiru")
+        self.assertIn("Albion", panel.strip_texts())
+        self.assertIsNone(panel.focus)

@@ -19,7 +19,7 @@ import os
 import sqlite3
 import time
 from collections import Counter
-from typing import Dict, List, Mapping, NamedTuple, Optional, Tuple
+from typing import Dict, Iterable, List, Mapping, NamedTuple, Optional, Tuple
 from urllib.request import pathname2url
 
 FACTORY_DB = os.environ.get("MD_FACTORY_DB", r"C:\Python\Sim\data\factory.db")
@@ -253,6 +253,50 @@ def advice(sheet: HandSheet, key: str) -> str:
     when = "nach" if " nach Schritt " in threat.text else "als Antwort auf"  # Nibiru/Droll kommen danach
     return (f"{when} Schritt {threat.step + 1}: {short_step(action)} → Board {number(threat.after)} statt "
             f"{number(sheet.score)}")
+
+
+class Target(NamedTuple):
+    name: str                # Karte, deren Effekt die Handtrap trifft
+    hands: int               # in so vielen Starthänden ist das die schlimmste Stelle
+    loss: float              # Ø so viele Unterbrechungen weniger auf dem Board
+
+
+def step_card(step: str, names: Iterable[str] = ()) -> Optional[str]:
+    """Die Karte eines Schritts: 'Elfnotes: Welcome Home: schickt …' → 'Elfnotes: Welcome Home' (längster bekannter
+    Name, sonst bis zum ersten ': '); 'Normalbeschwörung: X' → 'X'; ohne Karte ('Main Phase beenden …') → None."""
+    step = short_step(step)
+    for name in sorted(names, key=len, reverse=True):
+        if name and step.startswith(name + ":"):
+            return name
+    if ": " not in step:
+        return None
+    head, rest = step.split(": ", 1)
+    return rest.strip() if head == "Normalbeschwörung" else head
+
+
+def targets(sheets: List[HandSheet], key: str, names: Iterable[str] = ()) -> List[Target]:
+    """Ash-Prio auf einen Blick: welche Karten die Handtrap über alle Starthände am häufigsten trifft (dann die mit
+    dem größeren Schaden)."""
+    names = list(names)
+    found: Dict[str, Tuple[int, float]] = {}
+    for sheet in sheets:
+        threat = sheet.threats.get(key)
+        if threat is None or threat.step is None or not 0 <= threat.step < len(sheet.steps):
+            continue
+        card = step_card(sheet.steps[threat.step], names)
+        if card is None:
+            continue
+        hands, loss = found.get(card, (0, 0.0))
+        found[card] = (hands + 1, loss + sheet.damage(key))
+    result = [Target(card, hands, loss / hands) for card, (hands, loss) in found.items()]
+    return sorted(result, key=lambda t: (-t.hands, -t.loss, t.name))
+
+
+def hits(sheet: HandSheet, key: str, card: str, names: Iterable[str] = ()) -> bool:
+    """Trifft die Handtrap in dieser Starthand die Karte `card`?"""
+    threat = sheet.threats.get(key)
+    return (threat is not None and threat.step is not None and 0 <= threat.step < len(sheet.steps)
+            and step_card(sheet.steps[threat.step], names) == card)
 
 
 def short_step(step: str) -> str:
