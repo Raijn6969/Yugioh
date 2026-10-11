@@ -106,12 +106,15 @@ class OverlayHookTest(unittest.TestCase):
 
     def make_app(self, notified=None, tray_icon=True, uptime_ms=0):
         saved, later, toasts = [], [], []
+        free = (Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS) / 1000   # Startmeldung steht noch so lange
         app = SimpleNamespace(
             config={Overlay.UPDATE_NOTIFIED_KEY: notified} if notified else {}, update_version=None,
-            tray=mock.Mock() if tray_icon else None, _after_ids={}, _started_at=Overlay.time.monotonic() - uptime_ms / 1000,
+            tray=mock.Mock() if tray_icon else None, _after_ids={}, _toast_count=0,
+            _toast_free_at=Overlay.time.monotonic() + free - uptime_ms / 1000,
             root=SimpleNamespace(after=lambda ms, func: later.append((ms, func)) or "id"),
             _save_config_safely=lambda: saved.append(dict(app.config)))
-        app._show_update_toast = lambda: Overlay.MasterDuelImporter._show_update_toast(app)
+        app._queue_toast = lambda text: Overlay.MasterDuelImporter._queue_toast(app, text)
+        app._show_queued_toast = lambda key, text: Overlay.MasterDuelImporter._show_queued_toast(app, key, text)
         app.saved, app.later, app.toasts = saved, later, toasts
         return app
 
@@ -145,11 +148,21 @@ class OverlayHookTest(unittest.TestCase):
         with mock.patch.object(Overlay, "show_toast"):
             Overlay.MasterDuelImporter._on_update_found(app, "9.3")
         (wait, _), = app.later
-        self.assertTrue(4000 <= wait <= Overlay.STARTED_TOAST_MS, wait)   # Startmeldung steht 5 s
+        self.assertTrue(4000 <= wait <= Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS, wait)   # Startmeldung steht 5 s
         late = self.make_app(uptime_ms=60000)
         with mock.patch.object(Overlay, "show_toast"):
             Overlay.MasterDuelImporter._on_update_found(late, "9.3")
         self.assertEqual(late.later[0][0], 0)
+
+    def test_several_toasts_come_one_after_the_other(self):
+        app = self.make_app(uptime_ms=60000)
+        with mock.patch.object(Overlay, "show_toast"):
+            for text in ("eins", "zwei", "drei"):
+                Overlay.MasterDuelImporter._queue_toast(app, text)
+        waits = [wait for wait, _ in app.later]
+        step = Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS
+        self.assertEqual(waits[0], 0)
+        self.assertTrue(all(abs((b - a) - step) <= 5 for a, b in zip(waits, waits[1:])), waits)   # nie übereinander
 
     def test_works_without_tray(self):
         app = self.make_app(tray_icon=False)

@@ -8,6 +8,7 @@ letzten Matches mit dem Deck des Gegners (sobald bekannt). Filter: Ranked/alle M
 Saison, alle). Klick auf ein Deck: nur dieses Deck (noch ein Klick: wieder alle); „Anzeigen“ zeigt das Deck im
 Deck-Fenster. Erfasst werden die Duelle von match_history im Speicher-Modus. Abschnitt „Starthände“: welche Karten in
 deiner Starthand waren und die Winrate damit (aus den Replay-Mitschnitten, hand_stats), dazu die Brick-Quote.
+Knopf „Rückblick“: die Bilanz eines Monats (review_panel).
 """
 
 import datetime
@@ -22,12 +23,12 @@ from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
 from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
 from rounded_button import RoundedButton
+from season_review import DAY_START_HOUR  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im Tag
 from window_style import apply_frame, no_activate
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
 PERIODS = (("today", "Heute"), ("week", "7 Tage"), ("season", "Saison"), ("all", "Alle"))
-DAY_START_HOUR = 5  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im selben Tag
 MATCH_LIMIT = 50
 OPPONENT_LIMIT = 12
 HAND_CARD_LIMIT = 12   # Starthände: so viele Karten (die häufigsten) werden aufgelistet
@@ -123,6 +124,7 @@ class WinratePanel:
         self.tracking = tracking      # Speicher-Modus an → Matches werden übernommen
         self.closed = False
         self.duel = None                       # Duell-Übersicht (duel_view), None = zu
+        self.review = None                     # Monatsrückblick (review_panel), None = zu
         self._shown_matches: List[MatchEntry] = []
         self.selected: Optional[str] = None   # gewähltes Deck, None = alle
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
@@ -169,6 +171,8 @@ class WinratePanel:
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
+        self.review_btn = RoundedButton(header, text="Rückblick", command=self.toggle_review, bg="#5e35b1", **small)
+        self.review_btn.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
         self.mode_buttons = {}
         for key, label in (("all", "Alle Modi"), ("ranked", "Ranked")):  # rechts nach links
             button = RoundedButton(header, text=label, command=lambda k=key: self._set_mode(k), **small)
@@ -535,6 +539,17 @@ class WinratePanel:
     def _on_duel_closed(self) -> None:
         self.duel = None
 
+    def toggle_review(self) -> None:
+        """Monatsrückblick öffnen bzw. schließen (liegt über diesem Fenster)."""
+        if self.review is not None:
+            self.review.close()  # ruft _on_review_closed
+            return
+        from review_panel import ReviewPanel
+        self.review = ReviewPanel(self.win, self.db, self.settings, on_close=self._on_review_closed)
+
+    def _on_review_closed(self) -> None:
+        self.review = None
+
     def _open(self, deck: DeckWinStats) -> None:
         self.on_open(deck.deck_name, deck.deck_code)
 
@@ -547,6 +562,8 @@ class WinratePanel:
             self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
             if self.duel is not None:
                 self.duel.set_visible(visible)
+            if self.review is not None:
+                self.review.set_visible(visible)
 
     def close(self) -> None:
         if self.closed:
@@ -554,6 +571,8 @@ class WinratePanel:
         self.closed = True
         if self.duel is not None:
             self.duel.close()
+        if self.review is not None:
+            self.review.close()
         try:
             self.canvas.unbind_all("<MouseWheel>")
         except tk.TclError:

@@ -181,3 +181,20 @@ example one that was only watched from the middle) are skipped. The **brick rate
 share of starting hands without a single starter, based on the same starter rating as the
 Deck window (you can change it there), together with your win rate in those duels. It
 follows the same filters as the rest of the window (mode, time range).
+
+### 15. Monthly Review
+In the **Winrate** window, **Rückblick** opens a review of one season (= one calendar
+month, like the "Season" time range). It shows: record and win rate overall, going first
+and going second; your most played decks with their records; your best and worst matchup
+against an opponent deck (at least 3 duels against it); the coin toss (how often you won
+it, your win rate after winning or losing it); your longest win and loss streaks; and the
+number of duels and your busiest day (a day starts at 5 am). Use ◀/▶ to switch the month;
+it opens on the current month, or on the previous one during the first 3 days of a month.
+Ranked/all modes follow the Winrate window.
+
+**Share it:** "Als HTML" saves the review as a single, self-explanatory HTML file in your
+Downloads folder (dark look like the replay export, works offline, also on phones) and
+shows it in Explorer. Opponents only appear as deck names, never as player names.
+
+At the first start in a new month you get a one-time note "Rückblick für <Monat> ist fertig"
+— but only if you played duels in the previous month.

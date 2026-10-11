@@ -60,6 +60,7 @@ import bug_report
 import md_layout
 import md_memory
 import resume_state
+import season_review
 import single_instance
 import update_check
 import win_api
@@ -72,6 +73,8 @@ SHORT_REMINDER = "Bitte Match History öffnen (Gegner-Decks)"
 REMINDER_CHECK_MS = 3000  # so oft prüfen, ob die Match History inzwischen geöffnet wurde (solange der Hinweis steht)
 STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Platz neben dem ✕)
 UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere Version (Hinweis nur einmal je Version)
+TOAST_GAP_MS = 300  # Pause zwischen zwei Hinweisen über der Taskleiste
+REVIEW_NOTICE_DELAY_MS = STARTED_TOAST_MS + 2000  # so lange nach dem Start wird der Rückblick-Hinweis geprüft
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
 SPEED_PROFILES = [
@@ -100,7 +103,9 @@ class MasterDuelImporter:
         self._memory_thread = None    # Vorladen für den Speicher-Modus (läuft im Hintergrund)
         self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
         self._memory_warned = False  # Hinweis "Speicher-Modus nicht verfügbar" schon gezeigt (einmal pro Sitzung)
-        self._started_at = time.monotonic()  # Programmstart (der Update-Hinweis wartet auf das Ende der Startmeldung)
+        # Hinweise über der Taskleiste kommen nacheinander: die Startmeldung (main) steht zuerst, bis dahin ist besetzt
+        self._toast_free_at = time.monotonic() + (STARTED_TOAST_MS + TOAST_GAP_MS) / 1000
+        self._toast_count = 0
         self.update_version = None   # neuere Version laut Update-Prüfung (None = keine bzw. nicht geprüft)
         self._report_running = False  # Fehlerbericht wird gerade erstellt
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
@@ -138,6 +143,8 @@ class MasterDuelImporter:
         self._check_window_focus()
         self._backup_database()
         self._start_update_check()
+        # Erst nach der Startmeldung: dann sind Datenbank und Fenster längst bereit
+        self._after_ids["review_notice"] = self.root.after(REVIEW_NOTICE_DELAY_MS, self._start_review_notice)
 
     # --- UPDATE-HINWEIS (einmal pro Start, im Hintergrund) ---
     def _start_update_check(self):
@@ -161,15 +168,44 @@ class MasterDuelImporter:
             return  # zu dieser Version schon Bescheid gesagt – der Tray-Menüpunkt bleibt
         self.config[UPDATE_NOTIFIED_KEY] = version
         self._save_config_safely()
-        # Erst nach der Startmeldung (beide säßen an derselben Stelle über der Taskleiste)
-        wait = max(0, int(STARTED_TOAST_MS + 300 - (time.monotonic() - self._started_at) * 1000))
-        self._after_ids["update_toast"] = self.root.after(wait, self._show_update_toast)
+        self._queue_toast(f"MD-Importer {version} verfügbar – Tray-Symbol → Seite öffnen")
 
-    def _show_update_toast(self):
-        self._after_ids.pop("update_toast", None)
-        if self.update_version:
-            show_toast(self.root, f"MD-Importer {self.update_version} verfügbar – Tray-Symbol → Seite öffnen",
-                       duration_ms=STARTED_TOAST_MS)
+    def _queue_toast(self, text):
+        """Hinweis über der Taskleiste. Mehrere (Startmeldung, Update, Rückblick) kommen nacheinander, nicht übereinander
+        (alle säßen an derselben Stelle)."""
+        now = time.monotonic()
+        start = max(now, self._toast_free_at)
+        self._toast_free_at = start + (STARTED_TOAST_MS + TOAST_GAP_MS) / 1000
+        self._toast_count += 1
+        key = f"toast{self._toast_count}"
+        self._after_ids[key] = self.root.after(int((start - now) * 1000), lambda: self._show_queued_toast(key, text))
+
+    def _show_queued_toast(self, key, text):
+        self._after_ids.pop(key, None)
+        show_toast(self.root, text, duration_ms=STARTED_TOAST_MS)
+
+    # --- RÜCKBLICK-HINWEIS (einmal pro neuem Monat) ---
+    def _start_review_notice(self):
+        """Gab es im Vormonat Duelle und wurde auf den Rückblick noch nicht hingewiesen? (Hintergrund-Thread)"""
+        self._after_ids.pop("review_notice", None)
+        threading.Thread(target=self._review_worker, daemon=True, name="review").start()
+
+    def _review_worker(self):
+        db = self._stats_db()
+        if db is None:
+            return
+        try:
+            month = season_review.pending_notice(db, self.config.get(season_review.NOTICE_KEY))
+        except Exception as e:  # Datenbank gesperrt – dann eben nächstes Mal
+            append(LOG_FILE, f"[RÜCKBLICK] Hinweis nicht geprüft: {e}")
+            return
+        if month:
+            self._run_on_ui(self._on_review_ready, *month)
+
+    def _on_review_ready(self, year, month):
+        self.config[season_review.NOTICE_KEY] = season_review.month_key(year, month)
+        self._save_config_safely()
+        self._queue_toast(f"Rückblick für {season_review.MONTHS[month - 1]} ist fertig – Deck → Winrate → Rückblick")
 
     def _open_project_page(self):
         """Tray-Menü: Projektseite im Browser (kein Download, keine Installation)."""

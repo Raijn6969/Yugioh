@@ -809,7 +809,8 @@ class CardStatsDB:
                         (archetype.lower(), json.dumps(data), data.get("fetched_at", time.time())))
 
     @staticmethod
-    def _match_filter(deck_name: Optional[str], mode: Optional[int], since: Optional[float] = None):
+    def _match_filter(deck_name: Optional[str], mode: Optional[int], since: Optional[float] = None,
+                      until: Optional[float] = None):
         # Duelle ohne einen Zug (Gegner vor dem Start weg: Master Duel führt sie trotzdem, ohne Duell-ID) zählen
         # nicht – gespeichert bleiben sie. Live erfasste Duelle haben noch keine Zugzahl (0 = unbekannt).
         where, args = ["NOT (source = 'history' AND turns = 0)"], []
@@ -822,12 +823,20 @@ class CardStatsDB:
         if since is not None:
             where.append("played_at >= ?")
             args.append(since)
+        if until is not None:
+            where.append("played_at < ?")
+            args.append(until)
         return " AND ".join(where) or "1", args
 
+    def first_played(self) -> Optional[float]:
+        """Zeitpunkt des ältesten gespeicherten Matches (None ohne Matches)."""
+        with self._connect() as con:
+            return con.execute("SELECT MIN(played_at) FROM matches").fetchone()[0]
+
     def matches(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
-                limit: int = 200, since: Optional[float] = None) -> List[MatchEntry]:
-        """Gespeicherte Matches, das letzte zuerst (optional nur ein Deck, ein Modus bzw. ab einem Zeitpunkt)."""
-        where, args = self._match_filter(deck_name, mode, since)
+                limit: int = 200, since: Optional[float] = None, until: Optional[float] = None) -> List[MatchEntry]:
+        """Gespeicherte Matches, das letzte zuerst (optional nur ein Deck, ein Modus bzw. von/bis zu einem Zeitpunkt)."""
+        where, args = self._match_filter(deck_name, mode, since, until)
         with self._connect() as con:
             rows = con.execute(f"""SELECT did, played_at, mode, result, first, turns, finish, deck_name, deck_code,
                                           opp_name, opp_code, md_deck, coin FROM matches WHERE {where}
@@ -836,15 +845,16 @@ class CardStatsDB:
         return [MatchEntry(*row[:4], flag(row[4]), *row[5:-1], flag(row[-1])) for row in rows]
 
     def win_stats(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
-                  since: Optional[float] = None) -> WinStats:
-        where, args = self._match_filter(deck_name, mode, since)
+                  since: Optional[float] = None, until: Optional[float] = None) -> WinStats:
+        where, args = self._match_filter(deck_name, mode, since, until)
         with self._connect() as con:
             row = con.execute(f"""{self._STATS_SQL} FROM matches WHERE {where}""", args).fetchone()
         return WinStats(*(value or 0 for value in row))
 
-    def deck_win_stats(self, mode: Optional[int] = None, since: Optional[float] = None) -> List[DeckWinStats]:
+    def deck_win_stats(self, mode: Optional[int] = None, since: Optional[float] = None,
+                       until: Optional[float] = None) -> List[DeckWinStats]:
         """Winrate je Deck (nach Name), das zuletzt gespielte zuerst."""
-        where, args = self._match_filter(None, mode, since)
+        where, args = self._match_filter(None, mode, since, until)
         with self._connect() as con:
             rows = con.execute(f"""{self._STATS_SQL}, deck_name,
                                        (SELECT deck_code FROM matches AS m WHERE m.deck_name = matches.deck_name
@@ -857,9 +867,9 @@ class CardStatsDB:
                 for row in rows]
 
     def opponent_stats(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
-                       since: Optional[float] = None) -> List[OpponentStats]:
+                       since: Optional[float] = None, until: Optional[float] = None) -> List[OpponentStats]:
         """Eigene Bilanz je Gegner-Deck (nur Matches mit bekanntem Gegner), das häufigste zuerst."""
-        where, args = self._match_filter(deck_name, mode, since)
+        where, args = self._match_filter(deck_name, mode, since, until)
         with self._connect() as con:
             rows = con.execute(f"""{self._STATS_SQL}, opp_name FROM matches WHERE {where} AND opp_name != ''
                                    GROUP BY opp_name ORDER BY COUNT(*) DESC, MAX(played_at) DESC""",
