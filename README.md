@@ -156,3 +156,12 @@ the numbers properly ("9.10" is newer than "9.2"). If there is one, a short note
 "MD-Importer 9.3 verfügbar" appears once per version, and the tray icon menu gets an
 entry that opens the project page in your browser. Nothing is downloaded or installed
 automatically. No internet or any error: nothing happens except a line in the log.
+
+### 13. Bug Report
+Something doesn't work? Right-click the tray icon → **Fehlerbericht erstellen**. The
+importer saves a ZIP file in your Downloads folder (`MD-Importer_Fehlerbericht_<date>_<time>.zip`,
+nothing is overwritten) and shows it in Explorer, so you can send it along. It contains
+the log files, your settings (`md_config.json`) and an `info.txt` with the app version,
+Windows version, screen size and data folder. Your databases, backups and replays are
+never included. Opponent player names that appear in the logs are replaced by
+"<Gegner>" first (the names come from your recorded replays).

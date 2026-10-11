@@ -676,6 +676,19 @@ class CardStatsDB:
         with self._connect() as con:
             return [row[0] for row in con.execute("SELECT start FROM replays ORDER BY start")]
 
+    def opponent_names(self) -> List[str]:
+        """Spielernamen der Gegner aus den Mitschnitten (nicht die Deck-Namen der Matches) – für den Fehlerbericht."""
+        with self._connect() as con:
+            rows = con.execute("SELECT my_id, names FROM replays").fetchall()
+        found = set()
+        for my_id, names in rows:
+            try:
+                players = json.loads(names)
+            except (TypeError, ValueError):
+                continue
+            found.update(n.strip() for i, n in enumerate(players) if i != my_id and isinstance(n, str) and n.strip())
+        return sorted(found)
+
     # ── Side-Deck-Profile ──
     def side_profiles(self, deck_name: Optional[str]) -> List[SideProfile]:
         """Profile eines Decks (None = aller Decks), das älteste zuerst."""

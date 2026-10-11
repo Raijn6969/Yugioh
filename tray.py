@@ -1,5 +1,6 @@
 """
-Tray-Icon im Infobereich der Taskleiste mit Neustart, Beenden und (bei einer neueren Version) dem Update-Hinweis.
+Tray-Icon im Infobereich der Taskleiste mit Fehlerbericht, Neustart, Beenden und (bei einer neueren Version) dem
+Update-Hinweis.
 
 pystray hat eine eigene Nachrichtenschleife; sie läuft in einem Daemon-Thread, damit ein
 vergessenes stop() das Programm nie am Beenden hindert. Die Menü-Aktionen kommen aus diesem
@@ -19,7 +20,7 @@ except ImportError:  # Ohne pystray läuft das Programm einfach ohne Tray-Icon
 
 class TrayIcon:
     def __init__(self, title: str, on_restart: Callable[[], None], on_quit: Callable[[], None],
-                 on_update: Optional[Callable[[], None]] = None):
+                 on_update: Optional[Callable[[], None]] = None, on_report: Optional[Callable[[], None]] = None):
         self._icon = None
         self._update_version: Optional[str] = None  # neuere Version gefunden → Menüpunkt "verfügbar"
         if pystray is None:
@@ -30,6 +31,8 @@ class TrayIcon:
                                   lambda icon, item: on_update and on_update(),
                                   visible=lambda item: self._update_version is not None),
                  pystray.Menu.SEPARATOR]
+        if on_report is not None:
+            items.append(pystray.MenuItem("Fehlerbericht erstellen", lambda icon, item: on_report()))
         items += [pystray.MenuItem("Neustart", lambda icon, item: on_restart()),
                   pystray.MenuItem("Beenden", lambda icon, item: on_quit())]
         self._icon = pystray.Icon("md_importer", create_icon_image(64), title, pystray.Menu(*items))

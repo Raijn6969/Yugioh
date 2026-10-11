@@ -56,6 +56,7 @@ from rounded_button import RoundedButton
 from tray import TrayIcon
 from utils import DeckCodeError, parse_clipboard
 from window_automation import get_md_window_size, is_md_process
+import bug_report
 import md_layout
 import md_memory
 import resume_state
@@ -101,6 +102,7 @@ class MasterDuelImporter:
         self._memory_warned = False  # Hinweis "Speicher-Modus nicht verfügbar" schon gezeigt (einmal pro Sitzung)
         self._started_at = time.monotonic()  # Programmstart (der Update-Hinweis wartet auf das Ende der Startmeldung)
         self.update_version = None   # neuere Version laut Update-Prüfung (None = keine bzw. nicht geprüft)
+        self._report_running = False  # Fehlerbericht wird gerade erstellt
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
         self.editor_watch = EditorWatcher(TESSERACT_CMD)
         # Winrate-Tracker: erfasst Duelle am Ergebnis-Bildschirm von Master Duel (Speicher-Modus, nur lesend)
@@ -126,7 +128,8 @@ class MasterDuelImporter:
             self.tray = TrayIcon(f"MD Importer {APP_VERSION}",
                                  on_restart=lambda: self._run_on_ui(self.restart),
                                  on_quit=lambda: self._run_on_ui(self.close),
-                                 on_update=lambda: self._run_on_ui(self._open_project_page))
+                                 on_update=lambda: self._run_on_ui(self._open_project_page),
+                                 on_report=lambda: self._run_on_ui(self._create_report))
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
         self.editor_watch.start()
@@ -174,6 +177,37 @@ class MasterDuelImporter:
             webbrowser.open(update_check.REPO_URL)
         except Exception as e:
             dlog(f"[UPDATE] Browser nicht geöffnet: {e}")
+
+    # --- FEHLERBERICHT (Tray-Menü) ---
+    def _create_report(self):
+        """ZIP mit Log, Einstellungen und Systeminfos in den Downloads-Ordner (im Hintergrund)."""
+        if self._report_running:
+            return
+        self._report_running = True
+        self.update_status("Fehlerbericht wird erstellt …", "cyan")
+        db = self._stats_db()
+
+        def work():
+            try:
+                result = (bug_report.create(db), "")
+            except Exception as e:  # Ordner nicht beschreibbar, Platte voll …
+                result = (None, str(e))
+            self._run_on_ui(self._on_report_done, *result)
+
+        threading.Thread(target=work, daemon=True, name="report").start()
+
+    def _on_report_done(self, path, error):
+        self._report_running = False
+        if path is None:
+            append(LOG_FILE, f"[BERICHT] Fehlerbericht nicht erstellt: {error}")
+            self.update_status("Fehlerbericht fehlgeschlagen", "red")
+            if self.tray:
+                self.tray.notify(f"Fehlerbericht nicht erstellt: {error}", "MD Importer")
+            return
+        self.update_status("Fehlerbericht gespeichert", "#00ff00")
+        if self.tray:
+            self.tray.notify(f"Fehlerbericht gespeichert: {os.path.basename(path)} (Downloads)", "MD Importer")
+        bug_report.reveal(path)
 
     def _backup_database(self):
         """Einmal am Tag die eigene Datenbank sichern (im Hintergrund; danach stündlich nachsehen, falls das
