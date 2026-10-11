@@ -400,6 +400,15 @@ class OverlayTest(unittest.TestCase):
         tray.stop.assert_called_once()
         self.apps.remove(app)
 
+    def test_review_notice_is_checked_after_the_start_message_and_cancelled_on_close(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        self.assertIn("review_notice", app._after_ids)       # später, nicht beim Start (Datenbank, Startmeldung)
+        self.assertGreater(Overlay.REVIEW_NOTICE_DELAY_MS, Overlay.STARTED_TOAST_MS)
+        app.close()
+        self.assertEqual(app._after_ids, {})
+        self.apps.remove(app)
+
     def test_restart_command(self):
         with mock.patch.object(Overlay.sys, "argv", ["MD_Importer.pyw"]), \
                 mock.patch.object(Overlay.sys, "executable", r"C:\Python\pythonw.exe"):
