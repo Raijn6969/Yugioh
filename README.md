@@ -169,3 +169,15 @@ the log files, your settings (`md_config.json`) and an `info.txt` with the app v
 Windows version, screen size and data folder. Your databases, backups and replays are
 never included. Opponent player names that appear in the logs are replaced by
 "<Gegner>" first (the names come from your recorded replays).
+
+### 14. Starting Hands
+From your recorded replays the importer knows your **starting hand** — the 5 cards you
+hold before your first turn (as the second player, the card you draw in turn 2 doesn't
+count). In Deck → Winrate, the **Starthände** section shows, for the deck you clicked
+(or your only deck): how often each card was in your starting hand and your win rate in
+those duels compared to the duels without it. Cards need at least 3 duels, otherwise it
+says "Noch zu wenige Replays". Replays that don't show a reliable starting hand (for
+example one that was only watched from the middle) are skipped. The **brick rate** is the
+share of starting hands without a single starter, based on the same starter rating as the
+Deck window (you can change it there), together with your win rate in those duels. It
+follows the same filters as the rest of the window (mode, time range).

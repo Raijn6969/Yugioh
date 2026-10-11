@@ -6,7 +6,8 @@ bzw. verlorenem Münzwurf, aktuelle Serie). In der Liste: der Verlauf (Winrate d
 Bilanz gegen die Gegner-Decks, die eigenen Decks (nach Archetypen benannt, dazu der Name in Master Duel) und die
 letzten Matches mit dem Deck des Gegners (sobald bekannt). Filter: Ranked/alle Modi und Zeitraum (heute, 7 Tage,
 Saison, alle). Klick auf ein Deck: nur dieses Deck (noch ein Klick: wieder alle); „Anzeigen“ zeigt das Deck im
-Deck-Fenster. Erfasst werden die Duelle von match_history im Speicher-Modus.
+Deck-Fenster. Erfasst werden die Duelle von match_history im Speicher-Modus. Abschnitt „Starthände“: welche Karten in
+deiner Starthand waren und die Winrate damit (aus den Replay-Mitschnitten, hand_stats), dazu die Brick-Quote.
 """
 
 import datetime
@@ -14,6 +15,7 @@ import time
 import tkinter as tk
 from typing import Callable, List, Optional
 
+import hand_stats
 from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, WinStats
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
@@ -28,6 +30,7 @@ PERIODS = (("today", "Heute"), ("week", "7 Tage"), ("season", "Saison"), ("all",
 DAY_START_HOUR = 5  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im selben Tag
 MATCH_LIMIT = 50
 OPPONENT_LIMIT = 12
+HAND_CARD_LIMIT = 12   # Starthände: so viele Karten (die häufigsten) werden aufgelistet
 TREND_WINDOW = 10   # Verlauf: Winrate der jeweils letzten 10 Matches
 TREND_MIN = 3       # so viele Matches braucht der Verlauf mindestens
 UNKNOWN_DECK = "Unbekanntes Deck"
@@ -312,6 +315,8 @@ class WinratePanel:
             self._section(f"DECKS ({len(decks)})")
             for i, deck in enumerate(decks):
                 self._deck_row(deck, ROW_ALT if i % 2 else BG)
+        if stats.matches:
+            self._hands_section(since)
         if matches:
             self._section("LETZTE MATCHES")
             for i, match in enumerate(matches):
@@ -386,6 +391,55 @@ class WinratePanel:
         tk.Label(row, text=summary(opponent.stats), fg=MUTED, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
         tk.Label(row, text=f"vs {opponent.opp_name}", fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
             side=tk.LEFT, fill=tk.X, expand=True)
+
+    def _hands_section(self, since: Optional[float]) -> None:
+        """Starthände aus den Replay-Mitschnitten: Karten in der Starthand mit Winrate, dazu die Brick-Quote."""
+        s = self.s
+        try:
+            hands = hand_stats.analyse(self.db, self.selected, self.mode, since)
+        except Exception as e:  # ältere Datenbank, gesperrt … – nur Zusatz
+            self._section("STARTHÄNDE")
+            self._note(f"Nicht lesbar: {e}")
+            return
+        self._section("STARTHÄNDE" + (f" · {hands.deck or UNKNOWN_DECK}" if hands.deck is not None else ""))
+        if hands.needs_deck:
+            self._note(f"Starthände aus {len(hands.decks)} Decks – Deck anklicken, dann wird dieses ausgewertet.")
+            return
+        if hands.duels < hand_stats.MIN_DUELS:
+            self._note(f"Noch zu wenige Replays: {hands.duels} von {hand_stats.MIN_DUELS} nötigen Starthänden. Replays "
+                       f"aus der Match History in Master Duel ansehen – der Importer nimmt sie auf.")
+            return
+        self._note(f"{hands.duels} Starthände aus {hands.replays} Replay(s) · die 5 Karten vor dem ersten eigenen Zug")
+        brick = hands.brick
+        if brick is not None and brick.hands >= hand_stats.MIN_DUELS:
+            row = tk.Frame(self.inner, bg=ROW_ALT, padx=int(8 * s), pady=int(3 * s))
+            row.pack(fill=tk.X)
+            tk.Label(row, text=f"Brick-Quote {rate_text(brick.bricks, brick.hands)}", fg=AMBER if brick.bricks else TEXT,
+                     bg=ROW_ALT, font=self.font_small_bold, anchor="w").pack(side=tk.LEFT)
+            text = f"{brick.bricks} von {brick.hands} Händen ohne Starter"
+            if brick.brick.matches:
+                text += (f" · Win {rate_text(brick.brick.wins, brick.brick.matches)} bei Brick, "
+                         f"sonst {rate_text(brick.playable.wins, brick.playable.matches)}")
+            tk.Label(row, text=text, fg=MUTED, bg=ROW_ALT, font=self.font_small).pack(side=tk.RIGHT)
+        if not hands.cards:
+            self._note(f"Noch zu wenige Replays: keine Karte war in {hand_stats.MIN_DUELS} Starthänden.")
+            return
+        for i, card in enumerate(hands.cards[:HAND_CARD_LIMIT]):
+            bg = BG if i % 2 == 0 else ROW_ALT
+            row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
+            row.pack(fill=tk.X)
+            with_rate = card.with_card.wins / card.with_card.matches
+            without = card.without_card
+            color = TEXT if not without.matches else GREEN if with_rate >= without.wins / without.matches else AMBER
+            text = (f"{card.hands} von {hands.duels} Händen · Win {rate_text(card.with_card.wins, card.with_card.matches)}"
+                    + (f" (ohne {rate_text(without.wins, without.matches)})" if without.matches else ""))
+            tk.Label(row, text=text, fg=color, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
+            tk.Label(row, text=card.name, fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
+                side=tk.LEFT, fill=tk.X, expand=True)
+
+    def _note(self, text: str) -> None:
+        tk.Label(self.inner, text=text, fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
+                 wraplength=int(480 * self.s)).pack(fill=tk.X, padx=int(8 * self.s))
 
     def _trend_chart(self, points: List[tuple]) -> None:
         """Linie: Winrate der jeweils letzten TREND_WINDOW Matches (älteste links); Hover zeigt das Match."""
