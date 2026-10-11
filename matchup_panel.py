@@ -4,7 +4,8 @@ Matchup (Button "Matchup" im Deck-Fenster): die Störkarten deiner Gegner und wi
 Aus den erfassten Duellen (matchup_analysis): Kartenbilder der Störkarten, darunter wie viele Gegner-Decks sie
 spielen und deine Winrate gegen diese Decks (grün = mindestens so gut wie sonst, rot = deutlich schlechter).
 Beim Darüberfahren die Details (als Erster/Zweiter, ohne die Karte). Umschaltbar: nur das angezeigte Deck oder
-alle Decks, Ranked oder alle Modi (wie im Winrate-Fenster).
+alle Decks, Ranked oder alle Modi (wie im Winrate-Fenster). Wo es einen Replay-Mitschnitt gibt, zählt die vollständige
+Gegner-Liste daraus (der Hinweis oben nennt, für wie viele Duelle das gilt).
 
 Damit das Fenster nicht ruckelt: Auswertung und Bilder (laden, verkleinern) laufen im Hintergrund, die Karten werden
 auf eine Zeichenfläche gemalt (card_grid). Fehlende Bilder werden einmal online geladen und dann nachgezeigt.
@@ -229,6 +230,9 @@ class MatchupPanel:
             if matchup.unknown:
                 text += (f" · {matchup.unknown} weitere ohne Gegner-Deck (Match History in Master Duel öffnen, "
                          f"dann kommen sie dazu)")
+            if matchup.from_replays:
+                text += (f"\n{matchup.from_replays} Gegnerdeck{'s' if matchup.from_replays != 1 else ''} vollständig "
+                         f"aus Replays")
         self.info_label.config(text=text, fg=color)
         overall = matchup.overall
         self.tiles["opponents"].config(text=str(matchup.opponents))

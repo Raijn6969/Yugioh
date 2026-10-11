@@ -3,7 +3,9 @@ Matchup gegen Störkarten: Welche Störkarten (Handtraps, negierende Schnellzaub
 wie oft gewinnst du gegen Decks mit bzw. ohne sie?
 
 Grundlage sind die erfassten Duelle (card_stats, Tabelle matches) mit dem Deck des Gegners – das kommt aus der
-Match History von Master Duel (live erfasste Duelle haben es erst, nachdem man sie einmal geöffnet hat).
+Match History von Master Duel (live erfasste Duelle haben es erst, nachdem man sie einmal geöffnet hat): Sie liefert
+Main und Extra Deck des Gegners (opp_code), nicht nur den Deck-Namen. Gibt es zu einem Duell einen Replay-Mitschnitt
+(replay_recorder), zählt stattdessen dessen vollständige Gegner-Liste (jedes Duell nur einmal).
 Alternativ-Artworks zählen als dieselbe Karte (Vergleich über den Namen).
 """
 
@@ -56,6 +58,7 @@ class Matchup(NamedTuple):
     overall: Record       # alle Duelle mit bekanntem Gegner-Deck
     threats: List[Threat]
     per_deck: float       # Ø Störkarten (verschiedene) pro Gegner-Deck
+    from_replays: int = 0  # davon Duelle, deren Gegner-Deck vollständig aus einem Replay-Mitschnitt stammt
 
 
 def disruption_kind(info: Optional[CardInfo]) -> Optional[str]:
@@ -72,11 +75,34 @@ def disruption_kind(info: Optional[CardInfo]) -> Optional[str]:
     return None
 
 
+def replay_decks(db) -> Dict[str, List[str]]:
+    """{Duell-ID: Gegner-Deck als Passcodes (Main + Extra)} aus den Replay-Mitschnitten (leer ohne Mitschnitte)."""
+    try:
+        found = db.replay_opponent_decks()
+        passcodes = db.konami_passcodes() if found else {}
+    except Exception:  # ältere Datenbank ohne Mitschnitte
+        return {}
+    decks = {}
+    for did, deck in found.items():
+        cards = [passcodes[k] for k in deck["main"] + deck["extra"] if k in passcodes]
+        if cards:
+            decks[did] = cards
+    return decks
+
+
 def analyse(db, deck_name: Optional[str] = None, mode: Optional[int] = None, limit: int = 1000) -> Matchup:
     """Störkarten der Gegner in den gespeicherten Duellen (optional nur ein eigenes Deck bzw. ein Modus)."""
     matches = db.matches(deck_name, mode, limit)
-    known = [m for m in matches if m.opp_code]
-    decks = {m.did: parse_deck_code(m.opp_code) for m in known}
+    from_replay = replay_decks(db)
+    known, decks = [], {}
+    for m in matches:  # Replay-Liste hat Vorrang vor der Match History; jedes Duell zählt nur einmal
+        if m.did in from_replay:
+            decks[m.did] = from_replay[m.did]
+        elif m.opp_code:
+            decks[m.did] = parse_deck_code(m.opp_code)
+        else:
+            continue
+        known.append(m)
     infos: Dict[str, CardInfo] = db.infos(cid for ids in decks.values() for cid in ids)  # eine Abfrage
     kinds = {cid: disruption_kind(info) for cid, info in infos.items()}
     passcode_of: Dict[str, str] = {}
@@ -104,4 +130,5 @@ def analyse(db, deck_name: Optional[str] = None, mode: Optional[int] = None, lim
                               against, without))
     threats.sort(key=lambda t: (-t.decks, t.name))
     per_deck = sum(t.decks for t in threats) / len(known) if known else 0.0
-    return Matchup(len(known), len(matches) - len(known), overall, threats, per_deck)
+    return Matchup(len(known), len(matches) - len(known), overall, threats, per_deck,
+                   sum(1 for m in known if m.did in from_replay))

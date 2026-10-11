@@ -676,6 +676,35 @@ class CardStatsDB:
         with self._connect() as con:
             return [row[0] for row in con.execute("SELECT start FROM replays ORDER BY start")]
 
+    def replay_opponent_decks(self) -> Dict[str, dict]:
+        """
+        Vollständige Gegner-Decks aus den Mitschnitten: {Duell-ID des Matches: {"main": [Konami-IDs], "extra": [...]}}.
+        Das Gegner-Deck ist das des Spielers, der nicht my_id ist. Ein Mitschnitt gehört zum ersten noch freien Match
+        in seinem Zeitfenster (wie replay_for: live erfasste Matches tragen die Zeit des Ergebnisses, bis 30 Min. nach
+        dem Start; Match History: Startzeit) – jeder Mitschnitt und jedes Match höchstens einmal, damit nichts doppelt
+        zählt. Die Schritte (frames) werden dafür nicht gelesen.
+        """
+        from bisect import bisect_left
+        with self._connect() as con:
+            replays = con.execute("SELECT start, my_id, decks FROM replays ORDER BY start").fetchall()
+            matches = con.execute("SELECT did, played_at FROM matches ORDER BY played_at").fetchall()
+        times = [played_at for _, played_at in matches]
+        result: Dict[str, dict] = {}
+        for start, my_id, decks in replays:
+            try:
+                deck = json.loads(decks)[1 - my_id]
+            except (TypeError, ValueError, IndexError):
+                continue
+            if not isinstance(deck, dict) or not deck.get("main"):
+                continue
+            i = bisect_left(times, start - self.REPLAY_AFTER)
+            while i < len(matches) and times[i] <= start + self.REPLAY_BEFORE:
+                if matches[i][0] not in result:
+                    result[matches[i][0]] = {"main": list(deck["main"]), "extra": list(deck.get("extra") or [])}
+                    break
+                i += 1
+        return result
+
     def opponent_names(self) -> List[str]:
         """Spielernamen der Gegner aus den Mitschnitten (nicht die Deck-Namen der Matches) – für den Fehlerbericht."""
         with self._connect() as con:

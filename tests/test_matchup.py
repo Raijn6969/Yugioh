@@ -8,6 +8,7 @@ from unittest import mock
 
 import match_history as mh
 import matchup_analysis as ma
+import replay_recorder as rr
 from card_stats import CardInfo, CardStatsDB
 
 try:
@@ -33,12 +34,31 @@ POT = CardInfo("55144522", "Pot of Greed", "Spell Card", "spell", "Normal", None
 GOBLIN = CardInfo("11111111", "Goblin", "Normal Monster", "normal", "Fiend", 4, "", "A goblin.")
 
 
+KONAMI = {ASH: 1001, ASH_ALT: 1001, IMPERM: 1002, CROWN: 1003, DROPLET: 1004, POT: 1005, GOBLIN: 1006}
+
+
 def make_db():
     db = CardStatsDB(os.path.join(tempfile.mkdtemp(), "stats.db"), base_path=None, fetch=lambda ids: {})
     with db._connect() as con:
         con.executemany("INSERT INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         [(*info, 0) for info in (ASH, ASH_ALT, IMPERM, CROWN, DROPLET, POT, GOBLIN)])
+        # Konami-IDs (Speicher von Master Duel) → Passcodes: Replay-Mitschnitte kennen die Karten nur so
+        con.executemany("INSERT INTO konami VALUES (?, ?, ?)", [(info.cid, kid, info.name)
+                                                                for info, kid in KONAMI.items()])
     return db
+
+
+def kids(*cards):
+    return [KONAMI[c] for c in cards]
+
+
+def add_replay(db, start, opp_main, my_id=0, opp_extra=(), own_main=(1,)):
+    """Mitschnitt, dessen Gegner (der Spieler, der nicht my_id ist) die Karten opp_main spielt."""
+    decks = [{"main": list(own_main), "extra": []}, {"main": list(opp_main), "extra": list(opp_extra)}]
+    if my_id == 1:
+        decks.reverse()
+    info = rr.ReplayInfo(start, f"replay{start}", my_id, 0, ["Ich", "Er"], decks)
+    db.save_replay(info, [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": i} for i in range(4)])
 
 
 def add(db, did, result, first, opp_cards, deck="Ryzeal", mode=mh.RANKED, at=None):
@@ -86,6 +106,74 @@ class AnalyseTest(unittest.TestCase):
         self.assertEqual(ma.analyse(self.db, None, mh.RANKED).opponents, 5)
         self.assertEqual(ma.analyse(self.db).opponents, 6)
         self.assertEqual(ma.analyse(self.db, "Gibt es nicht").opponents, 0)
+
+
+class ReplayDecksTest(unittest.TestCase):
+    """Wo es einen Mitschnitt gibt, zählt dessen vollständige Gegner-Liste – jedes Duell nur einmal."""
+
+    def setUp(self):
+        self.db = make_db()
+
+    def test_replay_gives_a_deck_to_a_live_match_without_one(self):
+        add(self.db, 1, mh.WIN, True, [], at=100000)              # live erfasst: Gegner-Deck unbekannt
+        before = ma.analyse(self.db)
+        self.assertEqual((before.opponents, before.unknown, before.from_replays), (0, 1, 0))
+        add_replay(self.db, 100000 - 600, kids(ASH, IMPERM, POT))  # 10 Min. vor dem Ergebnis gestartet
+        result = ma.analyse(self.db)
+        self.assertEqual((result.opponents, result.unknown, result.from_replays), (1, 0, 1))
+        self.assertEqual([t.name for t in result.threats], ["Ash Blossom & Joyous Spring", "Infinite Impermanence"])
+        self.assertEqual((result.overall.wins, result.overall.matches), (1, 1))
+
+    def test_replay_list_replaces_match_history_list_without_double_count(self):
+        add(self.db, 1, mh.WIN, True, [CROWN], at=100000)         # Match History kennt nur Forbidden Crown
+        add_replay(self.db, 100000 - 3, kids(ASH, DROPLET))       # Match History: Startzeit ± wenige Sekunden
+        result = ma.analyse(self.db)
+        self.assertEqual((result.opponents, result.unknown, result.from_replays), (1, 0, 1))   # ein Duell, ein Deck
+        self.assertEqual(sorted(t.name for t in result.threats), ["Ash Blossom & Joyous Spring", "Forbidden Droplet"])
+        self.assertEqual(result.per_deck, 2.0)
+
+    def test_without_replay_the_match_history_list_counts_as_before(self):
+        add(self.db, 1, mh.WIN, True, [CROWN], at=100000)
+        add(self.db, 2, mh.LOSS, False, [IMPERM], at=200000)
+        add_replay(self.db, 200000 - 60, kids(ASH))
+        result = ma.analyse(self.db)
+        self.assertEqual((result.opponents, result.from_replays), (2, 1))
+        self.assertEqual(sorted(t.name for t in result.threats), ["Ash Blossom & Joyous Spring", "Forbidden Crown"])
+
+    def test_one_replay_belongs_to_one_match_only(self):
+        add(self.db, 1, mh.WIN, True, [], at=100000)
+        add(self.db, 2, mh.LOSS, True, [], at=100000 + 900)       # zweites Duell kurz danach, ohne eigenen Mitschnitt
+        add_replay(self.db, 100000 - 500, kids(ASH))              # gehört zum ersten
+        result = ma.analyse(self.db)
+        self.assertEqual((result.opponents, result.unknown, result.from_replays), (1, 1, 1))
+        self.assertEqual((result.overall.wins, result.overall.losses), (1, 0))
+        self.assertEqual(self.db.replay_opponent_decks(), {"1": {"main": kids(ASH), "extra": []}})
+
+    def test_opponent_is_the_other_player(self):
+        add(self.db, 1, mh.WIN, True, [], at=100000)
+        add_replay(self.db, 100000 - 60, kids(IMPERM), my_id=1, own_main=kids(ASH))   # ich war Spieler 1
+        result = ma.analyse(self.db)
+        self.assertEqual([t.name for t in result.threats], ["Infinite Impermanence"])
+
+    def test_extra_deck_is_part_of_the_list_and_unknown_cards_fall_back(self):
+        add(self.db, 1, mh.WIN, True, [IMPERM], at=100000)
+        add_replay(self.db, 100000 - 60, [999999991, 999999992], opp_extra=[999999993])   # Konami-IDs unbekannt
+        result = ma.analyse(self.db)
+        self.assertEqual((result.opponents, result.from_replays), (1, 0))   # Match-History-Liste bleibt
+        self.assertEqual([t.name for t in result.threats], ["Infinite Impermanence"])
+        add(self.db, 2, mh.WIN, True, [], at=200000)
+        add_replay(self.db, 200000 - 30, kids(GOBLIN), opp_extra=kids(ASH))
+        self.assertEqual([t.name for t in ma.analyse(self.db).threats],
+                         ["Ash Blossom & Joyous Spring", "Infinite Impermanence"])
+
+    def test_filters_still_apply_and_old_databases_work(self):
+        add(self.db, 1, mh.WIN, True, [], at=100000, deck="Snake-Eye")
+        add_replay(self.db, 100000 - 60, kids(ASH))
+        self.assertEqual(ma.analyse(self.db, "Ryzeal").opponents, 0)
+        self.assertEqual(ma.analyse(self.db, "Snake-Eye").from_replays, 1)
+        broken = mock.Mock(wraps=self.db)
+        broken.replay_opponent_decks.side_effect = Exception("no such table: replays")
+        self.assertEqual(ma.analyse(broken, "Snake-Eye").from_replays, 0)   # fällt auf die Match History zurück
 
 
 def wait_for_matchup(root, panel, timeout=5.0):
@@ -168,6 +256,18 @@ class MatchupPanelTest(unittest.TestCase):
         self.assertIn("Ohne die Karte: 100 % (1–0)", text)
         self.panel._hide_tip()
         self.assertIsNone(self.panel._tip)
+
+    def test_hint_how_many_opponent_decks_come_from_replays(self):
+        self.assertNotIn("Replays", self.panel.info_label.cget("text"))
+        for did, ago, cards, expected in ((6, 5000, kids(ASH, POT), "4 Duelle"), (7, 9000, kids(IMPERM), "5 Duelle")):
+            add(self.db, did, mh.WIN, True, [], at=time.time() - ago)    # live erfasst, ohne Gegner-Deck
+            add_replay(self.db, int(time.time()) - ago - 120, cards)
+            self.panel.refresh()
+            self.wait()
+            text = self.panel.info_label.cget("text")
+            self.assertIn(expected, text)
+            self.assertIn("1 Gegnerdeck vollständig aus Replays" if did == 6 else "2 Gegnerdecks vollständig aus "
+                          "Replays", text)
 
     def test_no_opponent_decks_yet(self):
         self.panel.deck_name = "Neu"

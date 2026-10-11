@@ -110,7 +110,11 @@ decks that run it and your win rate against those decks (red = clearly worse tha
 usual). Hover over a card for details: going first/second, and your win rate
 against decks without it. You can switch between "this deck" and "all decks", and
 between Ranked and all modes. Opponent decks come from Master Duel's Match History,
-so open it every now and then (it keeps the last 20 duels).
+so open it every now and then (it keeps the last 20 duels). If you also recorded a
+replay of a duel (see "Duel View and Replays"), the complete opponent decklist from that
+replay is used for it instead, so you see which disruptions they really had in the deck;
+each duel is counted only once. A line at the top tells you for how many duels the full
+list came from replays (e.g. "12 Gegnerdecks vollständig aus Replays").
 
 ### 9. Side-Deck Profiles
 Master Duel is best-of-one, so you adjust your deck between matches. Deck → **Side**
