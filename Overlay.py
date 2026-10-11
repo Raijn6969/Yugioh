@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import json
+import webbrowser
 import pyperclip
 import win32gui
 import win32process
@@ -44,11 +45,11 @@ from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
 from match_history import LOSS, RANKED, WIN, MatchWatcher
 from replay_recorder import ReplayRecorder
-from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, TESSERACT_CMD
+from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, LOG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message, show_toast
 from dark_menu import DarkMenu
-from debug_log import dlog
+from debug_log import append, dlog
 from editor_watch import EditorWatcher
 from window_style import apply_frame, no_activate
 from rounded_button import RoundedButton
@@ -59,6 +60,7 @@ import md_layout
 import md_memory
 import resume_state
 import single_instance
+import update_check
 import win_api
 
 MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
@@ -68,6 +70,7 @@ REMINDER_DELAY_MS = 6000  # erst das Ergebnis zeigen, dann die Erinnerung an die
 SHORT_REMINDER = "Bitte Match History öffnen (Gegner-Decks)"
 REMINDER_CHECK_MS = 3000  # so oft prüfen, ob die Match History inzwischen geöffnet wurde (solange der Hinweis steht)
 STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Platz neben dem ✕)
+UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere Version (Hinweis nur einmal je Version)
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
 SPEED_PROFILES = [
@@ -96,6 +99,8 @@ class MasterDuelImporter:
         self._memory_thread = None    # Vorladen für den Speicher-Modus (läuft im Hintergrund)
         self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
         self._memory_warned = False  # Hinweis "Speicher-Modus nicht verfügbar" schon gezeigt (einmal pro Sitzung)
+        self._started_at = time.monotonic()  # Programmstart (der Update-Hinweis wartet auf das Ende der Startmeldung)
+        self.update_version = None   # neuere Version laut Update-Prüfung (None = keine bzw. nicht geprüft)
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
         self.editor_watch = EditorWatcher(TESSERACT_CMD)
         # Winrate-Tracker: erfasst Duelle am Ergebnis-Bildschirm von Master Duel (Speicher-Modus, nur lesend)
@@ -120,7 +125,8 @@ class MasterDuelImporter:
             # Menü-Aktionen kommen aus dem Tray-Thread → über die UI-Warteschlange in den Tk-Thread
             self.tray = TrayIcon(f"MD Importer {APP_VERSION}",
                                  on_restart=lambda: self._run_on_ui(self.restart),
-                                 on_quit=lambda: self._run_on_ui(self.close))
+                                 on_quit=lambda: self._run_on_ui(self.close),
+                                 on_update=lambda: self._run_on_ui(self._open_project_page))
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
         self.editor_watch.start()
@@ -128,6 +134,46 @@ class MasterDuelImporter:
         self.replay_watch.start()
         self._check_window_focus()
         self._backup_database()
+        self._start_update_check()
+
+    # --- UPDATE-HINWEIS (einmal pro Start, im Hintergrund) ---
+    def _start_update_check(self):
+        """Gibt es eine neuere Version? Nur als exe (aus dem Quellcode holt man sich Updates mit git selbst)."""
+        if not getattr(sys, "frozen", False):
+            dlog("[UPDATE] Lauf aus dem Quellcode – keine Update-Prüfung.")
+            return
+        threading.Thread(target=self._update_worker, daemon=True, name="update").start()
+
+    def _update_worker(self):
+        version = update_check.find_update(APP_VERSION, log=lambda message: append(LOG_FILE, message))
+        if version:
+            self._run_on_ui(self._on_update_found, version)
+
+    def _on_update_found(self, version):
+        self.update_version = version
+        if self.tray:
+            self.tray.set_update(version)
+        notified = self.config.get(UPDATE_NOTIFIED_KEY)
+        if notified and not update_check.is_newer(version, notified):
+            return  # zu dieser Version schon Bescheid gesagt – der Tray-Menüpunkt bleibt
+        self.config[UPDATE_NOTIFIED_KEY] = version
+        self._save_config_safely()
+        # Erst nach der Startmeldung (beide säßen an derselben Stelle über der Taskleiste)
+        wait = max(0, int(STARTED_TOAST_MS + 300 - (time.monotonic() - self._started_at) * 1000))
+        self._after_ids["update_toast"] = self.root.after(wait, self._show_update_toast)
+
+    def _show_update_toast(self):
+        self._after_ids.pop("update_toast", None)
+        if self.update_version:
+            show_toast(self.root, f"MD-Importer {self.update_version} verfügbar – Tray-Symbol → Seite öffnen",
+                       duration_ms=STARTED_TOAST_MS)
+
+    def _open_project_page(self):
+        """Tray-Menü: Projektseite im Browser (kein Download, keine Installation)."""
+        try:
+            webbrowser.open(update_check.REPO_URL)
+        except Exception as e:
+            dlog(f"[UPDATE] Browser nicht geöffnet: {e}")
 
     def _backup_database(self):
         """Einmal am Tag die eigene Datenbank sichern (im Hintergrund; danach stündlich nachsehen, falls das
