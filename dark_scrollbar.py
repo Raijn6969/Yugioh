@@ -32,6 +32,7 @@ class DarkScrollbar(tk.Canvas):
         self.bind("<ButtonPress-1>", self._on_press)
         self.bind("<B1-Motion>", self._on_drag)
         self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<MouseWheel>", self._on_wheel)  # wie die native Leiste: Mausrad über der Leiste scrollt
 
     # ── Schnittstelle von tk.Scrollbar ──
     def set(self, first, last) -> None:
@@ -96,6 +97,12 @@ class DarkScrollbar(tk.Canvas):
         _, travel, first_max = layout
         top = min(max(event.y - self.grab, 0.0), travel)
         self.command("moveto", top / travel * first_max)
+
+    def _on_wheel(self, event) -> None:
+        if self.y0 >= self.y1 or not event.delta:  # ohne Griff gibt es nichts zu scrollen
+            return
+        step = int(-event.delta / 120) * 2  # Schrittweite wie in den Fenstern
+        self.command("scroll", step or (-1 if event.delta > 0 else 1), "units")
 
     def _on_release(self, event) -> None:
         self.dragging = False

@@ -87,6 +87,18 @@ class DarkScrollbarTest(unittest.TestCase):
         self.assertEqual(name, "moveto")
         self.assertAlmostEqual(value, 0.25, places=2)
 
+    def test_mausrad_ueber_der_leiste(self):
+        self.bar.set(0.0, 0.5)
+        self.bar.event_generate("<MouseWheel>", delta=-120, x=3, y=20)
+        self.command.assert_called_once_with("scroll", 2, "units")
+        self.command.reset_mock()
+        self.bar._on_wheel(SimpleNamespace(delta=60))  # kleines Delta: mindestens ein Schritt
+        self.command.assert_called_once_with("scroll", -1, "units")
+        self.command.reset_mock()
+        self.bar.set(0, 1)  # alles sichtbar: nichts tun
+        self.bar.event_generate("<MouseWheel>", delta=-120, x=3, y=20)
+        self.command.assert_not_called()
+
     def test_mit_canvas_und_text(self):
         canvas = tk.Canvas(self.root, scrollregion=(0, 0, 50, 4 * HEIGHT))
         text = tk.Text(self.root, height=10)
