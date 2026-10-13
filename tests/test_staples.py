@@ -200,6 +200,14 @@ class StaplePanelTest(unittest.TestCase):
         self.assertIn("Ryzeal: 5 Top-Liste(n)", panel.status_label.cget("text"))
         panel.close()
 
+    def test_tooltip_goes_away_when_hidden(self):
+        panel = self.open(["Mitsurugi"], FakeSession())
+        panel._show_tip(type("E", (), {"x_root": 5, "y_root": 5})(), "Karte", "Details")
+        self.assertIsNotNone(panel._tip)
+        panel.set_visible(False)
+        self.assertIsNone(panel._tip)
+        panel.close()
+
     def test_offline_and_unknown(self):
         panel = self.open(["Mitsurugi"], FakeSession(offline=True))
         self.assertIn("nicht geladen", panel.status_label.cget("text"))

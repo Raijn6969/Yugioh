@@ -270,6 +270,8 @@ class StaplePanel:
     # ── Zustand von außen ──
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
+            if not visible:
+                self._hide_tip()  # sonst bleibt er als eigenes Fenster über anderen Programmen stehen
             self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:

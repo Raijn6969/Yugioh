@@ -78,9 +78,12 @@ class ImageSession(FakeSession):
     """Wie FakeSession, aber Kartenbilder gibt es erst, wenn ready gesetzt ist."""
 
     ready = False
+    gate = None  # Event: Bilder kommen erst, wenn es gesetzt ist
 
     def get(self, url, params=None, timeout=None):
         if "images.ygoprodeck.com" in url and self.ready:
+            if self.gate is not None:
+                self.gate.wait(5)
             from PIL import Image
             data = io.BytesIO()
             Image.new("RGB", (20, 30), "red").save(data, "JPEG")
@@ -389,6 +392,52 @@ class ComboPanelTest(unittest.TestCase):
                           and self.canvas_types(self.canvases(f)[0]).count("oval")])
         panel.close()
 
+    def test_list_appears_before_the_images_and_is_redrawn(self):
+        import threading
+        session = ImageSession()
+        session.ready, session.gate = True, threading.Event()
+        db = make_db()
+        db.ids_by_name = lambda names: {n: [str(100000 + sum(map(ord, n)))] for n in names}
+        with unittest.mock.patch.object(card_images, "PAUSE", 0):
+            try:
+                panel = self.open(["Elfnote"], session, db)  # die Bilder warten noch auf das Signal
+                self.assertTrue(panel.sets)
+                self.assertTrue(panel._thread.is_alive())
+                row = self.canvases(panel.inner)[0]
+                self.assertEqual(self.canvas_types(row).count("image"), 0)  # graue Felder
+                panel.canvas.yview_moveto(0.0)
+                session.gate.set()
+                end = time.time() + 5
+                while time.time() < end and "image" not in self.canvas_types(self.canvases(panel.inner)[0]):
+                    self.root.update()
+                    time.sleep(0.02)
+                self.assertEqual(self.canvas_types(self.canvases(panel.inner)[0]).count("image"), 1)  # Tinia
+            finally:
+                session.gate.set()
+                panel.close()
+
+    def test_window_sits_below_the_top_of_the_deck_window(self):
+        from combo_panel import ComboPanel
+        top = tk.Toplevel(self.root)
+        top.geometry("400x300+200+10")
+        anchor = tk.Label(top, text="Combos")
+        anchor.pack(side=tk.BOTTOM)  # der Button sitzt unten in der Fußzeile
+        self.root.update()
+        panel = ComboPanel(self.root, make_db(), MAIN, EXTRA, [], on_close=lambda: None, anchor=anchor,
+                           image_folder=self.folder)
+        self.root.update()
+        self.assertEqual(panel.win.winfo_rooty(), top.winfo_rooty() + int(40 * panel.s))
+        panel.close()
+        top.destroy()
+
+    def test_tooltip_goes_away_when_hidden(self):
+        panel = self.open(["Elfnote"], FakeSession())
+        panel._show_tip(type("E", (), {"x_root": 5, "y_root": 5})(), "Karte", "Aktion")
+        self.assertIsNotNone(panel._tip)
+        panel.set_visible(False)
+        self.assertIsNone(panel._tip)
+        panel.close()
+
     def test_tooltip_on_card_in_step(self):
         panel = self.open(["Elfnote"], FakeSession())
         panel.show_combo(0)
@@ -434,6 +483,7 @@ class ComboPanelTest(unittest.TestCase):
         db.ids_by_name = lambda names: {n: [str(100000 + sum(map(ord, n)))] for n in names}
         with unittest.mock.patch.object(card_images, "PAUSE", 0):
             panel = self.open(["Elfnote"], session, db)  # Startkarten: Bilder noch nicht da (404)
+            panel._thread.join(5)  # der Worker ist mit den Bildern der Liste fertig
             session.ready = True
             panel.show_combo(0)
             self.root.update()

@@ -238,14 +238,14 @@ class ComboPanel:
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
 
     def _place(self, anchor: Optional[tk.Misc]) -> None:
-        """Unter dem Button "Combos", rechtsbündig mit dem Deck-Fenster (liegt über dessen Liste)."""
+        """Rechtsbündig mit dem Deck-Fenster, knapp unter dessen Oberkante (der Button sitzt in der Fußzeile)."""
         s = self.s
         w, h = int(520 * s), int(620 * s)
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
         if anchor is not None:
             top = anchor.winfo_toplevel()
             x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
-            y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
+            y = top.winfo_rooty() + int(40 * s)
         else:
             x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
         x = min(max(0, x), screen_w - w)
@@ -273,10 +273,16 @@ class ComboPanel:
                 if combo_set and combo_set.combos:
                     found.setdefault(combo_set.deck_type, combo_set)  # zwei Archetypen, ein Deck-Typ
             sets = [(c, mdm_combos.ranked(c.combos, self.main, self.extra)) for c in found.values()]
-            self._load_images([card.name for c, _ in sets for combo in c.combos for card in combo.start if card.name])
-            self._result = sets
         except Exception as e:  # offline, Seite geändert …
             self._result = f"Combos nicht geladen: {e}"
+            return
+        self._result = sets  # die Liste erscheint sofort, die Bilder der Startkarten kommen danach
+        try:
+            self._load_images([card.name for c, _ in sets for combo in c.combos for card in combo.start if card.name])
+        except Exception:
+            pass  # ohne Bilder bleiben die grauen Felder
+        finally:
+            self._images_done.append("")  # Kennung "Liste"
 
     def _load_images(self, names: List[str]) -> None:
         """Passcodes der Karten bestimmen und fehlende Bilder laden (offline: Platzhalter). Läuft im Hintergrund."""
@@ -320,13 +326,20 @@ class ComboPanel:
         if done:
             for cache in (self.photos, self.small, self.step_photos):
                 cache.forget_missing()  # inzwischen geladen
-            if self.detail is not None and self.detail.combo.mdm_id in done:
+            if self.detail is not None and (self.detail.combo.mdm_id in done or "" in done):
+                redraw = self._draw_detail
+            elif self.detail is None and "" in done and self.sets:  # Startkarten der Liste sind da
+                redraw = self.render
+            else:
+                redraw = None
+            if redraw is not None:
                 top = self.canvas.yview()[0]
-                self._draw_detail()
+                redraw()
                 self.win.update_idletasks()  # Scrollbereich neu berechnen, dann die Stelle wieder ansteuern
                 self.canvas.yview_moveto(top)
         self._image_threads = [t for t in self._image_threads if t.is_alive()]
-        if self._image_threads or self._images_done:
+        worker = self._thread is not None and self._thread.is_alive()  # lädt noch die Bilder der Liste
+        if self._image_threads or self._images_done or worker:
             self._image_job = self.win.after(POLL_MS, self._poll_images)
 
     def _poll(self) -> None:
@@ -346,6 +359,8 @@ class ComboPanel:
             self._clear()
             return
         self.render()
+        if self._image_job is None:
+            self._poll_images()  # meldet, wenn der Worker die Bilder der Liste geladen hat
 
     # ── Anzeige ──
     def _clear(self) -> None:
@@ -623,6 +638,8 @@ class ComboPanel:
     # ── Zustand von außen ──
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
+            if not visible:
+                self._hide_tip()  # sonst bleibt er als eigenes Fenster über anderen Programmen stehen
             self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:
