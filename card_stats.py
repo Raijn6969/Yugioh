@@ -198,6 +198,8 @@ def create_tables(con: sqlite3.Connection) -> None:
                        deck_id TEXT PRIMARY KEY, name TEXT, main TEXT, extra TEXT, seen_at REAL)""")
     # Auswertung der Top-Listen je Archetyp (staple_analysis, Master Duel Meta) als JSON
     con.execute("CREATE TABLE IF NOT EXISTS staple_cache (archetype TEXT PRIMARY KEY, data TEXT, fetched_at REAL)")
+    # Community-Combos je Archetyp (mdm_combos, Master Duel Meta) als JSON
+    con.execute("CREATE TABLE IF NOT EXISTS combo_cache (archetype TEXT PRIMARY KEY, data TEXT, fetched_at REAL)")
     # Replay-Mitschnitte (replay_recorder), Schritte als komprimiertes JSON
     con.execute("""CREATE TABLE IF NOT EXISTS replays (start INTEGER PRIMARY KEY, replay_did TEXT, my_id INTEGER,
                        first_player INTEGER, names TEXT, decks TEXT, frames BLOB, steps INTEGER, recorded_at REAL)""")
@@ -806,6 +808,20 @@ class CardStatsDB:
     def store_staples(self, archetype: str, data: dict) -> None:
         with self._connect() as con:
             con.execute("INSERT OR REPLACE INTO staple_cache VALUES (?, ?, ?)",
+                        (archetype.lower(), json.dumps(data), data.get("fetched_at", time.time())))
+
+    # ── Community-Combos (mdm_combos) ──
+    def combos(self, archetype: str) -> Optional[dict]:
+        with self._connect() as con:
+            row = con.execute("SELECT data FROM combo_cache WHERE archetype = ?", (archetype.lower(),)).fetchone()
+        try:
+            return json.loads(row[0]) if row else None
+        except ValueError:
+            return None
+
+    def store_combos(self, archetype: str, data: dict) -> None:
+        with self._connect() as con:
+            con.execute("INSERT OR REPLACE INTO combo_cache VALUES (?, ?, ?)",
                         (archetype.lower(), json.dumps(data), data.get("fetched_at", time.time())))
 
     @staticmethod

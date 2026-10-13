@@ -770,6 +770,26 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(staples.closed)
         self.assertIsNone(self.panel.staples)
 
+    def test_combos_need_a_scan_and_replace_staples(self):
+        import mdm_combos
+        self.panel.toggle_combos()
+        self.assertIsNone(self.panel.combos)
+        self.assertIn("Erst das Deck scannen", self.panel.status_label.cget("text"))
+        self.panel.set_scan(self.scan)
+        self.panel.staples_btn.invoke()
+        staples = self.panel.staples
+        with mock.patch.object(mdm_combos, "fetch", side_effect=AssertionError("kein Netz im Test")):
+            self.panel.combos_btn.invoke()
+        self.assertTrue(staples.closed)  # gleicher Platz
+        combos = self.panel.combos
+        self.assertEqual((combos.main["lukias"], sum(combos.extra.values()), combos.archetypes), (3, 1, []))
+        self.assertIn("Keine Archetypen", combos.status_label.cget("text"))
+        self.panel.set_visible(False)
+        self.assertEqual(float(combos.win.wm_attributes("-alpha")), 0.0)
+        self.panel.winrate_btn.invoke()
+        self.assertTrue(combos.closed)
+        self.assertIsNone(self.panel.combos)
+
     def test_side_profiles_only_swap_the_scanned_unchanged_deck(self):
         import extras_panel
         swaps = []

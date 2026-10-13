@@ -16,6 +16,7 @@ steht hier auch das Tempo (nur noch Reserve für langsame PCs); bei Texterkennun
 Kacheln steht die Winrate des angezeigten Decks (Decks mit denselben Archetypen zählen zusammen).
 "Staples" (links neben Winrate): das angezeigte Deck mit den Top-Listen in Master Duel vergleichen (staple_panel).
 "Matchup" (links neben Staples): die Störkarten deiner Gegner und deine Winrate gegen sie (matchup_panel).
+"Combos" (Fußzeile, links neben Side): die Community-Combos von Master Duel Meta zum Deck (combo_panel).
 """
 
 import threading
@@ -123,6 +124,7 @@ class ExtrasPanel:
         self.history = None                    # Verlauf-Fenster, None = zu
         self.winrate = None                    # Winrate-Fenster, None = zu
         self.staples = None                    # Staples-Fenster, None = zu
+        self.combos = None                     # Combos-Fenster, None = zu
         self.matchup = None                    # Matchup-Fenster, None = zu
         self.side = None                       # Side-Profile, None = zu
         self.ash_prio = None                   # Ash-Prio-Spickzettel, None = zu
@@ -273,6 +275,8 @@ class ExtrasPanel:
             self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
             self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, bg="#2e7d32", **small)
             self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+            self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, bg="#ad1457", **small)
+            self.combos_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
 
     def _build_calculator(self, parent: tk.Frame) -> None:
         s = self.s
@@ -441,10 +445,11 @@ class ExtrasPanel:
         self.winrate = None
 
     def _close_side_panels(self) -> None:
-        """Verlauf, Winrate, Staples, Matchup, Side und Ash-Prio liegen an derselben Stelle: höchstens eins offen."""
+        """Verlauf, Winrate, Staples, Combos, Matchup, Side und Ash-Prio liegen an derselben Stelle: höchstens eins."""
         self._close_history()
         self._close_winrate()
         self._close_staples()
+        self._close_combos()
         self._close_matchup()
         self._close_side()
         self._close_ash_prio()
@@ -568,6 +573,42 @@ class ExtrasPanel:
 
     def _on_staples_closed(self) -> None:
         self.staples = None
+
+    # ── Combos (Community-Combos von Master Duel Meta) ──
+    def toggle_combos(self) -> None:
+        if self.combos is not None:
+            self._close_combos()
+            return
+        if self.analysis is None or self.scanning:
+            self.set_status("Erst das Deck scannen, dann die Combos dazu suchen", AMBER)
+            return
+        from combo_panel import ComboPanel  # importiert die Farben von hier
+        self._close_side_panels()
+        main, extra, archetypes = self._deck_by_zone()
+        self.combos = ComboPanel(self.win, self.stats_db, main, extra, archetypes, on_close=self._on_combos_closed,
+                                 anchor=self.combos_btn)
+
+    def _close_combos(self) -> None:
+        if self.combos is not None:
+            self.combos.close()  # ruft _on_combos_closed
+
+    def _on_combos_closed(self) -> None:
+        self.combos = None
+
+    def _deck_by_zone(self):
+        """({englischer Kartenname: Kopien} Main, dasselbe für das Extra Deck, häufigste Archetypen) des Decks."""
+        zones: Dict[str, Counter] = {"Main": Counter(), "Extra": Counter()}
+        weight: Counter = Counter()
+        for zone, deck in zones.items():
+            for entry in self.analysis.entries(zone):
+                info = self.analysis.info(entry)
+                if info is None and entry.key.startswith("?"):
+                    continue  # nicht erkannt
+                deck[info.name if info else entry.name] += entry.copies
+                if info is not None and info.archetype:
+                    weight[info.archetype] += entry.copies
+        archetypes = [name for name, count in weight.most_common(GUIDE_ARCHETYPES) if count >= GUIDE_MIN_COPIES]
+        return dict(zones["Main"]), dict(zones["Extra"]), archetypes
 
     def _deck_for_staples(self):
         """
@@ -746,7 +787,7 @@ class ExtrasPanel:
             return
         self._visible = visible
         self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
-        for panel in (self.history, self.winrate, self.staples, self.matchup, self.side,
+        for panel in (self.history, self.winrate, self.staples, self.combos, self.matchup, self.side,
                       self.ash_prio):  # eigene Fenster über diesem
             if panel is not None:
                 panel.set_visible(visible)

@@ -201,3 +201,12 @@ shows it in Explorer. Opponents only appear as deck names, never as player names
 
 At the first start in a new month you get a one-time note "Rückblick für <Monat> ist fertig"
 — but only if you played duels in the previous month.
+
+### 16. Combos from Master Duel Meta
+Deck → **Combos** (bottom row, next to Side) lists the community combos that Master Duel
+Meta has for the archetypes of the deck shown. By default only combos you can play with
+this deck are listed ("Nur spielbare"; "Alle" also shows the ones with missing cards, which
+are named). Each row shows the starting hand and the chance to have all named starters in
+your first 5 cards. Click a combo for the whole line: starting hand as card images, the
+steps with their branches, the end board and the hand traps it plays through. The data
+is saved locally and refreshed every few days, or on demand with "Aktualisieren".
