@@ -11,7 +11,7 @@ Logs stattdessen in %APPDATA%\\MD_Importer (DATA_DIR).
 import os
 import sys
 
-APP_VERSION = "9.2"
+APP_VERSION = "9.3"
 
 
 def _app_dir() -> str:
