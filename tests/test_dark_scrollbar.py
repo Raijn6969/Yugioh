@@ -99,6 +99,17 @@ class DarkScrollbarTest(unittest.TestCase):
         self.bar.event_generate("<MouseWheel>", delta=-120, x=3, y=20)
         self.command.assert_not_called()
 
+    def test_mausrad_nicht_doppelt_im_toplevel(self):
+        fenster = mock.Mock()
+        self.root.bind("<MouseWheel>", fenster)
+        self.bar.set(0.0, 0.5)
+        self.bar.event_generate("<MouseWheel>", delta=-120, x=3, y=20)
+        self.command.assert_called_once_with("scroll", 2, "units")
+        fenster.assert_not_called()
+        self.bar.set(0, 1)  # ohne Griff darf das Fenster selbst entscheiden
+        self.bar.event_generate("<MouseWheel>", delta=-120, x=3, y=20)
+        fenster.assert_called_once()
+
     def test_mit_canvas_und_text(self):
         canvas = tk.Canvas(self.root, scrollregion=(0, 0, 50, 4 * HEIGHT))
         text = tk.Text(self.root, height=10)

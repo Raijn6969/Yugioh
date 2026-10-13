@@ -98,11 +98,12 @@ class DarkScrollbar(tk.Canvas):
         top = min(max(event.y - self.grab, 0.0), travel)
         self.command("moveto", top / travel * first_max)
 
-    def _on_wheel(self, event) -> None:
+    def _on_wheel(self, event) -> Optional[str]:
         if self.y0 >= self.y1 or not event.delta:  # ohne Griff gibt es nichts zu scrollen
             return
         step = int(-event.delta / 120) * 2  # Schrittweite wie in den Fenstern
         self.command("scroll", step or (-1 if event.delta > 0 else 1), "units")
+        return "break"  # sonst scrollt ein Mausrad-Binding des Toplevels ein zweites Mal
 
     def _on_release(self, event) -> None:
         self.dragging = False
