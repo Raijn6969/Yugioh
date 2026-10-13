@@ -87,9 +87,10 @@ def draw_attribute(canvas: tk.Canvas, x: float, y: float, size: float, attribute
     if named:
         canvas.create_text(cx, y + size * 0.2, text=attribute, fill="white",
                            font=("Helvetica", -max(6, int(size * 0.17)), "bold"))
-    if crossed:
-        canvas.create_line(x + size * 0.12, y + size * 0.88, x + size * 0.88, y + size * 0.12, fill="#ff5252",
-                           width=max(2, int(2 * scale)), capstyle=tk.ROUND)
+    if crossed:  # dunkel unterlegt, damit der weiße Strich auf jeder Attributfarbe zu sehen ist
+        for color, width in (("#111111", max(4, int(4 * scale))), ("#ffffff", max(2, int(2 * scale)))):
+            canvas.create_line(x + size * 0.88, y + size * 0.12, x + size * 0.12, y + size * 0.88, fill=color,
+                               width=width, capstyle=tk.ROUND)
 
 
 def odds_text(odds: Optional[float]) -> Tuple[str, str]:

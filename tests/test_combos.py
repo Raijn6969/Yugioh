@@ -368,7 +368,9 @@ class ComboPanelTest(unittest.TestCase):
     def test_negated_two_and_many_attributes(self):
         panel = self.start_panel("Any Non-WIND monster")
         row = self.canvases(panel.inner)[0]
-        self.assertEqual((self.canvas_types(row).count("oval"), self.canvas_types(row).count("line")), (1, 1))
+        self.assertEqual(self.canvas_types(row).count("oval"), 1)
+        lines = [i for i in row.find_all() if row.type(i) == "line"]  # dunkle Unterlage, darüber der weiße Strich
+        self.assertEqual([row.itemcget(i, "fill") for i in lines], ["#111111", "#ffffff"])
         panel.close()
         panel = self.start_panel("Fire or Wind monster")
         row = self.canvases(panel.inner)[0]
