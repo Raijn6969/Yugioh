@@ -1,17 +1,22 @@
 """
 Combos (Button "Combos" im Deck-Fenster): die Community-Combos von Master Duel Meta zum angezeigten Deck.
 
-Die Liste zeigt je Combo die Starthand, die Chance darauf (als Erster, 5 Karten) und fehlende Karten; standardmäßig nur
-die Combos, die das Deck spielen kann. Klick auf eine Combo zeigt die ganze Linie: Starthand als Kartenbilder, die
-Schritte mit Verzweigungen, das Endboard und die Handtraps, gegen die sie durchspielt. Geladen wird im Hintergrund
-(mdm_combos: einmal online, danach aus der Datenbank), bei Hybrid-Decks lässt sich zwischen den Deck-Typen umschalten.
+Die Liste zeigt je Combo die Startkarten als kleine Bilder, die Starthand, die Chance darauf (als Erster, 5 Karten) und
+fehlende Karten; standardmäßig nur die Combos, die das Deck spielen kann. Klick auf eine Combo zeigt die ganze Linie:
+Starthand, Schritte (jeder Schritt eine Bildzeile, dazwischen die Verbinder) mit Verzweigungen, das Endboard als Bilder
+und die Handtraps, gegen die sie durchspielt. Geladen wird im Hintergrund (mdm_combos: einmal online, danach aus der
+Datenbank), bei Hybrid-Decks lässt sich zwischen den Deck-Typen umschalten.
+
+Gezeichnet wird auf Zeichenflächen (eine je Zeile bzw. Schritt) statt aus vielen Widgets (siehe card_grid). Die Bilder
+der Startkarten lädt der Worker mit den Combos; die der Schritte und des Endboards erst beim Öffnen einer Combo (die
+Ansicht erscheint sofort mit Platzhaltern und wird neu gezeichnet, sobald die Bilder da sind).
 """
 
 import re
 import threading
 import tkinter as tk
 import webbrowser
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import quote
 
 import card_images
@@ -26,7 +31,10 @@ from window_style import apply_frame, no_activate
 
 POLL_MS = 100
 COLUMNS = 6             # Startkarten pro Reihe in der Detailansicht
-CARD_SIZE = (66, 96)    # Bildgröße bei 1080p
+CARD_SIZE = (66, 96)    # Bildgröße bei 1080p: Starthand in der Detailansicht
+LIST_SIZE = (34, 50)    # … Startkarten in der Liste
+STEP_SIZE = (46, 67)    # … Karten der Schritte und des Endboards
+MAX_LIST_CARDS = 5      # Startkarten, die die Zeile der Liste als Bilder zeigt
 INDENT = 14             # Einrückung je Ebene bei 1080p
 GOOD_ODDS = 0.5         # ab dieser Chance grün
 MDM_DECK_URL = "https://www.masterduelmeta.com/tier-list/deck-types/{name}"
@@ -63,17 +71,28 @@ def step_text(step: mdm_combos.Step) -> str:
     return text
 
 
-def step_lines(steps: List[mdm_combos.Step], level: int = 0) -> List[Tuple[int, str, str]]:
-    """[(Einrückung, Text, Art)] mit Art "step", "cond" (Verzweigung) oder "branch" (Zweig); Schritte nummeriert."""
-    lines: List[Tuple[int, str, str]] = []
+def walk_steps(steps: List[mdm_combos.Step], level: int = 0) -> Iterator[Tuple[int, str, object, int]]:
+    """(Einrückung, Art, Inhalt, Nummer): "step" = Step (nummeriert), "cond"/"branch" = Textzeile zur Verzweigung."""
     for i, step in enumerate(steps, 1):
-        lines.append((level, f"{i}. {step_text(step)}", "step"))
+        yield level, "step", step, i
         if step.branches:
-            lines.append((level, f"◆ {step.branch_label or 'Verzweigung'}", "cond"))
+            yield level, "cond", f"◆ {step.branch_label or 'Verzweigung'}", 0
             for branch in step.branches:
-                lines.append((level + 1, f"▸ {branch.label}", "branch"))
-                lines += step_lines(branch.steps, level + 2)
-    return lines
+                yield level + 1, "branch", f"▸ {branch.label}", 0
+                yield from walk_steps(branch.steps, level + 2)
+
+
+def step_lines(steps: List[mdm_combos.Step]) -> List[Tuple[int, str, str]]:
+    """Textfassung: [(Einrückung, Text, Art)] mit Art "step", "cond" (Verzweigung) oder "branch" (Zweig)."""
+    return [(level, f"{number}. {step_text(item)}" if kind == "step" else item, kind)
+            for level, kind, item, number in walk_steps(steps)]
+
+
+def card_names(combo: mdm_combos.Combo) -> List[str]:
+    """Alle Kartennamen der Combo (Startkarten, Schritte, Endboard) ohne Doppelte."""
+    entries = [e for _, kind, item, _ in walk_steps(combo.steps) if kind == "step" for e in item.entries]
+    names = [c.name for c in combo.start] + [e.card for e in entries + combo.end]
+    return list(dict.fromkeys(n for n in names if n))
 
 
 def date_text(iso: str) -> str:
@@ -102,6 +121,11 @@ class ComboPanel:
         self.detail: Optional[mdm_combos.ComboMatch] = None
         self.passcodes: Dict[str, str] = {}              # {name_key: Passcode} der Startkarten
         self.grid: Optional[CardGrid] = None             # Startkarten der Detailansicht
+        self._tip: Optional[tk.Toplevel] = None
+        self._tried: set = set()          # name_key der Karten, deren Bild schon gesucht wurde (auch ohne Erfolg)
+        self._image_threads: List[threading.Thread] = []
+        self._images_done: List[str] = []                # Combos, deren Bilder inzwischen geladen sind
+        self._image_job = None
         self._result = None               # vom Hintergrund-Thread: Combos oder Fehlertext
         self._thread: Optional[threading.Thread] = None
         self._poll_job = None
@@ -111,7 +135,9 @@ class ComboPanel:
         self.font_small = ("Helvetica", int(8 * s))
         self.font_small_bold = ("Helvetica", int(8 * s), "bold")
         self.font_head = ("Helvetica", int(12 * s), "bold")
-        self.photos = card_images.PhotoCache(master, (int(CARD_SIZE[0] * s), int(CARD_SIZE[1] * s)), image_folder)
+        self.photos, self.small, self.step_photos = (
+            card_images.PhotoCache(master, (int(w * s), int(h * s)), image_folder)
+            for w, h in (CARD_SIZE, LIST_SIZE, STEP_SIZE))
 
         if anchor is not None:
             anchor.update_idletasks()  # Lage jetzt bestimmen (siehe StaplePanel)
@@ -210,14 +236,55 @@ class ComboPanel:
             self._result = f"Combos nicht geladen: {e}"
 
     def _load_images(self, names: List[str]) -> None:
-        """Passcodes der Startkarten bestimmen und fehlende Bilder laden (offline: Platzhalter)."""
+        """Passcodes der Karten bestimmen und fehlende Bilder laden (offline: Platzhalter). Läuft im Hintergrund."""
         names = list(dict.fromkeys(names))
-        for name, ids in self.db.ids_by_name(names).items():
+        self._tried.update(name_key(n) for n in names)
+        unknown = [n for n in names if name_key(n) not in self.passcodes]
+        for name, ids in (self.db.ids_by_name(unknown).items() if unknown else ()):
             self.passcodes[name_key(name)] = min(ids, key=lambda cid: (len(cid), cid))  # das Original
         codes = [self.passcodes.get(name_key(n)) for n in names]
         session = {"session": self.session} if self.session is not None else {}
         card_images.download(codes, folder=self.image_folder, **session)
-        self.photos.prepare(codes)  # Anzeige ohne Ruckler
+        for cache in (self.photos, self.small, self.step_photos):
+            cache.prepare(codes)  # Anzeige ohne Ruckler
+
+    def _image_worker(self, mdm_id: str, names: List[str]) -> None:
+        try:
+            self._load_images(names)
+        except Exception:
+            pass  # ohne Bilder bleiben die Platzhalter
+        finally:
+            self._images_done.append(mdm_id)
+
+    def _fetch_images(self, combo: mdm_combos.Combo) -> None:
+        """Fehlende Bilder der Combo im Hintergrund laden; danach wird die Ansicht neu gezeichnet."""
+        need = [n for n in card_names(combo) if name_key(n) not in self._tried
+                and (self.passcodes.get(name_key(n)) is None or self.photos.missing([self.passcodes[name_key(n)]]))]
+        if not need:
+            return
+        self._tried.update(name_key(n) for n in need)
+        thread = threading.Thread(target=self._image_worker, args=(combo.mdm_id, need), daemon=True)
+        self._image_threads.append(thread)
+        thread.start()
+        if self._image_job is None:
+            self._poll_images()
+
+    def _poll_images(self) -> None:
+        self._image_job = None
+        if self.closed:
+            return
+        done, self._images_done = self._images_done, []
+        if done:
+            for cache in (self.photos, self.small, self.step_photos):
+                cache.forget_missing()  # inzwischen geladen
+            if self.detail is not None and self.detail.combo.mdm_id in done:
+                top = self.canvas.yview()[0]
+                self._draw_detail()
+                self.win.update_idletasks()  # Scrollbereich neu berechnen, dann die Stelle wieder ansteuern
+                self.canvas.yview_moveto(top)
+        self._image_threads = [t for t in self._image_threads if t.is_alive()]
+        if self._image_threads or self._images_done:
+            self._image_job = self.win.after(POLL_MS, self._poll_images)
 
     def _poll(self) -> None:
         self._poll_job = None
@@ -239,6 +306,7 @@ class ComboPanel:
 
     # ── Anzeige ──
     def _clear(self) -> None:
+        self._hide_tip()
         for frame in (self.inner, self.bar):
             for child in frame.winfo_children():
                 child.destroy()
@@ -289,35 +357,57 @@ class ComboPanel:
             self._row(i, match)
 
     def _row(self, index: int, match: mdm_combos.ComboMatch) -> None:
+        """Eine Zeile auf einer Zeichenfläche: links die Startkarten als Bilder, rechts Titel, Chance und Fehlendes."""
         s = self.s
         combo = match.combo
-        bg = ROW_ALT if index % 2 else BG
-        row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(4 * s))
-        row.pack(fill=tk.X)
-        head = tk.Frame(row, bg=bg)
-        head.pack(fill=tk.X)
-        tk.Label(head, text=f"▲ {combo.votes}", fg=MUTED, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
-        tk.Label(head, text=combo.title, fg=TEXT, bg=bg, font=self.font_bold, anchor="w", justify=tk.LEFT,
-                 wraplength=int(340 * s)).pack(side=tk.LEFT)
+        pad = int(6 * s)
+        width = int(466 * s)
+        w, h = self.small.size
+        canvas = tk.Canvas(self.inner, bg=ROW_ALT if index % 2 else BG, highlightthickness=0, bd=0, width=width,
+                           height=1, cursor="hand2")
+        canvas.pack(fill=tk.X)
+        x = pad
+        for card in combo.start[:MAX_LIST_CARDS]:
+            photo = self.small.get(self.passcodes.get(name_key(card.name))) if card.name else None
+            if photo is not None:
+                canvas.create_image(x, pad, image=photo, anchor="nw")
+            else:  # Platzhalter ("beliebig …") bzw. Bild fehlt noch
+                canvas.create_rectangle(x, pad, x + w, pad + h, fill=PANEL, outline="")
+                canvas.create_text(x + w // 2, pad + h // 2, text="?" if not card.name else "", fill=MUTED,
+                                   font=self.font_bold)
+            x += w + int(3 * s)
+        left = x + int(5 * s) if combo.start else pad
+        right = width - pad
+
+        def text(x, y, value, color, font, anchor="nw", wrap=0):
+            item = canvas.create_text(x, y, text=value, fill=color, font=font, anchor=anchor, width=wrap)
+            return canvas.bbox(item)
+
+        votes = text(right, pad, f"▲ {combo.votes}", MUTED, self.font_small, "ne")
+        title = text(left, pad, combo.title, TEXT, self.font_bold, wrap=votes[0] - left - int(24 * s))
         if combo.featured:
-            tk.Label(head, text="★", fg=GOLD, bg=bg, font=self.font_bold).pack(side=tk.LEFT, padx=(int(4 * s), 0))
-        line = tk.Frame(row, bg=bg)
-        line.pack(fill=tk.X)
-        text, color = odds_text(match.odds)
-        tk.Label(line, text=text, fg=color, bg=bg, font=self.font_small_bold).pack(side=tk.RIGHT)
-        tk.Label(line, text=hand_text(combo), fg=MUTED, bg=bg, font=self.font_small, anchor="w", justify=tk.LEFT,
-                 wraplength=int(340 * s)).pack(side=tk.LEFT)
+            text(title[2] + int(4 * s), pad, "★", GOLD, self.font_bold)
+        y = title[3] + int(2 * s)
+        odds, color = odds_text(match.odds)
+        chance = text(right, y, odds, color, self.font_small_bold, "ne")
+        hand = text(left, y, hand_text(combo), MUTED, self.font_small, wrap=chance[0] - left - pad)
+        y = max(hand[3], chance[3]) + int(2 * s)
         if match.missing:
-            tk.Label(row, text="Fehlt: " + ", ".join(match.missing), fg=AMBER, bg=bg, font=self.font_small,
-                     anchor="w", justify=tk.LEFT, wraplength=int(460 * s)).pack(fill=tk.X)
-        self._click(row, lambda i=index: self.show_combo(i))
+            y = text(left, y, "Fehlt: " + ", ".join(match.missing), AMBER, self.font_small, wrap=right - left)[3]
+        canvas.config(height=max(y, pad + h) + pad)
+        canvas.bind("<Button-1>", lambda e, i=index: self.show_combo(i))
 
     def show_combo(self, index: int) -> None:
-        """Detailansicht der Combo (Index in der angezeigten Liste)."""
+        """Detailansicht der Combo (Index in der angezeigten Liste); fehlende Bilder kommen danach nach."""
         if self.closed or not 0 <= index < len(self.visible):
             return
+        self.detail = self.visible[index]
+        self._draw_detail()
+        self._fetch_images(self.detail.combo)
+
+    def _draw_detail(self) -> None:
         s = self.s
-        match = self.detail = self.visible[index]
+        match = self.detail
         combo = match.combo
         self._clear()
         self._button(self.bar, "← Zurück", self.back)
@@ -336,8 +426,7 @@ class ComboPanel:
             self._steps(combo.steps)
         if combo.end:
             self._section("ENDBOARD")
-            for entry in combo.end:
-                self._label(entry_text(entry), self.font_small, TEXT)
+            self._entries(combo.end, connectors=False)
         if combo.vs_handtraps:
             self._section("SPIELT DURCH")
             self._label(", ".join(combo.vs_handtraps), self.font_small, TEXT)
@@ -360,10 +449,8 @@ class ComboPanel:
             holder.pack(fill=tk.X)
             grid = self.grid = CardGrid(holder, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
                                         self.font_small, scrollable=False)
-            have = {name_key(n): c for n, c in self.main.items()}
             for card in cards:
-                grid.card(card.name, self.passcodes.get(name_key(card.name)),
-                          [(f"×{have.get(name_key(card.name), 0)}", MUTED, self.font_small)])
+                grid.card(card.name, self.passcodes.get(name_key(card.name)), [])
             grid.finish()
             grid.canvas.config(height=grid.y + int(4 * s))
         for card in combo.start:
@@ -372,10 +459,83 @@ class ComboPanel:
                             self.font_small, MUTED)
 
     def _steps(self, steps: List[mdm_combos.Step]) -> None:
-        colors = {"step": TEXT, "cond": NEON, "branch": GOLD}
-        for level, text, kind in step_lines(steps):
-            font = self.font_small if kind == "step" else self.font_small_bold
-            self._label(text, font, colors[kind], indent=int(INDENT * self.s) * level)
+        colors = {"cond": NEON, "branch": GOLD}
+        for level, kind, item, number in walk_steps(steps):
+            indent = int(INDENT * self.s) * level
+            if kind == "step":
+                self._entries(item.entries, f"{number}.", indent)
+            else:
+                self._label(item, self.font_small_bold, colors[kind], indent=indent)
+
+    def _entries(self, entries: List[mdm_combos.Entry], number: str = "", indent: int = 0,
+                 connectors: bool = True) -> None:
+        """
+        Einträge als Bildzeile auf einer Zeichenfläche: Kartenbild, darunter die Aktion; dazwischen → bzw. + (der
+        Verbinder des Eintrags davor). Passt nicht alles in eine Reihe, geht es darunter weiter. Einträge ohne Karte
+        sind nur Text. Beim Darüberfahren erscheint der Kartenname mit der Aktion.
+        """
+        s = self.s
+        w, h = self.step_photos.size
+        item_w, joint = w + int(20 * s), int(18 * s) if connectors else 0
+        left = int(24 * s) if number else 0
+        total = int(460 * s) - indent
+        gap = int(6 * s)
+        canvas = tk.Canvas(self.inner, bg=BG, highlightthickness=0, bd=0, width=total, height=1)
+        canvas.pack(fill=tk.X, padx=(indent, 0), pady=(0, int(4 * s)))
+        if number:
+            canvas.create_text(0, int(2 * s), text=number, fill=TEXT, font=self.font_small_bold, anchor="nw")
+        x, y, bottom = left, 0, 0
+        for i, entry in enumerate(entries):
+            if i and x + joint + item_w > total:  # neue Reihe
+                x, y = left, bottom + gap
+                bottom = y
+            if i and connectors:
+                sign = "+" if entries[i - 1].connector == "plus" else "→"
+                canvas.create_text(x + joint // 2, y + (h // 2 if entry.card else int(8 * s)), text=sign, fill=NEON,
+                                   font=self.font_bold)
+            x += joint if i else 0
+            tag = f"entry{i}"
+            top = y
+            if entry.card:
+                photo = self.step_photos.get(self.passcodes.get(name_key(entry.card)))
+                px = x + (item_w - w) // 2
+                if photo is not None:
+                    canvas.create_image(px, y, image=photo, anchor="nw", tags=(tag,))
+                else:
+                    canvas.create_rectangle(px, y, px + w, y + h, fill=PANEL, outline="", tags=(tag,))
+                    canvas.create_text(px + w // 2, y + h // 2, text=entry.card, fill=TEXT, font=self.font_small,
+                                       width=w - int(6 * s), justify=tk.CENTER, tags=(tag,))
+                top = y + h + int(3 * s)
+                bottom = max(bottom, y + h)
+                canvas.tag_bind(tag, "<Enter>", lambda e, en=entry: self._show_tip(e, en.card, en.label))
+                canvas.tag_bind(tag, "<Leave>", lambda e: self._hide_tip())
+            if entry.label:
+                label = canvas.create_text(x + item_w // 2, top, text=entry.label, fill=MUTED if entry.card else TEXT,
+                                           font=self.font_small, anchor="n", width=item_w, justify=tk.CENTER,
+                                           tags=(tag,))
+                bottom = max(bottom, canvas.bbox(label)[3])
+            x += item_w
+        canvas.config(height=bottom + int(2 * s))
+
+    def _show_tip(self, event, name: str, detail: str) -> None:
+        """Kleines Fenster mit Kartenname und Aktion neben der Maus."""
+        self._hide_tip()
+        s = self.s
+        tip = tk.Toplevel(self.win, bg=GOLD)
+        tip.overrideredirect(True)
+        tip.wm_attributes("-topmost", True)
+        box = tk.Frame(tip, bg=PANEL, padx=int(8 * s), pady=int(4 * s))
+        box.pack(padx=1, pady=1)
+        tk.Label(box, text=name, fg=TEXT, bg=PANEL, font=self.font_bold, anchor="w").pack(fill=tk.X)
+        if detail:
+            tk.Label(box, text=detail, fg=MUTED, bg=PANEL, font=self.font_small, anchor="w").pack(fill=tk.X)
+        tip.geometry(f"+{event.x_root + int(14 * s)}+{event.y_root + int(14 * s)}")
+        self._tip = tip
+
+    def _hide_tip(self) -> None:
+        if self._tip is not None:
+            self._tip.destroy()
+            self._tip = None
 
     def back(self) -> None:
         self.render()
@@ -402,10 +562,12 @@ class ComboPanel:
         if self.closed:
             return
         self.closed = True
-        if self._poll_job is not None:
-            try:
-                self.win.after_cancel(self._poll_job)
-            except tk.TclError:
-                pass
+        self._hide_tip()
+        for job in (self._poll_job, self._image_job):
+            if job is not None:
+                try:
+                    self.win.after_cancel(job)
+                except tk.TclError:
+                    pass
         self.win.destroy()
         self.on_close()

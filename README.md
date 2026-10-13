@@ -207,6 +207,7 @@ Deck → **Combos** (bottom row, next to Side) lists the community combos that M
 Meta has for the archetypes of the deck shown. By default only combos you can play with
 this deck are listed ("Nur spielbare"; "Alle" also shows the ones with missing cards, which
 are named). Each row shows the starting hand and the chance to have all named starters in
-your first 5 cards. Click a combo for the whole line: starting hand as card images, the
-steps with their branches, the end board and the hand traps it plays through. The data
+your first 5 cards (shown as small card images). Click a combo for the whole line: starting hand,
+the steps as rows of card images with the action under each card, their branches, the end board
+and the hand traps it plays through. The data
 is saved locally and refreshed every few days, or on demand with "Aktualisieren".

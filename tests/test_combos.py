@@ -1,11 +1,13 @@
 """Combos von Master Duel Meta: Antwort lesen, laden, mit dem Deck abgleichen, Fenster – ohne Internet."""
 
+import io
 import tempfile
 import time
 import unittest
 import unittest.mock
 from itertools import combinations
 
+import card_images
 import mdm_combos as mc
 from tests.test_staples import HAS_TK, FakeResponse, make_db
 
@@ -70,6 +72,20 @@ class FakeSession:
                 return FakeResponse([])
             return FakeResponse(ELFNOTE if self.as_object else [{"_id": "dt0", "name": "Anderes"}, ELFNOTE])
         return FakeResponse([COMBO_A, COMBO_B, COMBO_C] if params["deckType"] == "dt1" else [])
+
+
+class ImageSession(FakeSession):
+    """Wie FakeSession, aber Kartenbilder gibt es erst, wenn ready gesetzt ist."""
+
+    ready = False
+
+    def get(self, url, params=None, timeout=None):
+        if "images.ygoprodeck.com" in url and self.ready:
+            from PIL import Image
+            data = io.BytesIO()
+            Image.new("RGB", (20, 30), "red").save(data, "JPEG")
+            return type("R", (), {"status_code": 200, "content": data.getvalue()})()
+        return super().get(url, params, timeout)
 
 
 class ParseTest(unittest.TestCase):
@@ -232,12 +248,27 @@ class ComboPanelTest(unittest.TestCase):
         return panel
 
     def texts(self, widget):
+        """Texte aller Labels und Zeichenflächen darin."""
         result = []
         for child in widget.winfo_children():
             if isinstance(child, tk.Label):
                 result.append(child.cget("text"))
+            elif isinstance(child, tk.Canvas):
+                result += self.canvas_texts(child)
             result += self.texts(child)
         return result
+
+    @staticmethod
+    def canvas_texts(canvas):
+        return [canvas.itemcget(i, "text") for i in canvas.find_all() if canvas.type(i) == "text"]
+
+    @staticmethod
+    def canvas_types(canvas):
+        return [canvas.type(i) for i in canvas.find_all()]
+
+    @staticmethod
+    def canvases(widget):
+        return [c for c in widget.winfo_children() if isinstance(c, tk.Canvas)]
 
     def test_list_filter_detail_and_back(self):
         panel = self.open(["Elfnote"], FakeSession())
@@ -248,6 +279,12 @@ class ComboPanelTest(unittest.TestCase):
         self.assertIn("Tinia Loop", texts)
         self.assertIn("Elfnote Tinia + beliebig (Non-FIRE)", texts)
         self.assertNotIn("Braucht Ash", texts)
+        # je Zeile eine Zeichenfläche; "beliebig" als graue Fläche mit "?", die benannte Karte ohne Bild ohne "?"
+        first, second = self.canvases(panel.inner)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(self.canvas_texts(first).count("?"), 1)  # Tinia Loop: Tinia + beliebig
+        self.assertEqual(self.canvas_types(first).count("rectangle"), 2)
+        self.assertEqual(self.canvas_texts(second).count("?"), 0)  # Regina
         self.assertEqual(panel.filter_btn.cget("text"), "Nur spielbare")
         panel.filter_btn.invoke()
         self.assertEqual(panel.filter_btn.cget("text"), "Alle")
@@ -261,11 +298,20 @@ class ComboPanelTest(unittest.TestCase):
         self.root.update()
         self.assertEqual(panel.detail.combo.mdm_id, "a")
         texts = self.texts(panel.inner)
-        self.assertIn("1. Elfnote Tinia – Special Summon → Elfnotes: Welcome Home – Place", texts)
-        self.assertIn("2. Elfnote Regina – Quick Effect + Elfnote Lucina – Add", texts)
+        self.assertFalse([t for t in texts if "×" in t])  # keine Kopienzahl unter der Starthand
+        self.assertNotIn("1. Elfnote Tinia – Special Summon → Elfnotes: Welcome Home – Place", texts)  # kein Text
+        # je Schritt eine Zeichenfläche (Schritte 1, 2, dann Zweig "Add Lucina" und "Tief"), dazu das Endboard
+        steps = self.canvases(panel.inner)
+        self.assertEqual(len(steps), 5)
+        one, two = self.canvas_texts(steps[0]), self.canvas_texts(steps[1])
+        self.assertEqual((one[0], "→" in one, "Special Summon" in one, "Place" in one), ("1.", True, True, True))
+        self.assertEqual(("+" in two, "→" in two), (True, False))  # Verbinder "plus"
+        self.assertEqual(self.canvas_types(steps[0]).count("rectangle"), 2)  # ohne Bilder: Platzhalter je Karte
+        self.assertIn("Elfnote Tinia", one)
+        self.assertIn("Omni Negate", self.canvas_texts(steps[-1]))  # Endboard mit Label unter dem Bild
+        self.assertIn("Zalen the Shackled Dragon", self.canvas_texts(steps[-1]))
         self.assertIn("◆ Wenn Ash kommt", texts)
         self.assertIn("▸ Add Lucina", texts)
-        self.assertIn("Zalen the Shackled Dragon – Omni Negate", texts)
         self.assertIn("Nibiru, the Primal Being, Ash Blossom & Joyous Spring", texts)
         self.assertIn("von Raijn · ▲ 2 · Stand 02.10.2026", texts)
         self.assertIn("beliebig: Any Non-FIRE Monster", texts)
@@ -277,6 +323,71 @@ class ComboPanelTest(unittest.TestCase):
         self.assertIsNone(panel.detail)
         self.assertEqual(len(panel.inner.winfo_children()), 2)
         panel.close()
+
+    def test_tooltip_on_card_in_step(self):
+        panel = self.open(["Elfnote"], FakeSession())
+        panel.show_combo(0)
+        self.root.update()
+        canvas = self.canvases(panel.inner)[0]
+        x0, y0, x1, y1 = canvas.bbox("entry0")
+        self.assertIsNone(panel._tip)
+        canvas.event_generate("<Motion>", x=(x0 + x1) // 2, y=y0 + 5)
+        self.root.update()
+        self.assertIsNotNone(panel._tip)
+        self.assertEqual(self.texts(panel._tip), ["Elfnote Tinia", "Special Summon"])
+        canvas.event_generate("<Motion>", x=x1 + 400, y=y1 + 400)
+        self.root.update()
+        self.assertIsNone(panel._tip)
+        panel._show_tip(type("E", (), {"x_root": 5, "y_root": 5})(), "X", "")
+        panel.back()  # Wechsel der Ansicht entfernt den Tooltip
+        self.assertIsNone(panel._tip)
+        panel._show_tip(type("E", (), {"x_root": 5, "y_root": 5})(), "X", "")
+        panel.close()
+        self.assertIsNone(panel._tip)
+
+    def test_twenty_steps_with_connectors_wrap_into_rows(self):
+        entries = [{**card(f"Karte {i}"), "label": "Aktion", "connector": "arrow"} for i in range(9)]
+        data = {**COMBO_C, "steps": [{"entries": entries[:3]}] * 19 + [{"entries": entries}]}
+        db = make_db()
+        db.store_combos("Elfnote", mc.ComboSet("Elfnote", [mc.parse_combo(data, "Elfnote")], time.time()).to_json())
+        panel = self.open(["Elfnote"], FakeSession(), db)
+        start = time.perf_counter()
+        panel.show_combo(0)
+        self.root.update()
+        print(f"\n20 Schritte gezeichnet in {(time.perf_counter() - start) * 1000:.0f} ms", end=" ")
+        steps = self.canvases(panel.inner)
+        self.assertEqual(len(steps), 20)
+        last = steps[-1]
+        self.assertEqual(self.canvas_texts(last).count("→"), 8)
+        self.assertGreater(int(last.cget("height")), 2 * 67)  # neun Karten brauchen mehr als eine Reihe
+        self.assertLess(int(steps[0].cget("height")), 2 * 67 + 20)
+        panel.close()
+
+    def test_images_of_steps_are_loaded_when_opening_a_combo(self):
+        session = ImageSession()
+        db = make_db()
+        db.ids_by_name = lambda names: {n: [str(100000 + sum(map(ord, n)))] for n in names}
+        with unittest.mock.patch.object(card_images, "PAUSE", 0):
+            panel = self.open(["Elfnote"], session, db)  # Startkarten: Bilder noch nicht da (404)
+            session.ready = True
+            panel.show_combo(0)
+            self.root.update()
+            first = self.canvases(panel.inner)[0]
+            self.assertEqual(self.canvas_types(first).count("image"), 0)  # sofort mit Platzhaltern
+            self.assertEqual(len(panel._image_threads), 1)
+            end = time.time() + 5
+            while (panel._image_threads or panel._image_job) and time.time() < end:
+                self.root.update()
+                time.sleep(0.02)
+            self.root.update()
+            first = self.canvases(panel.inner)[0]
+            # "Welcome Home" ist neu geladen; Tinia wurde schon mit den Startkarten (vergeblich) gesucht
+            self.assertEqual(self.canvas_types(first).count("image"), 1)
+            self.assertEqual(self.canvas_types(first).count("rectangle"), 1)
+            panel.back()
+            panel.show_combo(0)
+            self.assertEqual(panel._image_threads, [])  # alles versucht: kein neuer Thread
+            panel.close()
 
     def test_browser_only_on_click(self):
         with unittest.mock.patch("combo_panel.webbrowser.open") as browser:
