@@ -189,6 +189,19 @@ class FetchLoadTest(unittest.TestCase):
         self.assertEqual(len(session.calls), 1)
 
 
+class AttributesTest(unittest.TestCase):
+    def test_attributes_in_order_without_duplicates(self):
+        from combo_panel import attributes
+        self.assertEqual(attributes("Any Fire monster"), [("FIRE", False)])
+        self.assertEqual(attributes("Any Non-FIRE Monster"), [("FIRE", True)])
+        self.assertEqual(attributes("Fire or Wind"), [("FIRE", False), ("WIND", False)])
+        self.assertEqual(attributes("any non-wind monster"), [("WIND", True)])
+        self.assertEqual(attributes("WIND, wind and Fire"), [("WIND", False), ("FIRE", False)])
+        self.assertEqual(attributes("nonfire DARK"), [("FIRE", True), ("DARK", False)])
+        self.assertEqual(attributes("Any monster"), [])
+        self.assertEqual(attributes("Firewall Lightning"), [])  # nur ganze Wörter
+
+
 class MatchTest(unittest.TestCase):
     def combo(self, start, required=()):
         data = {"startingCards": start, "requiredCards": [card(n) for n in required]}
@@ -279,10 +292,10 @@ class ComboPanelTest(unittest.TestCase):
         self.assertIn("Tinia Loop", texts)
         self.assertIn("Elfnote Tinia + beliebig (Non-FIRE)", texts)
         self.assertNotIn("Braucht Ash", texts)
-        # je Zeile eine Zeichenfläche; "beliebig" als graue Fläche mit "?", die benannte Karte ohne Bild ohne "?"
+        # je Zeile eine Zeichenfläche; "beliebig" als graue Fläche (hier mit Attribut statt "?"), Karte ohne Bild leer
         first, second = self.canvases(panel.inner)
         self.assertEqual(len(rows), 2)
-        self.assertEqual(self.canvas_texts(first).count("?"), 1)  # Tinia Loop: Tinia + beliebig
+        self.assertEqual(self.canvas_texts(first).count("?"), 0)  # Tinia Loop: Tinia + beliebig (Non-FIRE)
         self.assertEqual(self.canvas_types(first).count("rectangle"), 2)
         self.assertEqual(self.canvas_texts(second).count("?"), 0)  # Regina
         self.assertEqual(panel.filter_btn.cget("text"), "Nur spielbare")
@@ -322,6 +335,56 @@ class ComboPanelTest(unittest.TestCase):
         panel.bar.winfo_children()[0].invoke()
         self.assertIsNone(panel.detail)
         self.assertEqual(len(panel.inner.winfo_children()), 2)
+        panel.close()
+
+    def start_panel(self, *generics):
+        """Panel mit einer Combo, deren Starthand Elfnote Regina + je ein Platzhalter-Text ist."""
+        start = [card("Elfnote Regina")] + [{"generic": g} for g in generics]
+        db = make_db()
+        data = mc.parse_combo({**COMBO_C, "startingCards": start}, "Elfnote")
+        db.store_combos("Elfnote", mc.ComboSet("Elfnote", [data], time.time()).to_json())
+        return self.open(["Elfnote"], FakeSession(), db)
+
+    def test_attribute_symbols_in_list_and_detail(self):
+        panel = self.start_panel("Any FIRE monster")
+        self.root.update()
+        row = self.canvases(panel.inner)[0]
+        self.assertEqual(self.canvas_texts(row).count("?"), 0)
+        ovals = [i for i in row.find_all() if row.type(i) == "oval"]
+        self.assertEqual([row.itemcget(i, "fill") for i in ovals], ["#d32f2f"])
+        self.assertEqual(self.canvas_types(row).count("line"), 0)  # nicht verneint: kein Schrägstrich
+        self.assertIn("FIRE", self.canvas_texts(row))  # 30 px breit: Name oben im Symbol
+        # Detail: Symbol vor der Zeile "beliebig: …"
+        panel.show_combo(0)
+        self.root.update()
+        frames = [f for f in panel.inner.winfo_children() if isinstance(f, tk.Frame) and self.canvases(f)]
+        self.assertEqual(len(frames), 1)
+        symbol = self.canvases(frames[0])[0]
+        self.assertEqual(self.canvas_types(symbol).count("oval"), 1)
+        self.assertIn("beliebig: Any FIRE monster", self.texts(frames[0]))
+        self.assertLess(symbol.winfo_x(), frames[0].winfo_children()[1].winfo_x())  # Symbol links vom Text
+        panel.close()
+
+    def test_negated_two_and_many_attributes(self):
+        panel = self.start_panel("Any Non-WIND monster")
+        row = self.canvases(panel.inner)[0]
+        self.assertEqual((self.canvas_types(row).count("oval"), self.canvas_types(row).count("line")), (1, 1))
+        panel.close()
+        panel = self.start_panel("Fire or Wind monster")
+        row = self.canvases(panel.inner)[0]
+        ovals = [i for i in row.find_all() if row.type(i) == "oval"]
+        self.assertEqual([row.itemcget(i, "fill") for i in ovals], ["#d32f2f", "#2e7d32"])
+        self.assertNotIn("FIRE", self.canvas_texts(row))  # zwei kleine Symbole: ohne Namen
+        panel.show_combo(0)
+        frame = next(f for f in panel.inner.winfo_children() if isinstance(f, tk.Frame) and self.canvases(f))
+        self.assertEqual(self.canvas_types(self.canvases(frame)[0]).count("oval"), 2)
+        panel.close()
+        panel = self.start_panel("Fire, Water or Wind monster", "Any monster")  # drei bzw. keins → "?"
+        row = self.canvases(panel.inner)[0]
+        self.assertEqual((self.canvas_texts(row).count("?"), self.canvas_types(row).count("oval")), (2, 0))
+        panel.show_combo(0)
+        self.assertFalse([f for f in panel.inner.winfo_children() if isinstance(f, tk.Frame) and self.canvases(f)
+                          and self.canvas_types(self.canvases(f)[0]).count("oval")])
         panel.close()
 
     def test_tooltip_on_card_in_step(self):

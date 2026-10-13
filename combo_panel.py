@@ -15,6 +15,7 @@ Ansicht erscheint sofort mit Platzhaltern und wird neu gezeichnet, sobald die Bi
 import re
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 import webbrowser
 from typing import Callable, Dict, Iterator, List, Optional, Tuple
 from urllib.parse import quote
@@ -37,6 +38,13 @@ STEP_SIZE = (46, 67)    # … Karten der Schritte und des Endboards
 MAX_LIST_CARDS = 5      # Startkarten, die die Zeile der Liste als Bilder zeigt
 INDENT = 14             # Einrückung je Ebene bei 1080p
 GOOD_ODDS = 0.5         # ab dieser Chance grün
+# Attribute für die Platzhalter ("Any FIRE monster"): Farbe und Kanji wie das Symbol im Spiel (selbst gezeichnet)
+ATTRIBUTES = {"FIRE": ("#d32f2f", "炎"), "WATER": ("#1e88e5", "水"), "EARTH": ("#795548", "地"),
+              "WIND": ("#2e7d32", "風"), "LIGHT": ("#f9a825", "光"), "DARK": ("#6a1b9a", "闇"),
+              "DIVINE": ("#ff8f00", "神")}
+ATTRIBUTE_RE = re.compile(r"\b(non[- ]?)?(fire|water|earth|wind|light|dark|divine)\b", re.I)
+KANJI_FONTS = ("Yu Gothic UI", "Meiryo", "MS Gothic")
+_kanji_font: List[Optional[str]] = []   # einmal ermittelt (None = keine passende Schrift)
 MDM_DECK_URL = "https://www.masterduelmeta.com/tier-list/deck-types/{name}"
 
 
@@ -48,6 +56,40 @@ def hand_text(combo: mdm_combos.Combo) -> str:
                          flags=re.I) or "Karte"
         parts.append(card.name or f"beliebig ({generic})")
     return " + ".join(parts) or "–"
+
+
+def attributes(text: str) -> List[Tuple[str, bool]]:
+    """Attribute im Platzhalter-Text in Reihenfolge, ohne Doppelte: "Non-FIRE" → [("FIRE", True)] (True = verneint)."""
+    found: Dict[str, bool] = {}
+    for match in ATTRIBUTE_RE.finditer(text):
+        found.setdefault(match.group(2).upper(), bool(match.group(1)))
+    return list(found.items())
+
+
+def kanji_font() -> Optional[str]:
+    """Erste vorhandene Schrift mit Kanji (None: keine – dann stehen zwei Buchstaben im Symbol)."""
+    if not _kanji_font:
+        families = set(tkfont.families())
+        _kanji_font.append(next((f for f in KANJI_FONTS if f in families), None))
+    return _kanji_font[0]
+
+
+def draw_attribute(canvas: tk.Canvas, x: float, y: float, size: float, attribute: str, crossed: bool = False,
+                   scale: float = 1.0) -> None:
+    """Attributsymbol (farbiger Kreis, Kanji, ab 28·scale oben der Name) in das Quadrat bei (x, y); crossed = "Non-"."""
+    color, kanji = ATTRIBUTES[attribute]
+    cx, cy = x + size / 2, y + size / 2
+    canvas.create_oval(x, y, x + size, y + size, fill=color, outline="#f5f5f5", width=2 if size >= 20 * scale else 1)
+    family, named = kanji_font(), size >= 28 * scale
+    glyph = kanji if family else attribute[:2]
+    canvas.create_text(cx, cy + (size * 0.08 if named else 0), text=glyph, fill="white",
+                       font=(family or "Helvetica", -int(size * (0.42 if family else 0.34)), "bold"))
+    if named:
+        canvas.create_text(cx, y + size * 0.2, text=attribute, fill="white",
+                           font=("Helvetica", -max(6, int(size * 0.17)), "bold"))
+    if crossed:
+        canvas.create_line(x + size * 0.12, y + size * 0.88, x + size * 0.88, y + size * 0.12, fill="#ff5252",
+                           width=max(2, int(2 * scale)), capstyle=tk.ROUND)
 
 
 def odds_text(odds: Optional[float]) -> Tuple[str, str]:
@@ -373,8 +415,15 @@ class ComboPanel:
                 canvas.create_image(x, pad, image=photo, anchor="nw")
             else:  # Platzhalter ("beliebig …") bzw. Bild fehlt noch
                 canvas.create_rectangle(x, pad, x + w, pad + h, fill=PANEL, outline="")
-                canvas.create_text(x + w // 2, pad + h // 2, text="?" if not card.name else "", fill=MUTED,
-                                   font=self.font_bold)
+                attrs = attributes(card.generic) if not card.name else []
+                if 1 <= len(attrs) <= 2:  # Attributsymbol(e) mittig, bei zwei übereinander
+                    size = min(w - int(4 * s), (h - int(6 * s)) // len(attrs))
+                    top = pad + (h - size * len(attrs)) // 2
+                    for i, (attribute, crossed) in enumerate(attrs):
+                        draw_attribute(canvas, x + (w - size) // 2, top + i * size, size, attribute, crossed, s)
+                else:
+                    canvas.create_text(x + w // 2, pad + h // 2, text="?" if not card.name else "", fill=MUTED,
+                                       font=self.font_bold)
             x += w + int(3 * s)
         left = x + int(5 * s) if combo.start else pad
         right = width - pad
@@ -455,8 +504,25 @@ class ComboPanel:
             grid.canvas.config(height=grid.y + int(4 * s))
         for card in combo.start:
             if not card.name:
-                self._label(f"beliebig: {card.generic}" + (f" ({card.label})" if card.label else ""),
-                            self.font_small, MUTED)
+                self._placeholder(card)
+
+    def _placeholder(self, card: mdm_combos.HandCard) -> None:
+        """Zeile "beliebig: …"; mit ein oder zwei Attributen steht davor das Symbol."""
+        text = f"beliebig: {card.generic}" + (f" ({card.label})" if card.label else "")
+        attrs = attributes(card.generic)
+        if not 1 <= len(attrs) <= 2:
+            self._label(text, self.font_small, MUTED)
+            return
+        s = self.s
+        size, gap = int(22 * s), int(4 * s)
+        row = tk.Frame(self.inner, bg=BG)
+        row.pack(fill=tk.X, pady=(0, int(2 * s)))
+        canvas = tk.Canvas(row, bg=BG, highlightthickness=0, bd=0, width=len(attrs) * (size + gap), height=size)
+        canvas.pack(side=tk.LEFT)
+        for i, (attribute, crossed) in enumerate(attrs):
+            draw_attribute(canvas, i * (size + gap), 0, size, attribute, crossed, s)
+        tk.Label(row, text=text, fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
+                 wraplength=int(430 * s) - len(attrs) * (size + gap)).pack(side=tk.LEFT, fill=tk.X)
 
     def _steps(self, steps: List[mdm_combos.Step]) -> None:
         colors = {"cond": NEON, "branch": GOLD}
