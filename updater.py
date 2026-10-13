@@ -86,8 +86,18 @@ def write_script(source: str, app_dir: str, pid: int, exe_name: str, folder: str
     lines = [
         "@echo off",
         "chcp 65001 >nul",
+        # Warten bis der alte Prozess weg ist (höchstens ~2 min). Kein "&& (… goto)" hinter der Pipe (läuft in eigener
+        # cmd, das goto ginge ins Leere) und kein timeout (bricht ohne Konsole sofort ab) → ping als Pause.
+        "set /a n=0",
         ":wait",
-        f'tasklist /FI "PID eq {pid}" 2>nul | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)',
+        # find mit vollem Pfad: liegt Git (usr\bin) im PATH, wäre "find" sonst das GNU-find
+        f'tasklist /FI "PID eq {pid}" 2>nul | "%SystemRoot%\\System32\\find.exe" "{pid}" >nul',
+        "if errorlevel 1 goto copy",
+        "set /a n+=1",
+        "if %n% geq 120 goto copy",
+        "ping -n 2 127.0.0.1 >nul",
+        "goto wait",
+        ":copy",
         f'robocopy "{q(source)}" "{q(app_dir)}" /E /R:20 /W:1 /NFL /NDL /NJH /NJS /NP >> "{log}"',
         f'if errorlevel 8 echo FEHLER beim Kopieren (robocopy %errorlevel%) >> "{log}"',
         f'start "" "{q(os.path.join(app_dir, exe_name))}"',

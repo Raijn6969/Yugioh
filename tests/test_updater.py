@@ -133,7 +133,13 @@ class ScriptTest(TempTest):
         lines = text.split("\r\n")
         self.assertEqual(lines[:2], ["@echo off", "chcp 65001 >nul"])
         self.assertIn('tasklist /FI "PID eq 4711"', text)
-        self.assertIn('find "4711"', text)
+        self.assertIn('| "%SystemRoot%\\System32\\find.exe" "4711"', text)    # nicht das GNU-find aus Git
+        # Warteschleife: Zähler, kein "&&" hinter der Pipe, kein timeout, %n% bleibt unverdoppelt
+        crlf = "\r\n".join
+        self.assertIn(crlf(["set /a n=0", ":wait", "tasklist"]), text)
+        self.assertIn(crlf(["if errorlevel 1 goto copy", "set /a n+=1", "if %n% geq 120 goto copy",
+                            "ping -n 2 127.0.0.1 >nul", "goto wait", ":copy", "robocopy"]), text)
+        self.assertNotIn("timeout", text.replace("kein timeout", ""))
         robocopy, = [line for line in lines if line.startswith("robocopy")]
         self.assertIn(f'robocopy "{source}" "{app_dir}" /E', robocopy)      # ohne Schluss-\ vor dem "
         self.assertIn(f'>> "{os.path.join(self.tmp, "update.log")}"', robocopy)
@@ -154,6 +160,51 @@ class ScriptTest(TempTest):
             ["cmd", "/c", script],
             creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
             close_fds=True, cwd=self.tmp)
+
+
+@unittest.skipUnless(os.name == "nt", "update.cmd gibt es nur unter Windows")
+class RealScriptRunTest(TempTest):
+    """Echter Durchlauf von update.cmd im Temp-Ordner: alter Prozess = ping, "exe" = marker.vbs (wscript, ohne
+    Fenster). Nichts außerhalb des Temp-Ordners, kein Netz, keine Eingaben."""
+
+    VBS = "\r\n".join([
+        'Set fso = CreateObject("Scripting.FileSystemObject")',
+        r'Set f = fso.CreateTextFile(fso.GetParentFolderName(WScript.ScriptFullName) & "\marker.txt", True)',
+        'f.Write "gestartet"', "f.Close", ""])
+
+    def test_script_waits_for_the_old_process_then_copies_and_starts(self):
+        root = os.path.join(self.tmp, "Upd ü %NOVAR_X% Test")
+        app_dir, source, folder = (os.path.join(root, name) for name in ("Programm", "neu", "skript"))
+        for path in (app_dir, source, folder):
+            os.makedirs(path)
+        config = os.path.join(app_dir, "md_config.json")
+        with open(config, "w", encoding="utf-8") as f:
+            f.write('{"eigene": "Daten"}')
+        with open(os.path.join(source, "neu.txt"), "w", encoding="utf-8") as f:
+            f.write("neue Datei")
+        with open(os.path.join(source, "marker.vbs"), "w", encoding="utf-16") as f:   # wscript braucht BOM
+            f.write(self.VBS)
+        waiter = subprocess.Popen(["ping", "-n", "4", "127.0.0.1"], stdout=subprocess.DEVNULL)   # "alter Importer"
+        self.addCleanup(waiter.kill)
+        self.addCleanup(waiter.wait)
+        script = updater.write_script(source, app_dir, waiter.pid, "marker.vbs", folder)
+        marker = os.path.join(app_dir, "marker.txt")
+        t0 = time.monotonic()
+        updater.launch(script)
+        old_ended = None
+        while not os.path.exists(marker):
+            if old_ended is None and waiter.poll() is not None:
+                old_ended = time.monotonic() - t0
+            self.assertLess(time.monotonic() - t0, 30, "Skript hat die neue 'exe' nicht gestartet")
+            time.sleep(0.05)
+        waited = time.monotonic() - t0
+        self.assertIsNotNone(waiter.poll(), "Marker erschien, bevor der alte Prozess beendet war")
+        print(f"[Test] update.cmd: Marker nach {waited:.1f} s (alter Prozess ~3 s)")
+        self.assertGreater(waited, 2.0)
+        with open(os.path.join(app_dir, "neu.txt"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "neue Datei")
+        with open(config, encoding="utf-8") as f:
+            self.assertEqual(f.read(), '{"eigene": "Daten"}')
 
 
 class CleanupTest(TempTest):
