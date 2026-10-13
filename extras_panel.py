@@ -31,6 +31,7 @@ import md_layout
 import win_api
 import starter_guides
 from card_stats import CardInfo, CardStatsDB
+from dark_scrollbar import DarkScrollbar
 from options_popup import OptionsPopup
 from deck_analysis import DeckAnalysis, DeckEntry, DeckWatcher, current_changes, slot_at, slot_rect
 from deck_export import DeckScan
@@ -243,7 +244,7 @@ class ExtrasPanel:
         list_frame = tk.Frame(body, bg=BG)
         list_frame.pack(fill=tk.BOTH, expand=True)
         self.list_canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
-        bar = tk.Scrollbar(list_frame, command=self.list_canvas.yview)
+        bar = DarkScrollbar(list_frame, command=self.list_canvas.yview, bg=BG, scale=self.s)
         self.list_canvas.config(yscrollcommand=bar.set)
         bar.pack(side=tk.RIGHT, fill=tk.Y)
         # Kopfzeile so breit wie die Zeilen darunter (ohne Scrollleiste), sonst stehen die Überschriften versetzt

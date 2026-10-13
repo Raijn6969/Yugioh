@@ -8,6 +8,7 @@ ohne Button über der Taskleiste, der von selbst verschwindet.
 import tkinter as tk
 from typing import Any, Callable, List, Optional, Sequence, Tuple
 
+from dark_scrollbar import DarkScrollbar
 from rounded_button import RoundedButton
 from window_style import apply_frame, no_activate
 import win_api
@@ -181,7 +182,7 @@ def _bullet_list(parent: tk.Misc, items: List[str], fg: str, font, scale: float)
     text.config(state=tk.DISABLED)
     text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     if len(items) > MAX_LIST_LINES:
-        bar = tk.Scrollbar(frame, command=text.yview)
+        bar = DarkScrollbar(frame, command=text.yview, bg=PANEL, scale=scale)
         bar.pack(side=tk.RIGHT, fill=tk.Y)
         text.config(yscrollcommand=bar.set)
 

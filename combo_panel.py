@@ -24,6 +24,7 @@ import card_images
 import mdm_combos
 from card_grid import CardGrid
 from card_stats import name_key
+from dark_scrollbar import DarkScrollbar
 from extras_panel import BG, GOLD, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
@@ -228,7 +229,7 @@ class ComboPanel:
         frame = tk.Frame(body, bg=BG)
         frame.pack(fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(frame, bg=BG, highlightthickness=0, bd=0)
-        scroll = tk.Scrollbar(frame, command=self.canvas.yview)
+        scroll = DarkScrollbar(frame, command=self.canvas.yview, bg=BG, scale=self.s)
         self.canvas.config(yscrollcommand=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

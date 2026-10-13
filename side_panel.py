@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional
 
 import side_profiles
 from card_stats import SideProfile
+from dark_scrollbar import DarkScrollbar
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
@@ -129,7 +130,7 @@ class SidePanel:
         frame = tk.Frame(parent, bg=BG)
         frame.grid(row=row, column=column, sticky="nsew")
         canvas = tk.Canvas(frame, bg=BG, highlightthickness=0, bd=0)
-        bar = tk.Scrollbar(frame, command=canvas.yview)
+        bar = DarkScrollbar(frame, command=canvas.yview, bg=BG, scale=self.s)
         canvas.config(yscrollcommand=bar.set)
         bar.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

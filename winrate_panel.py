@@ -18,6 +18,7 @@ from typing import Callable, List, Optional
 
 import hand_stats
 from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, WinStats
+from dark_scrollbar import DarkScrollbar
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
@@ -213,7 +214,7 @@ class WinratePanel:
         list_frame = tk.Frame(body, bg=BG)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(int(4 * s), 0))
         self.canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
-        bar = tk.Scrollbar(list_frame, command=self.canvas.yview)
+        bar = DarkScrollbar(list_frame, command=self.canvas.yview, bg=BG, scale=self.s)
         self.canvas.config(yscrollcommand=bar.set)
         bar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

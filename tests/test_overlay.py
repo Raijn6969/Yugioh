@@ -17,6 +17,7 @@ except Exception:
     HAS_TK = False
 
 import Overlay
+from dark_scrollbar import DarkScrollbar
 
 
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
@@ -445,7 +446,7 @@ class DarkDialogTest(unittest.TestCase):
         texts = [w for w in win.winfo_children()[1].winfo_children() if isinstance(w, tk.Frame)]
         list_text = texts[0].winfo_children()[0].get("1.0", "end")
         self.assertIn("• Karte 14 (1x fehlend)", list_text)
-        self.assertTrue(any(isinstance(w, tk.Scrollbar) for w in texts[0].winfo_children()))  # > 10 Karten
+        self.assertTrue(any(isinstance(w, DarkScrollbar) for w in texts[0].winfo_children()))  # > 10 Karten
         win.ok_button.invoke()
         self.assertFalse(win.winfo_exists())
 

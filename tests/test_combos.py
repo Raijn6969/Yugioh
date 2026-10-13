@@ -8,6 +8,7 @@ import unittest.mock
 from itertools import combinations
 
 import card_images
+from dark_scrollbar import DarkScrollbar
 import mdm_combos as mc
 from tests.test_staples import HAS_TK, FakeResponse, make_db
 
@@ -332,7 +333,7 @@ class ComboPanelTest(unittest.TestCase):
         self.assertIn("von Raijn · ▲ 2 · Stand 02.10.2026", texts)
         self.assertIn("beliebig: Any Non-FIRE Monster", texts)
         self.assertIn("Elfnote Tinia", panel.grid.texts())  # ohne Bild: Name als Platzhalter
-        self.assertFalse([w for w in panel.grid.canvas.master.winfo_children() if isinstance(w, tk.Scrollbar)])
+        self.assertFalse([w for w in panel.grid.canvas.master.winfo_children() if isinstance(w, DarkScrollbar)])
         self.assertEqual([w.cget("text") for w in panel.bar.winfo_children()],
                          ["← Zurück", "Auf Master Duel Meta öffnen"])
         panel.bar.winfo_children()[0].invoke()

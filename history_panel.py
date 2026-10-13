@@ -14,6 +14,7 @@ from typing import Callable, List, Optional
 import md_layout
 from card_db import CardMatch
 from card_stats import CardStatsDB, HistoryEntry
+from dark_scrollbar import DarkScrollbar
 from deck_export import DeckScan, ExportedCard
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from hover_card import AMBER, NEON
@@ -124,7 +125,7 @@ class HistoryPanel:
         list_frame = tk.Frame(body, bg=BG)
         list_frame.pack(fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
-        bar = tk.Scrollbar(list_frame, command=self.canvas.yview)
+        bar = DarkScrollbar(list_frame, command=self.canvas.yview, bg=BG, scale=self.s)
         self.canvas.config(yscrollcommand=bar.set)
         bar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

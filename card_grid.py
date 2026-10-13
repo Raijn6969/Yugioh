@@ -9,6 +9,8 @@ ruft jede Karte on_enter/on_leave auf (für das Info-Fenster mit den Details).
 import tkinter as tk
 from typing import Callable, List, Optional, Sequence, Tuple
 
+from dark_scrollbar import DarkScrollbar
+
 Line = Tuple[str, str, tuple]  # (Text, Farbe, Schrift)
 
 
@@ -23,7 +25,7 @@ class CardGrid:
         frame.pack(fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(frame, bg=bg, highlightthickness=0, bd=0)
         if scrollable:  # ohne: Der Aufrufer scrollt selbst (kein Balken, kein Mausrad)
-            bar = tk.Scrollbar(frame, command=self.canvas.yview)
+            bar = DarkScrollbar(frame, command=self.canvas.yview, bg=bg, scale=scale)
             self.canvas.config(yscrollcommand=bar.set)
             bar.pack(side=tk.RIGHT, fill=tk.Y)
             self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
