@@ -7,6 +7,7 @@ Schritte mit Verzweigungen, das Endboard und die Handtraps, gegen die sie durchs
 (mdm_combos: einmal online, danach aus der Datenbank), bei Hybrid-Decks lässt sich zwischen den Deck-Typen umschalten.
 """
 
+import re
 import threading
 import tkinter as tk
 import webbrowser
@@ -35,7 +36,8 @@ def hand_text(combo: mdm_combos.Combo) -> str:
     """'Elfnote Tinia + beliebig (Non-FIRE)' – Platzhalter mit dem gekürzten Text von Master Duel Meta."""
     parts = []
     for card in combo.start:
-        generic = card.generic.removeprefix("Any ").removesuffix(" Monster").strip() or "Karte"
+        generic = re.sub(r"\s+monster$", "", re.sub(r"^any\s+", "", card.generic.strip(), flags=re.I),
+                         flags=re.I) or "Karte"
         parts.append(card.name or f"beliebig ({generic})")
     return " + ".join(parts) or "–"
 
@@ -357,15 +359,13 @@ class ComboPanel:
             holder = tk.Frame(self.inner, bg=BG)
             holder.pack(fill=tk.X)
             grid = self.grid = CardGrid(holder, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
-                                        self.font_small)
+                                        self.font_small, scrollable=False)
             have = {name_key(n): c for n, c in self.main.items()}
             for card in cards:
                 grid.card(card.name, self.passcodes.get(name_key(card.name)),
                           [(f"×{have.get(name_key(card.name), 0)}", MUTED, self.font_small)])
             grid.finish()
             grid.canvas.config(height=grid.y + int(4 * s))
-            grid.canvas.unbind("<Enter>")  # das Mausrad scrollt immer die Detailansicht
-            grid.canvas.unbind("<Leave>")
         for card in combo.start:
             if not card.name:
                 self._label(f"beliebig: {card.generic}" + (f" ({card.label})" if card.label else ""),

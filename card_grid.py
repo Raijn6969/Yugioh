@@ -14,19 +14,21 @@ Line = Tuple[str, str, tuple]  # (Text, Farbe, Schrift)
 
 class CardGrid:
     def __init__(self, parent: tk.Misc, bg: str, placeholder_bg: str, text_color: str, photos, scale: float,
-                 columns: int, title_font: tuple, title_color: str, small_font: tuple):
+                 columns: int, title_font: tuple, title_color: str, small_font: tuple,
+                 scrollable: bool = True):
         self.bg, self.placeholder_bg, self.text_color = bg, placeholder_bg, text_color
         self.photos, self.s, self.columns = photos, scale, columns
         self.title_font, self.title_color, self.small_font = title_font, title_color, small_font
         frame = tk.Frame(parent, bg=bg)
         frame.pack(fill=tk.BOTH, expand=True)
         self.canvas = tk.Canvas(frame, bg=bg, highlightthickness=0, bd=0)
-        bar = tk.Scrollbar(frame, command=self.canvas.yview)
-        self.canvas.config(yscrollcommand=bar.set)
-        bar.pack(side=tk.RIGHT, fill=tk.Y)
+        if scrollable:  # ohne: Der Aufrufer scrollt selbst (kein Balken, kein Mausrad)
+            bar = tk.Scrollbar(frame, command=self.canvas.yview)
+            self.canvas.config(yscrollcommand=bar.set)
+            bar.pack(side=tk.RIGHT, fill=tk.Y)
+            self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
+            self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
-        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
         self.clear()
 
     # ── Aufbau ──

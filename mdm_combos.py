@@ -6,6 +6,7 @@ nach CACHE_DAYS neu). Je Combo: Starthand, benötigte Karten, Schritte mit Verzw
 gegen die sie durchspielt. match() sagt, welche Karten dem Deck fehlen und wie wahrscheinlich die Starthand ist.
 """
 
+import re
 import time
 from itertools import combinations
 from math import comb
@@ -114,10 +115,17 @@ def _step(data: dict, depth: int) -> Step:
     return Step([_entry(e) for e in data.get("entries") or []], condition.get("label") or "", branches)
 
 
+def _hand_card(data: dict) -> HandCard:
+    """Startkarte; eine Karte mit "any" im Label ("Can be any non-fire monster") ist nur ein Beispiel → Platzhalter."""
+    name, label = _name(data), data.get("label") or ""
+    if name and re.search(r"\bany\b", label, re.I):
+        return HandCard("", re.sub(r"^can be\s+", "", label, flags=re.I).strip(), f"z. B. {name}")
+    return HandCard(name, "" if name else data.get("generic") or "", label)
+
+
 def parse_combo(data: dict, deck_type: str) -> Combo:
     """Eine Combo der API → Combo; fehlende Felder werfen nichts."""
-    start = [HandCard(_name(c), "" if _name(c) else c.get("generic") or "", c.get("label") or "")
-             for c in data.get("startingCards") or []]
+    start = [_hand_card(c) for c in data.get("startingCards") or []]
     return Combo(str(data.get("_id") or ""), data.get("title") or "", deck_type,
                  (data.get("author") or {}).get("username") or "",
                  len(data.get("upvotes") or []) - len(data.get("downvotes") or []), bool(data.get("featured")),
@@ -141,7 +149,8 @@ def fetch(archetype: str, session=requests) -> Optional[ComboSet]:
     types = [t for t in _as_list(resp.json()) if isinstance(t, dict) and wanted in (t.get("name") or "").lower()]
     if not types:
         return None
-    deck_type = types[0]
+    # "Elfnote" vor "Elfnote Snake-Eye": erst der Name, der genau passt
+    deck_type = next((t for t in types if t["name"].lower() == wanted), types[0])
     resp = session.get(f"{API_URL}/combos", params={"deckType": deck_type.get("_id"), "limit": LIMIT},
                        timeout=TIMEOUT)
     resp.raise_for_status()

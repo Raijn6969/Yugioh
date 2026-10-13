@@ -87,6 +87,21 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(first.entries[0], mc.Entry("Elfnote Tinia", "Special Summon", "arrow"))
         self.assertEqual((second.branch_label, second.branches[0].label), ("Wenn Ash kommt", "Add Lucina"))
 
+    def test_named_card_with_any_label_is_only_an_example(self):
+        # echter Fall "Tinia 1.5cc Crimson Dragon": Purulia steht nur beispielhaft für "any non-fire monster"
+        example = {**card("Mulcharmy Purulia"), "label": "Can be any non-fire monster"}
+        combo = mc.parse_combo({"startingCards": [card("Elfnote Tinia"), example,
+                                                  {**card("Company"), "label": "Company, anyone"}]}, "X")
+        self.assertEqual(combo.start, [mc.HandCard("Elfnote Tinia", "", ""),
+                                       mc.HandCard("", "any non-fire monster", "z. B. Mulcharmy Purulia"),
+                                       mc.HandCard("Company", "", "Company, anyone")])  # "anyone" ist nicht "any"
+        result = mc.match(combo._replace(start=combo.start[:2]), MAIN, EXTRA)
+        self.assertEqual(result.missing, [])  # Purulia fehlt im Deck, zählt aber nicht
+        only_tinia = mc.match(mc.parse_combo({"startingCards": [card("Elfnote Tinia")]}, "X"), MAIN, EXTRA)
+        self.assertEqual(result.odds, only_tinia.odds)  # auch nicht für die Chance
+        from combo_panel import hand_text
+        self.assertEqual(hand_text(combo._replace(start=combo.start[:2])), "Elfnote Tinia + beliebig (non-fire)")
+
     def test_nested_branches_are_cut_at_max_depth(self):
         step = mc.parse_combo(COMBO_A, "Elfnote").steps[1]
         level2 = step.branches[0].steps[0]
@@ -117,6 +132,20 @@ class FetchLoadTest(unittest.TestCase):
             combo_set = mc.fetch("Elfnote", session)
             self.assertEqual((combo_set.deck_type, [c.mdm_id for c in combo_set.combos]), ("Elfnote", ["a", "b", "c"]))
             self.assertEqual(session.calls[0][1]["limit"], 3)  # mit limit=1 käme ein einzelnes Objekt
+
+    def test_exact_deck_type_name_wins_over_longer_names(self):
+        session = FakeSession()
+        get = session.get
+
+        def snake_eye_first(url, params=None, timeout=None):
+            if url.endswith("/deck-types"):
+                session.calls.append(("deck-types", dict(params)))
+                return FakeResponse([{"_id": "dt9", "name": "Elfnote Snake-Eye"}, ELFNOTE])
+            return get(url, params, timeout)
+
+        session.get = snake_eye_first
+        self.assertEqual(mc.fetch("elfnote", session).deck_type, "Elfnote")
+        self.assertEqual(session.calls[-1][1]["deckType"], "dt1")
 
     def test_unknown_deck_type(self):
         self.assertIsNone(mc.fetch("Gibt es nicht", FakeSession()))
@@ -241,6 +270,7 @@ class ComboPanelTest(unittest.TestCase):
         self.assertIn("von Raijn · ▲ 2 · Stand 02.10.2026", texts)
         self.assertIn("beliebig: Any Non-FIRE Monster", texts)
         self.assertIn("Elfnote Tinia", panel.grid.texts())  # ohne Bild: Name als Platzhalter
+        self.assertFalse([w for w in panel.grid.canvas.master.winfo_children() if isinstance(w, tk.Scrollbar)])
         self.assertEqual([w.cget("text") for w in panel.bar.winfo_children()],
                          ["← Zurück", "Auf Master Duel Meta öffnen"])
         panel.bar.winfo_children()[0].invoke()
