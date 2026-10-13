@@ -157,12 +157,17 @@ phones). Your opponent's name is hidden by default ("Gegnername: aus").
 
 ### 12. Update Notice
 Once per start (only in the .exe, never when run from source) the importer quietly
-checks in the background whether a newer version exists. It reads `APP_VERSION` from
-`app_paths.py` in the public GitHub repo (the GitHub releases are outdated) and compares
-the numbers properly ("9.10" is newer than "9.2"). If there is one, a short note
-"MD-Importer 9.3 verfügbar" appears once per version, and the tray icon menu gets an
-entry that opens the project page in your browser. Nothing is downloaded or installed
-automatically. No internet or any error: nothing happens except a line in the log.
+checks in the background whether the latest GitHub release is newer than your version
+(compared as numbers: "9.10" is newer than "9.2"). If so, it asks once per version:
+**Jetzt aktualisieren** downloads the release's `.zip` (HTTPS from github.com only),
+unpacks it to a temp folder, closes the importer, copies the new files over the program
+folder and starts the new version. Your data (settings, database, backups, card images,
+logs) is not part of the zip and stays untouched. **Was ist neu?** opens the release page.
+The tray menu keeps an "Update auf ... installieren" entry. One-click update needs the
+.exe, a writable program folder and a `.zip` attached to the release; otherwise the
+question only offers the release page. If an import is running, the question waits until
+it is done. No internet or any error: nothing happens except a line in the log; a failed
+update changes nothing and keeps the old version running.
 
 ### 13. Bug Report
 Something doesn't work? Right-click the tray icon → **Fehlerbericht erstellen**. The

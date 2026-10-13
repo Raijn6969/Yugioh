@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import json
 import webbrowser
 import pyperclip
@@ -45,7 +46,7 @@ from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
 from match_history import LOSS, RANKED, WIN, MatchWatcher
 from replay_recorder import ReplayRecorder
-from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, LOG_FILE, TESSERACT_CMD
+from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, DATA_DIR, LOG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message, show_toast
 from dark_menu import DarkMenu
@@ -63,6 +64,7 @@ import resume_state
 import season_review
 import single_instance
 import update_check
+import updater
 import win_api
 
 MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
@@ -72,7 +74,8 @@ REMINDER_DELAY_MS = 6000  # erst das Ergebnis zeigen, dann die Erinnerung an die
 SHORT_REMINDER = "Bitte Match History öffnen (Gegner-Decks)"
 REMINDER_CHECK_MS = 3000  # so oft prüfen, ob die Match History inzwischen geöffnet wurde (solange der Hinweis steht)
 STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Platz neben dem ✕)
-UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere Version (Hinweis nur einmal je Version)
+UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere Version (Frage nur einmal je Version)
+UPDATE_RETRY_MS = 1000  # läuft ein Import, wird die Update-Frage so lange verschoben
 TOAST_GAP_MS = 300  # Pause zwischen zwei Hinweisen über der Taskleiste
 REVIEW_NOTICE_DELAY_MS = STARTED_TOAST_MS + 2000  # so lange nach dem Start wird der Rückblick-Hinweis geprüft
 
@@ -106,7 +109,8 @@ class MasterDuelImporter:
         # Hinweise über der Taskleiste kommen nacheinander: die Startmeldung (main) steht zuerst, bis dahin ist besetzt
         self._toast_free_at = time.monotonic() + (STARTED_TOAST_MS + TOAST_GAP_MS) / 1000
         self._toast_count = 0
-        self.update_version = None   # neuere Version laut Update-Prüfung (None = keine bzw. nicht geprüft)
+        self.update_release = None   # neuerer Release laut Update-Prüfung (None = keiner bzw. nicht geprüft)
+        self._update_running = False  # Update wird gerade geladen/installiert
         self._report_running = False  # Fehlerbericht wird gerade erstellt
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
         self.editor_watch = EditorWatcher(TESSERACT_CMD)
@@ -133,7 +137,7 @@ class MasterDuelImporter:
             self.tray = TrayIcon(f"MD Importer {APP_VERSION}",
                                  on_restart=lambda: self._run_on_ui(self.restart),
                                  on_quit=lambda: self._run_on_ui(self.close),
-                                 on_update=lambda: self._run_on_ui(self._open_project_page),
+                                 on_update=lambda: self._run_on_ui(self._ask_update_when_idle),
                                  on_report=lambda: self._run_on_ui(self._create_report))
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
@@ -155,20 +159,89 @@ class MasterDuelImporter:
         threading.Thread(target=self._update_worker, daemon=True, name="update").start()
 
     def _update_worker(self):
-        version = update_check.find_update(APP_VERSION, log=lambda message: append(LOG_FILE, message))
-        if version:
-            self._run_on_ui(self._on_update_found, version)
+        updater.cleanup_old(tempfile.gettempdir())  # Reste eines früheren Updates
+        release = update_check.find_update(APP_VERSION, log=lambda message: append(LOG_FILE, message))
+        if release:
+            self._run_on_ui(self._on_update_found, release)
 
-    def _on_update_found(self, version):
-        self.update_version = version
+    def _on_update_found(self, release):
+        self.update_release = release
         if self.tray:
-            self.tray.set_update(version)
+            self.tray.set_update(release.version)
         notified = self.config.get(UPDATE_NOTIFIED_KEY)
-        if notified and not update_check.is_newer(version, notified):
-            return  # zu dieser Version schon Bescheid gesagt – der Tray-Menüpunkt bleibt
-        self.config[UPDATE_NOTIFIED_KEY] = version
+        if notified and not update_check.is_newer(release.version, notified):
+            return  # zu dieser Version schon gefragt – der Tray-Menüpunkt bleibt
+        self.config[UPDATE_NOTIFIED_KEY] = release.version
         self._save_config_safely()
-        self._queue_toast(f"MD-Importer {version} verfügbar – Tray-Symbol → Seite öffnen")
+        self._ask_update_when_idle()
+
+    def _can_self_update(self, release) -> bool:
+        """Ein-Klick-Update nur als exe, mit zip am Release und beschreibbarem Programmordner."""
+        return bool(getattr(sys, "frozen", False) and release.zip_url and DATA_DIR == APP_DIR)
+
+    def _ask_update_when_idle(self):
+        """Update-Frage; läuft gerade ein Import/Export, erst danach (alle UPDATE_RETRY_MS nachsehen)."""
+        self._after_ids.pop("update_ask", None)
+        if self.update_release is None or self._update_running:
+            return
+        if self.is_running:
+            self._after_ids["update_ask"] = self.root.after(UPDATE_RETRY_MS, self._ask_update_when_idle)
+            return
+        release = self.update_release
+        text = f"MD-Importer {release.version} ist da (installiert: {APP_VERSION}). "
+        if self._can_self_update(release):
+            choices = [("Jetzt aktualisieren", "install", "#007acc"), ("Was ist neu?", "page", "#444444"),
+                       ("Später", None, "#444444")]
+            text += ("Jetzt aktualisieren? Der Importer lädt die neue Version, ersetzt sich selbst und startet neu "
+                     "– deine Daten bleiben erhalten.")
+        else:
+            choices = [("Release-Seite öffnen", "page", "#007acc"), ("Später", None, "#444444")]
+            text += "Neue Version auf der Release-Seite herunterladen."
+        choice = ask_choice(self.root, "Update verfügbar", text, choices)
+        if choice == "install":
+            self._start_update(release)
+        elif choice == "page":
+            self._open_project_page(release.page)
+
+    def _start_update(self, release):
+        """Laden, entpacken, Hilfsskript starten, beenden (im Hintergrund; Fortschritt in der Statuszeile)."""
+        self._update_running = True
+        self._set_buttons(tk.DISABLED)
+        self.update_status("Update wird geladen … 0 %", "cyan")
+        threading.Thread(target=self._update_install_worker, args=(release,), daemon=True,
+                         name="update-install").start()
+
+    def _update_install_worker(self, release):
+        last = [0]
+
+        def progress(done, total):
+            percent = done * 100 // total
+            if percent >= last[0] + 5 or done == total:
+                last[0] = percent
+                self._run_on_ui(self.update_status, f"Update wird geladen … {percent} %", "cyan")
+
+        try:
+            temp_root = tempfile.gettempdir()
+            source = updater.prepare(release, temp_root, progress)
+            script = updater.write_script(source, APP_DIR, os.getpid(), updater.EXE_NAME,
+                                          updater.update_dir(temp_root, release.version))
+            updater.launch(script)
+        except Exception as e:  # Netz weg, zip kaputt, Platte voll …: nichts wird beendet
+            append(LOG_FILE, f"[UPDATE] Update fehlgeschlagen: {type(e).__name__}: {e}")
+            self._run_on_ui(self._on_update_failed, str(e) or type(e).__name__)
+            return
+        self._run_on_ui(self._on_update_launched, release.version)
+
+    def _on_update_launched(self, version):
+        dlog(f"[UPDATE] Update auf {version} gestartet – Importer beendet sich, das Skript kopiert und startet neu.")
+        self.close()
+
+    def _on_update_failed(self, error):
+        self._update_running = False
+        self._set_buttons(tk.NORMAL)
+        self.update_status("Update fehlgeschlagen – Release-Seite über das Tray-Symbol", "red")
+        show_message(self.root, "Update fehlgeschlagen",
+                     f"{error}\n\nDie neue Version lässt sich von Hand laden: Tray-Symbol → Update.", kind="error")
 
     def _queue_toast(self, text):
         """Hinweis über der Taskleiste. Mehrere (Startmeldung, Update, Rückblick) kommen nacheinander, nicht übereinander
@@ -207,10 +280,10 @@ class MasterDuelImporter:
         self._save_config_safely()
         self._queue_toast(f"Rückblick für {season_review.MONTHS[month - 1]} ist fertig – Deck → Winrate → Rückblick")
 
-    def _open_project_page(self):
-        """Tray-Menü: Projektseite im Browser (kein Download, keine Installation)."""
+    def _open_project_page(self, url=None):
+        """Release-Seite im Browser (kein Download, keine Installation)."""
         try:
-            webbrowser.open(update_check.REPO_URL)
+            webbrowser.open(url or update_check.RELEASES_URL)
         except Exception as e:
             dlog(f"[UPDATE] Browser nicht geöffnet: {e}")
 

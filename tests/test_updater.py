@@ -1,0 +1,205 @@
+"""Update mit einem Klick: Download, Entpacken (Zip-Slip), Hilfsskript, Start, Aufräumen – alles im Temp-Ordner,
+ohne Netz und ohne echtes cmd/Popen."""
+
+import io
+import os
+import subprocess
+import tempfile
+import time
+import unittest
+import zipfile
+from unittest import mock
+
+import update_check
+import updater
+
+URL = "https://github.com/Raijn6969/Yugioh/releases/download/v9.4/MD_ImporterV9.4.zip"
+
+
+class FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def opener_returning(data):
+    requests = []
+
+    def opener(request, timeout=None):
+        requests.append((request, timeout))
+        return FakeResponse(data)
+
+    opener.requests = requests
+    return opener
+
+
+def make_zip(path, entries):
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, data in entries.items():
+            archive.writestr(name, data)
+    return path
+
+
+class TempTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = tmp.name
+
+
+class DownloadTest(TempTest):
+    def test_download_reports_progress_and_renames_the_part_file(self):
+        data = os.urandom(updater.CHUNK * 2 + 10)
+        target = os.path.join(self.tmp, "u.zip")
+        seen = []
+        opener = opener_returning(data)
+        updater.download(URL, len(data), target, lambda done, total: seen.append((done, total)), opener)
+        with open(target, "rb") as f:
+            self.assertEqual(f.read(), data)
+        self.assertEqual([done for done, _ in seen], [updater.CHUNK, updater.CHUNK * 2, len(data)])
+        self.assertTrue(all(total == len(data) for _, total in seen))
+        self.assertFalse(os.path.exists(target + ".part"))
+        (request, timeout), = opener.requests
+        self.assertEqual((request.full_url, timeout), (URL, 30))
+
+    def test_wrong_size_fails_and_leaves_no_file(self):
+        target = os.path.join(self.tmp, "u.zip")
+        with self.assertRaisesRegex(updater.UpdateError, "unvollständig"):
+            updater.download(URL, 100, target, opener=opener_returning(b"x" * 99))
+        self.assertEqual(os.listdir(self.tmp), [])
+
+    def test_too_many_bytes_abort(self):
+        target = os.path.join(self.tmp, "u.zip")
+        with self.assertRaisesRegex(updater.UpdateError, "größer"):
+            updater.download(URL, 100, target, opener=opener_returning(b"x" * 101))
+        self.assertEqual(os.listdir(self.tmp), [])
+
+    def test_network_error_leaves_no_file(self):
+        def opener(request, timeout=None):
+            raise OSError("Netz weg")
+        with self.assertRaises(OSError):
+            updater.download(URL, 100, os.path.join(self.tmp, "u.zip"), opener=opener)
+        self.assertEqual(os.listdir(self.tmp), [])
+
+
+class ExtractTest(TempTest):
+    def test_exe_in_a_single_subfolder(self):
+        zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {
+            "MD_ImporterV9.4/MD_Importer.exe": b"exe", "MD_ImporterV9.4/_internal/lib.dll": b"dll"})
+        source = updater.extract(zip_path, os.path.join(self.tmp, "neu"))
+        self.assertEqual(source, os.path.join(self.tmp, "neu", "MD_ImporterV9.4"))
+        self.assertTrue(os.path.isfile(os.path.join(source, "_internal", "lib.dll")))
+
+    def test_exe_on_the_top_level(self):
+        zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {"MD_Importer.exe": b"exe", "a/b.txt": b"b"})
+        folder = os.path.join(self.tmp, "neu")
+        self.assertEqual(updater.extract(zip_path, folder), folder)
+
+    def test_zip_slip_is_refused_and_nothing_is_extracted(self):
+        for evil in ("../evil.txt", "MD/../../evil.txt", "/evil.txt", "C:/evil.txt", "..\\evil.txt"):
+            zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {"MD/MD_Importer.exe": b"exe", evil: b"x"})
+            folder = os.path.join(self.tmp, "sub", "neu")
+            with self.assertRaisesRegex(updater.UpdateError, "Unzulässig", msg=evil):
+                updater.extract(zip_path, folder)
+            self.assertFalse(os.path.exists(folder), evil)
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.txt")), evil)
+            self.assertFalse(os.path.exists(os.path.join(self.tmp, "sub", "evil.txt")), evil)
+
+    def test_missing_exe_is_an_error(self):
+        zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {"MD/readme.txt": b"x"})
+        with self.assertRaisesRegex(updater.UpdateError, "fehlt"):
+            updater.extract(zip_path, os.path.join(self.tmp, "neu"))
+
+    def test_broken_zip_is_an_error(self):
+        path = os.path.join(self.tmp, "u.zip")
+        with open(path, "wb") as f:
+            f.write(b"das ist keine zip")
+        with self.assertRaises(updater.UpdateError):
+            updater.extract(path, os.path.join(self.tmp, "neu"))
+
+
+class ScriptTest(TempTest):
+    def test_script_content(self):
+        app_dir = os.path.join(self.tmp, "Programm Ordner ü")
+        source = os.path.join(self.tmp, "neu", "MD_ImporterV9.4")
+        script = updater.write_script(source, app_dir + "\\", 4711, updater.EXE_NAME, self.tmp)
+        self.assertEqual(script, os.path.join(self.tmp, "update.cmd"))
+        with open(script, "rb") as f:
+            raw = f.read()
+        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))          # UTF-8 ohne BOM
+        text = raw.decode("utf-8")
+        lines = text.split("\r\n")
+        self.assertEqual(lines[:2], ["@echo off", "chcp 65001 >nul"])
+        self.assertIn('tasklist /FI "PID eq 4711"', text)
+        self.assertIn('find "4711"', text)
+        robocopy, = [line for line in lines if line.startswith("robocopy")]
+        self.assertIn(f'robocopy "{source}" "{app_dir}" /E', robocopy)      # ohne Schluss-\ vor dem "
+        self.assertIn(f'>> "{os.path.join(self.tmp, "update.log")}"', robocopy)
+        self.assertIn("if errorlevel 8", text)
+        self.assertEqual(lines[-2], f'start "" "{os.path.join(app_dir, "MD_Importer.exe")}"')
+
+    def test_percent_signs_in_paths_are_doubled(self):
+        script = updater.write_script(os.path.join(self.tmp, "a%PATH%"), os.path.join(self.tmp, "b"), 1, "x.exe",
+                                      self.tmp)
+        with open(script, encoding="utf-8") as f:
+            self.assertIn("a%%PATH%%", f.read())
+
+    def test_launch_uses_cmd_without_window_and_detached(self):
+        popen = mock.Mock()
+        script = os.path.join(self.tmp, "update.cmd")
+        updater.launch(script, popen=popen)
+        popen.assert_called_once_with(
+            ["cmd", "/c", script],
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+            close_fds=True, cwd=self.tmp)
+
+
+class CleanupTest(TempTest):
+    def test_only_old_update_folders_are_removed(self):
+        old = os.path.join(self.tmp, "MD_Importer_update_9.3")
+        fresh = os.path.join(self.tmp, "MD_Importer_update_9.4")
+        other = os.path.join(self.tmp, "anderer_Ordner")
+        for folder in (old, fresh, other):
+            os.makedirs(folder)
+        long_ago = time.time() - 2 * 24 * 3600
+        for folder in (old, other):
+            os.utime(folder, (long_ago, long_ago))
+        updater.cleanup_old(self.tmp)
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(fresh))
+        self.assertTrue(os.path.exists(other))        # fremde Ordner bleiben tabu
+
+    def test_missing_temp_folder_is_no_error(self):
+        updater.cleanup_old(os.path.join(self.tmp, "gibt-es-nicht"))
+
+
+class PrepareTest(TempTest):
+    def release(self, data, url=URL):
+        return update_check.Release("9.4", "https://github.com/x", url, len(data))
+
+    def test_prepare_downloads_and_extracts_into_a_clean_folder(self):
+        source_zip = make_zip(os.path.join(self.tmp, "src.zip"), {"MD_ImporterV9.4/MD_Importer.exe": b"exe"})
+        with open(source_zip, "rb") as f:
+            data = f.read()
+        root = os.path.join(self.tmp, "temp")
+        stale = os.path.join(updater.update_dir(root, "9.4"), "alt.txt")
+        os.makedirs(os.path.dirname(stale))
+        with open(stale, "w") as f:
+            f.write("Rest eines früheren Versuchs")
+        progress = mock.Mock()
+        source = updater.prepare(self.release(data), root, progress, opener_returning(data))
+        self.assertEqual(source, os.path.join(updater.update_dir(root, "9.4"), "neu", "MD_ImporterV9.4"))
+        self.assertTrue(os.path.isfile(os.path.join(source, "MD_Importer.exe")))
+        self.assertFalse(os.path.exists(stale))
+        progress.assert_called_with(len(data), len(data))
+
+    def test_prepare_refuses_foreign_hosts_and_missing_zip(self):
+        for url in ("", "https://evil.example/a.zip"):
+            with self.assertRaises(updater.UpdateError):
+                updater.prepare(self.release(b"x", url), self.tmp, opener=mock.Mock(side_effect=AssertionError))
+
+
+if __name__ == "__main__":
+    unittest.main()

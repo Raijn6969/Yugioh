@@ -22,12 +22,12 @@ class TrayIcon:
     def __init__(self, title: str, on_restart: Callable[[], None], on_quit: Callable[[], None],
                  on_update: Optional[Callable[[], None]] = None, on_report: Optional[Callable[[], None]] = None):
         self._icon = None
-        self._update_version: Optional[str] = None  # neuere Version gefunden → Menüpunkt "verfügbar"
+        self._update_version: Optional[str] = None  # neuere Version gefunden → Menüpunkt "Update installieren"
         if pystray is None:
             return
         items = [pystray.MenuItem(title, None, enabled=False),
                  # Nur sichtbar, wenn der Update-Hinweis (update_check) eine neuere Version gefunden hat
-                 pystray.MenuItem(lambda item: f"MD-Importer {self._update_version} verfügbar – Seite öffnen",
+                 pystray.MenuItem(lambda item: f"Update auf {self._update_version} installieren",
                                   lambda icon, item: on_update and on_update(),
                                   visible=lambda item: self._update_version is not None),
                  pystray.Menu.SEPARATOR]
@@ -43,7 +43,7 @@ class TrayIcon:
         return self._icon is not None
 
     def set_update(self, version: str) -> None:
-        """Menüpunkt "MD-Importer <version> verfügbar" einblenden."""
+        """Menüpunkt "Update auf <version> installieren" einblenden."""
         self._update_version = version
         if self._icon is None:
             return
