@@ -3,6 +3,7 @@ ohne Netz und ohne echtes cmd/Popen."""
 
 import io
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -44,9 +45,17 @@ def make_zip(path, entries):
 
 class TempTest(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.tmp = tmp.name
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(self._remove_tmp)
+
+    def _remove_tmp(self):
+        """Mit Wiederholung (bis ~10 s): cmd/wscript laufen nach dem Marker evtl. noch kurz. Bleibt der Ordner
+        trotzdem stehen, scheitert der Test deswegen nicht."""
+        for _ in range(20):
+            shutil.rmtree(self.tmp, ignore_errors=True)
+            if not os.path.exists(self.tmp):
+                return
+            time.sleep(0.5)
 
 
 class DownloadTest(TempTest):
@@ -144,7 +153,7 @@ class ScriptTest(TempTest):
         self.assertIn(f'robocopy "{source}" "{app_dir}" /E', robocopy)      # ohne Schluss-\ vor dem "
         self.assertIn(f'>> "{os.path.join(self.tmp, "update.log")}"', robocopy)
         self.assertIn("if errorlevel 8", text)
-        self.assertEqual(lines[-2], f'start "" "{os.path.join(app_dir, "MD_Importer.exe")}"')
+        self.assertEqual(lines[-2], f'start "" /D "{app_dir}" "{os.path.join(app_dir, "MD_Importer.exe")}"')
 
     def test_percent_signs_in_paths_are_doubled(self):
         script = updater.write_script(os.path.join(self.tmp, "a%PATH%"), os.path.join(self.tmp, "b"), 1, "x.exe",
@@ -169,8 +178,9 @@ class RealScriptRunTest(TempTest):
 
     VBS = "\r\n".join([
         'Set fso = CreateObject("Scripting.FileSystemObject")',
-        r'Set f = fso.CreateTextFile(fso.GetParentFolderName(WScript.ScriptFullName) & "\marker.txt", True)',
-        'f.Write "gestartet"', "f.Close", ""])
+        # Unicode-Datei (True, True): der Arbeitsordner enthält ein "ü"
+        r'Set f = fso.CreateTextFile(fso.GetParentFolderName(WScript.ScriptFullName) & "\marker.txt", True, True)',
+        'f.Write CreateObject("WScript.Shell").CurrentDirectory', "f.Close", ""])
 
     def test_script_waits_for_the_old_process_then_copies_and_starts(self):
         root = os.path.join(self.tmp, "Upd ü %NOVAR_X% Test")
@@ -192,7 +202,7 @@ class RealScriptRunTest(TempTest):
         t0 = time.monotonic()
         updater.launch(script)
         old_ended = None
-        while not os.path.exists(marker):
+        while not (os.path.exists(marker) and os.path.getsize(marker) > 2):    # erst da, wenn auch beschrieben
             if old_ended is None and waiter.poll() is not None:
                 old_ended = time.monotonic() - t0
             self.assertLess(time.monotonic() - t0, 30, "Skript hat die neue 'exe' nicht gestartet")
@@ -201,6 +211,8 @@ class RealScriptRunTest(TempTest):
         self.assertIsNotNone(waiter.poll(), "Marker erschien, bevor der alte Prozess beendet war")
         print(f"[Test] update.cmd: Marker nach {waited:.1f} s (alter Prozess ~3 s)")
         self.assertGreater(waited, 2.0)
+        with open(marker, encoding="utf-16") as f:        # Arbeitsordner der "exe" = Programmordner, nicht Temp
+            self.assertEqual(os.path.normcase(f.read().strip()), os.path.normcase(app_dir))
         with open(os.path.join(app_dir, "neu.txt"), encoding="utf-8") as f:
             self.assertEqual(f.read(), "neue Datei")
         with open(config, encoding="utf-8") as f:

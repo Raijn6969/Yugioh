@@ -100,7 +100,8 @@ def write_script(source: str, app_dir: str, pid: int, exe_name: str, folder: str
         ":copy",
         f'robocopy "{q(source)}" "{q(app_dir)}" /E /R:20 /W:1 /NFL /NDL /NJH /NJS /NP >> "{log}"',
         f'if errorlevel 8 echo FEHLER beim Kopieren (robocopy %errorlevel%) >> "{log}"',
-        f'start "" "{q(os.path.join(app_dir, exe_name))}"',
+        # /D: die neue exe läuft im Programmordner (sonst erbt sie den Temp-Ordner als Arbeitsordner und sperrt ihn)
+        f'start "" /D "{q(app_dir)}" "{q(os.path.join(app_dir, exe_name))}"',
     ]
     script = os.path.join(folder, "update.cmd")
     with open(script, "w", encoding="utf-8", newline="") as f:
