@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 import json
 import webbrowser
 import pyperclip
@@ -52,6 +53,7 @@ from dark_dialog import ask_choice, show_message, show_toast
 from dark_menu import DarkMenu
 from debug_log import append, dlog
 from editor_watch import EditorWatcher
+from hang_watch import HangWatch
 from window_style import apply_frame, no_activate
 from rounded_button import RoundedButton
 from tray import TrayIcon
@@ -114,6 +116,8 @@ class MasterDuelImporter:
         self._report_running = False  # Fehlerbericht wird gerade erstellt
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
         self.editor_watch = EditorWatcher(TESSERACT_CMD)
+        # Hänger-Wächter: schreibt ins Log, wo der Haupt-Thread hängt (Herzschlag in _check_window_focus)
+        self.hang_watch = HangWatch(lambda text: append(LOG_FILE, text))
         # Winrate-Tracker: erfasst Duelle am Ergebnis-Bildschirm von Master Duel (Speicher-Modus, nur lesend)
         # Replay-Mitschnitt: liest das Feld nur während eines Replays aus der Match History (replay_recorder)
         self.replay_watch = ReplayRecorder(self._stats_db, connected=md_memory.is_ready, memory=md_memory.shared,
@@ -142,6 +146,7 @@ class MasterDuelImporter:
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
         self.editor_watch.start()
+        self.hang_watch.start()
         self.match_watch.start()
         self.replay_watch.start()
         self._check_window_focus()
@@ -495,6 +500,7 @@ class MasterDuelImporter:
 
     def _check_window_focus(self):
         """Loop, der alle 300ms prüft, welches Fenster in Windows gerade vorne liegt."""
+        self.hang_watch.beat()
         try:
             fg_hwnd = win32gui.GetForegroundWindow()
             if fg_hwnd:
@@ -766,6 +772,7 @@ class MasterDuelImporter:
         """Alles schließen: Tray-Icon, wiederkehrende Timer, Fenster."""
         self._close_extras()
         self.editor_watch.stop()
+        self.hang_watch.stop()
         self.match_watch.stop()
         self.replay_watch.stop()
         if self.tray:
@@ -1212,6 +1219,11 @@ def started_text() -> str:
     return f"MD-Importer {APP_VERSION} läuft jetzt."
 
 
+def report_tk_error(exc, value, tb) -> None:
+    """Fehler in Tk-Callbacks ins Log (pythonw hat kein stderr); das Programm läuft weiter."""
+    append(LOG_FILE, "[TK-FEHLER]\n" + "".join(traceback.format_exception(exc, value, tb)))
+
+
 def main():
     if not single_instance.acquire():
         # Schon ein Importer offen: kein zweites Overlay (jedes Duell würde doppelt erfasst), nur kurz Bescheid geben
@@ -1222,6 +1234,7 @@ def main():
         root.mainloop()
         return
     root = tk.Tk()
+    root.report_callback_exception = report_tk_error
     MasterDuelImporter(root, tray=True)
     show_toast(root, started_text(), duration_ms=STARTED_TOAST_MS)
     root.mainloop()

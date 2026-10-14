@@ -38,6 +38,8 @@ class OverlayTest(unittest.TestCase):
             mock.patch.object(Overlay.pyperclip, "paste", lambda: self.clipboard[0]),
             mock.patch.object(Overlay.pyperclip, "copy", lambda text: self.clipboard.__setitem__(0, text)),
             mock.patch.object(Overlay, "CardStatsDB", lambda: self.make_db()),
+            # Kein Hänger-Wächter im Test (kein Herzschlag, und das echte Log bliebe unberührt)
+            mock.patch.object(Overlay.HangWatch, "start", lambda self: None),
         ]
         self.clipboard = [""]
         self.db_path = os.path.join(tempfile.mkdtemp(), "stats.db")
