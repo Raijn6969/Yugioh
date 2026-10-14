@@ -570,6 +570,50 @@ class WinratePanelTest(unittest.TestCase):
         self.assertEqual(name, "Ryzeal / Mitsurugi")
         self.assertIn("#main", code)
 
+    def replay_buttons(self):
+        from rounded_button import RoundedButton
+        found = []
+
+        def walk(widget):
+            for child in widget.winfo_children():
+                if isinstance(child, RoundedButton) and child.cget("text") == "▶ Replay":
+                    found.append(child)
+                walk(child)
+        walk(self.panel.inner)
+        return found
+
+    def test_replay_button_in_match_row_opens_replay_only_from_the_button(self):
+        from unittest import mock
+        import duel_view
+        import replay_recorder as rr
+        from tests.test_replay import DUEL
+        mh.store_matches(self.db, mh.parse_history({"58": {"9": entry(9, time.time() - 5 * 3600, mh.WIN)}}))
+        self.panel.refresh()
+        self.assertEqual(len(self.panel._shown_matches), 3)
+        self.assertEqual(self.replay_buttons(), [])                    # noch kein Mitschnitt
+        older = self.panel._shown_matches[1]
+        frames = [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": 0}]
+        self.db.save_replay(rr.replay_info({**DUEL, "time": int(older.played_at)}), frames)
+        self.panel.refresh()
+        self.root.update()
+        buttons = self.replay_buttons()
+        self.assertEqual(len(buttons), 2)                              # die zwei jüngeren; das alte Match ohne
+        self.assertFalse(any("▶ Replay  ·" in t for t in self.texts(self.panel.inner)))
+        with mock.patch.object(duel_view.card_images, "download", return_value=0):
+            buttons[0].master.event_generate("<Button-1>", x=0, y=0)   # Klick auf die Zeile: nur die Decklisten
+            self.root.update()
+            duel = self.panel.duel
+            self.assertEqual(duel.index, 0)
+            self.assertIsNone(duel.replay)
+            self.assertEqual(duel.controls.winfo_manager(), "")
+            with mock.patch.object(self.panel, "view_duel", wraps=self.panel.view_duel) as view:
+                buttons[0].event_generate("<ButtonPress-1>", x=0, y=0)
+                buttons[0].event_generate("<ButtonRelease-1>", x=0, y=0)
+            view.assert_called_once_with(0, replay=True)               # nicht zusätzlich der Zeilen-Klick
+            self.assertIsNot(self.panel.duel, duel)
+            self.assertIsNotNone(self.panel.duel.replay)
+            self.assertEqual((self.panel.duel.mode, self.panel.duel.controls.winfo_manager()), ("replay", "pack"))
+
     def test_hint_without_memory_mode(self):
         self.panel.tracking = False
         self.panel.refresh()

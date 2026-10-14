@@ -6,7 +6,7 @@ import unittest
 
 import duel_view as dv
 import match_history as mh
-from card_stats import MatchEntry
+from card_stats import MatchEntry, Replay
 
 try:
     import tkinter as tk
@@ -48,12 +48,12 @@ class DuelViewTest(unittest.TestCase):
         self.db = mock_db()
         self.folder = tempfile.mkdtemp()  # keine Kartenbilder → Platzhalter mit Namen, kein Download im Test
 
-    def view(self, matches, index=0):
+    def view(self, matches, index=0, replay=False):
         from unittest import mock
         patch = mock.patch.object(dv.card_images, "download", return_value=0)
         patch.start()
         self.addCleanup(patch.stop)
-        view = dv.DuelView(self.root, self.db, matches, index, image_folder=self.folder)
+        view = dv.DuelView(self.root, self.db, matches, index, image_folder=self.folder, replay=replay)
         self.addCleanup(view.close)
         self.root.update()
         return view
@@ -132,6 +132,26 @@ class DuelViewTest(unittest.TestCase):
         self.assertIsNone(view._tip_key)
         self.assertEqual(c.find_withtag("tip"), ())
 
+    def test_replay_only_when_asked_for_and_browsing_keeps_the_wish(self):
+        plain = self.view([entry(1)])                 # Mitschnitt vorhanden, aber nicht verlangt: nur die Decklisten
+        self.assertIsNone(plain.replay)
+        self.assertEqual(plain.mode, "decks")
+        self.assertEqual(plain.controls.winfo_manager(), "")
+        wanted = self.view([entry(2), entry(1)], replay=True)   # entry(2) hat keinen Mitschnitt
+        self.assertIsNone(wanted.replay)
+        self.assertEqual(wanted.controls.winfo_manager(), "")
+        wanted.older_btn.invoke()
+        self.assertIsNotNone(wanted.replay)
+        self.assertEqual((wanted.mode, wanted.controls.winfo_manager()), ("replay", "pack"))
+        wanted.newer_btn.invoke()
+        self.assertIsNone(wanted.replay)
+        wanted.older_btn.invoke()
+        self.assertIsNotNone(wanted.replay)           # der Wunsch blieb beim Blättern erhalten
+        both = self.view([entry(1), entry(2)])        # ohne Wunsch zeigt auch das Blättern nie einen Mitschnitt
+        both.step(1)
+        both.step(-1)
+        self.assertIsNone(both.replay)
+
     def test_opens_from_winrate_match_row(self):
         from winrate_panel import WinratePanel
         from tests.test_winrate import entry as history_entry, make_db
@@ -156,6 +176,14 @@ def mock_db():
             self.name = name
 
     class Db:
+        def replay_for(self, played_at):  # nur für entry(1) gibt es einen Mitschnitt
+            if played_at != 1001.0:
+                return None
+            return Replay(1001, "1", 0, 0, [], [], [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": 0}])
+
+        def konami_passcodes(self):
+            return {}
+
         def infos(self, ids):
             names = {"1": "Elfnote Lucina", "2": "Elfnote Fortuna", "3": "Droll", "5": "Ash Blossom", "9": "Fusion"}
             return {cid: Info(names[cid]) for cid in ids if cid in names}

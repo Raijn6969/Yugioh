@@ -167,7 +167,7 @@ class PlaybackTest(unittest.TestCase):
         db.save_replay(rr.replay_info(DUEL), frames)
         match = MatchEntry("8385", 1791623727, 3, 1, True, 3, 1, "Elfnote", "", "Sky Striker", "", "Zwölfnote", True)
         with mock.patch.object(dv.card_images, "download", return_value=0):
-            view = dv.DuelView(self.root, db, [match], image_folder=tempfile.mkdtemp())
+            view = dv.DuelView(self.root, db, [match], image_folder=tempfile.mkdtemp(), replay=True)
         self.addCleanup(view.close)
         self.root.update()
         texts = lambda: [view.canvas.itemcget(i, "text") for i in view.canvas.find_all()  # noqa: E731
@@ -245,7 +245,7 @@ class ExportTest(unittest.TestCase):
         self.addCleanup(root.destroy)
         match = MatchEntry("8385", 1791623727, 3, 1, True, 3, 1, "Elfnote", "", "Sky Striker", "", "Zwölfnote", True)
         with mock.patch.object(dv.card_images, "download", return_value=0):
-            view = dv.DuelView(root, self.db, [match], image_folder=self.images)
+            view = dv.DuelView(root, self.db, [match], image_folder=self.images, replay=True)
         self.addCleanup(view.close)
         folder = tempfile.mkdtemp()
         with mock.patch.object(dv.card_images, "download", return_value=0), \

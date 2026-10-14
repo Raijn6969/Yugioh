@@ -503,6 +503,12 @@ class WinratePanel:
             side=tk.LEFT)
         order = {True: "Erster", False: "Zweiter"}.get(match.first, "?")
         tk.Label(row, text=order, fg=TEXT, bg=bg, font=self.font_small, width=7, anchor="w").pack(side=tk.LEFT)
+        replay_btn = None
+        if self._has_replay(match):  # vor dem Textbereich packen, sonst wird er bei schmaler Breite abgeschnitten
+            replay_btn = RoundedButton(row, text="▶ Replay", command=lambda i=index: self.view_duel(i, replay=True),
+                                       bg="#00796b", font=self.font_small, padx=int(8 * s), pady=int(3 * s),
+                                       radius=int(6 * s))
+            replay_btn.pack(side=tk.RIGHT)
         text = tk.Frame(row, bg=bg)
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
         title = match.deck_name or match.md_deck or UNKNOWN_DECK
@@ -510,8 +516,6 @@ class WinratePanel:
             title += f"  vs  {match.opp_name}"
         tk.Label(text, text=title, fg=TEXT, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
         details = [when(match.played_at)]
-        if self._has_replay(match):
-            details.insert(0, "▶ Replay")
         if match.coin is not None:
             details.append("Münzwurf gewonnen" if match.coin else "Münzwurf verloren")
         if match.turns:
@@ -520,7 +524,9 @@ class WinratePanel:
         if match.finish == FINISH_SURRENDER:
             details.append("Aufgabe")
         tk.Label(text, text="  ·  ".join(details), fg=MUTED, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
-        for widget in (row, text, *row.winfo_children(), *text.winfo_children()):  # Klick: Duell ansehen
+        for widget in (row, text, *row.winfo_children(), *text.winfo_children()):  # Klick: Decklisten ansehen
+            if widget is replay_btn:  # der Knopf hat sein eigenes Klick-Binding
+                continue
             widget.config(cursor="hand2")
             widget.bind("<Button-1>", lambda e, i=index: self.view_duel(i))
 
@@ -530,12 +536,13 @@ class WinratePanel:
         return any(match.played_at - CardStatsDB.REPLAY_BEFORE <= start <= match.played_at + CardStatsDB.REPLAY_AFTER
                    for start in getattr(self, "_replay_starts", []))
 
-    def view_duel(self, index: int) -> None:
-        """Duell-Übersicht für dieses Match (◀/▶ blättern durch die angezeigten Matches)."""
+    def view_duel(self, index: int, replay: bool = False) -> None:
+        """Duell-Übersicht für dieses Match (◀/▶ blättern); replay: mit Replay-Mitschnitt, sonst nur die Decklisten."""
         from duel_view import DuelView
         if self.duel is not None:
             self.duel.close()
-        self.duel = DuelView(self.win, self.db, list(self._shown_matches), index, on_close=self._on_duel_closed)
+        self.duel = DuelView(self.win, self.db, list(self._shown_matches), index, on_close=self._on_duel_closed,
+                             replay=replay)
 
     def _on_duel_closed(self) -> None:
         self.duel = None

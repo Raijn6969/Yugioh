@@ -3,9 +3,10 @@ Duell-Übersicht (Klick auf ein Match im Winrate-Fenster): ein gespeichertes Due
 Schattenarena der Factory – Gegner oben (rötlich), du unten, in der Mitte das Ergebnis. Ohne die Spalten links und
 rechts, damit das Feld selbst groß ist.
 
-Gibt es zum Match einen Replay-Mitschnitt (replay_recorder: einmal das Replay in Master Duel angesehen), zeigt das
-Feld das Duell Schritt für Schritt: Karten in ihren Zonen (Gegner gedreht, Verteidigung quer, verdeckt als Rückseite),
-Hände, oberste Karten von Friedhof/Deck/Extra Deck/Verbannt mit Anzahl, Lebenspunkte und Zug/Phase. Bedienung:
+Gibt es zum Match einen Replay-Mitschnitt (replay_recorder: einmal das Replay in Master Duel angesehen) und wurde
+die Ansicht mit replay=True geöffnet ("▶ Replay" in der Match-Zeile), zeigt das Feld das Duell Schritt für Schritt:
+Karten in ihren Zonen (Gegner gedreht, Verteidigung quer, verdeckt als Rückseite), Hände, oberste Karten von
+Friedhof/Deck/Extra Deck/Verbannt mit Anzahl, Lebenspunkte und Zug/Phase. Bedienung:
 Anfang, Schritt zurück/vor, Abspielen, Ende; "Decks" schaltet auf die Deck-Ansicht; "Als HTML" exportiert das
 Replay als eine Datei zum Verschicken (replay_export, Gegnername standardmäßig ausgeblendet).
 
@@ -93,8 +94,10 @@ def details(match: MatchEntry) -> str:
 
 class DuelView:
     def __init__(self, master: tk.Misc, db, matches: List[MatchEntry], index: int = 0,
-                 on_close: Callable[[], None] = lambda: None, image_folder: str = card_images.FOLDER):
+                 on_close: Callable[[], None] = lambda: None, image_folder: str = card_images.FOLDER,
+                 replay: bool = False):
         self.master = master
+        self.want_replay = replay         # nur dann wird der Mitschnitt gezeigt, sonst nur die Decklisten
         self.db = db
         self.matches = matches            # das letzte zuerst (wie in der Winrate-Liste)
         self.index = index
@@ -191,7 +194,7 @@ class DuelView:
         self._stop_play()
         match = self.match
         try:
-            self.replay = self.db.replay_for(match.played_at)
+            self.replay = self.db.replay_for(match.played_at) if self.want_replay else None
         except Exception:  # Datenbank gesperrt, alte Datenbank-Fassung …
             self.replay = None
         self.mode, self.frame_no = ("replay" if self.replay else "decks"), 0
