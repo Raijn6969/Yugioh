@@ -439,6 +439,57 @@ class ComboPanelTest(unittest.TestCase):
         self.assertIsNone(panel._tip)
         panel.close()
 
+    def entries_canvas(self, panel, entries, indent=0):
+        """Zeichnet die Einträge als Schritt; (Zeichenfläche, Rechtecke der Karten, [(Zeichen, x, y)] der Verbinder)."""
+        panel._entries(entries, "1.", indent)
+        canvas = self.canvases(panel.inner)[-1]
+        rects = [canvas.coords(i) for i in canvas.find_all() if canvas.type(i) == "rectangle"]
+        joints = [(canvas.itemcget(i, "text"), *canvas.coords(i)) for i in canvas.find_all()
+                  if canvas.type(i) == "text" and canvas.itemcget(i, "text") in ("→", "+")]
+        return canvas, rects, joints
+
+    @staticmethod
+    def entry(name, connector=""):
+        return mc.Entry(name, "Aktion", connector)
+
+    def test_connectors_sit_between_the_picture_edges(self):
+        panel = self.open(["Elfnote"], FakeSession())
+        entries = [self.entry("A", "arrow"), self.entry("B", "plus"), self.entry("C")]
+        canvas, rects, joints = self.entries_canvas(panel, entries)
+        self.assertEqual([j[0] for j in joints], ["→", "+"])
+        for k, (_, jx, jy) in enumerate(joints):
+            self.assertAlmostEqual(jx, (rects[k][2] + rects[k + 1][0]) / 2, delta=1)  # mittig zwischen den Bildern
+            self.assertAlmostEqual(jy, (rects[k][1] + rects[k][3]) / 2, delta=1)       # auf Bildhöhe
+        fonts = {canvas.itemcget(i, "font") for i in canvas.find_all() if canvas.type(i) == "text"
+                 and canvas.itemcget(i, "text") in ("→", "+")}
+        self.assertEqual(len(fonts), 1)  # "+" und "→" in derselben Schrift
+        item_w = panel.step_photos.size[0] + int(20 * panel.s)
+        labels = [i for i in canvas.find_all() if canvas.type(i) == "text" and canvas.itemcget(i, "text") == "Aktion"]
+        self.assertEqual({int(float(canvas.itemcget(i, "width"))) for i in labels},
+                         {item_w + int(18 * panel.s) - int(4 * panel.s)})  # Labels brechen erst weit unter dem Bild um
+        panel.close()
+
+    def test_connector_at_end_of_row_or_before_the_new_row(self):
+        panel = self.open(["Elfnote"], FakeSession())
+        s = panel.s
+        entries = [self.entry(f"K{i}", "arrow") for i in range(9)]
+        canvas, rects, joints = self.entries_canvas(panel, entries)
+        self.assertEqual(len(joints), 8)
+        _, jx, jy = joints[4]  # Umbruch nach dem fünften Bild: der Verbinder steht dahinter
+        self.assertTrue(rects[4][2] < jx < rects[4][2] + 38 * s)
+        self.assertAlmostEqual(jy, (rects[4][1] + rects[4][3]) / 2, delta=1)
+        self.assertGreater(rects[5][1], rects[4][3])  # das sechste beginnt in der nächsten Reihe
+        # zu schmal für den Verbinder hinter dem letzten Bild: er steht vor dem ersten Bild der neuen Reihe
+        w = panel.step_photos.size[0]
+        item_w, joint, left = w + int(20 * s), int(18 * s), int(24 * s)
+        indent = int(460 * s) - (left + 3 * item_w + 2 * joint + int(8 * s))  # nur drei Einträge pro Reihe
+        canvas, rects, joints = self.entries_canvas(panel, entries[:5], indent)
+        _, jx, jy = joints[2]
+        self.assertGreater(rects[3][1], rects[2][3])
+        self.assertAlmostEqual(jx, (left + rects[3][0]) / 2, delta=1)  # mittig zwischen Nummernspalte und Bild
+        self.assertAlmostEqual(jy, (rects[3][1] + rects[3][3]) / 2, delta=1)
+        panel.close()
+
     def test_tooltip_on_card_in_step(self):
         panel = self.open(["Elfnote"], FakeSession())
         panel.show_combo(0)

@@ -770,6 +770,19 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(staples.closed)
         self.assertIsNone(self.panel.staples)
 
+    def test_footer_buttons_are_not_cut_off_in_a_narrow_window(self):
+        self.root.update()
+        footer = self.panel.rescan_btn.master
+        buttons = [self.panel.rescan_btn, self.panel.ash_btn, self.panel.side_btn, self.panel.combos_btn]
+        edge = footer.winfo_rootx() - self.panel.win.winfo_rootx()
+        narrow = sum(b.winfo_reqwidth() for b in buttons) + 2 * edge + 24  # die Knöpfe passen, der Tipp nicht mehr
+        self.panel.win.geometry(f"{narrow}x{self.panel.win.winfo_height()}")
+        self.root.update()
+        for button in buttons:
+            self.assertEqual(button.winfo_width(), button.winfo_reqwidth(), button.cget("text"))  # nicht gekürzt
+            self.assertGreaterEqual(button.winfo_x(), 0)
+            self.assertLessEqual(button.winfo_x() + button.winfo_width(), footer.winfo_width())
+
     def test_combos_need_a_scan_and_replace_staples(self):
         import mdm_combos
         self.panel.toggle_combos()

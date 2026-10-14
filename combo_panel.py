@@ -554,34 +554,50 @@ class ComboPanel:
                  connectors: bool = True) -> None:
         """
         Einträge als Bildzeile auf einer Zeichenfläche: Kartenbild, darunter die Aktion; dazwischen → bzw. + (der
-        Verbinder des Eintrags davor). Passt nicht alles in eine Reihe, geht es darunter weiter. Einträge ohne Karte
-        sind nur Text. Beim Darüberfahren erscheint der Kartenname mit der Aktion.
+        Verbinder des Eintrags davor), mittig zwischen den Bildkanten und auf Bildhöhe. Passt nicht alles in eine
+        Reihe, geht es darunter weiter; der Verbinder steht dann hinter dem letzten Bild der Reihe (ist dort kein
+        Platz: vor dem ersten der neuen Reihe). Einträge ohne Karte sind nur Text. Beim Darüberfahren erscheint der
+        Kartenname mit der Aktion.
         """
         s = self.s
         w, h = self.step_photos.size
         item_w, joint = w + int(20 * s), int(18 * s) if connectors else 0
+        margin = (item_w - w) // 2          # Rand des Bildes im Eintragskasten
         left = int(24 * s) if number else 0
         total = int(460 * s) - indent
         gap = int(6 * s)
+        font_joint = ("Helvetica", int(13 * s), "bold")
         canvas = tk.Canvas(self.inner, bg=BG, highlightthickness=0, bd=0, width=total, height=1)
         canvas.pack(fill=tk.X, padx=(indent, 0), pady=(0, int(4 * s)))
         if number:
             canvas.create_text(0, int(2 * s), text=number, fill=TEXT, font=self.font_small_bold, anchor="nw")
+
+        def joint_at(x: float, row_y: float, has_card: bool, sign: str) -> None:
+            canvas.create_text(x, row_y + (h // 2 if has_card else int(8 * s)), text=sign, fill=NEON, font=font_joint)
+
         x, y, bottom = left, 0, 0
+        prev_right, prev_y, prev_card = 0, 0, False   # rechte Kante des vorigen Eintrags, seine Reihe, hatte er ein Bild
         for i, entry in enumerate(entries):
-            if i and x + joint + item_w > total:  # neue Reihe
-                x, y = left, bottom + gap
+            sign = "+" if i and entries[i - 1].connector == "plus" else "→"
+            mode = "same"                   # Verbinder zwischen den Bildern, am Reihenende oder vor der neuen Reihe
+            start = x + joint if i else left
+            if i and start + item_w + int(8 * s) > total:  # neue Reihe
+                half = (margin if prev_card else 0) + joint // 2
+                mode = "end" if connectors and prev_right + half + int(8 * s) <= total else "begin"
+                start = left if mode == "end" else left + joint
+                y = bottom + gap
                 bottom = y
+            px = start + margin if entry.card else start   # linke Kante: Bild bzw. Text
             if i and connectors:
-                sign = "+" if entries[i - 1].connector == "plus" else "→"
-                canvas.create_text(x + joint // 2, y + (h // 2 if entry.card else int(8 * s)), text=sign, fill=NEON,
-                                   font=self.font_bold)
-            x += joint if i else 0
+                if mode == "end":
+                    joint_at(prev_right + half, prev_y, True, sign)
+                else:
+                    middle = ((prev_right if mode == "same" else left) + px) / 2  # zwischen den Kanten
+                    joint_at(middle, y, bool(entry.card) or prev_card, sign)
             tag = f"entry{i}"
             top = y
             if entry.card:
                 photo = self.step_photos.get(self.passcodes.get(name_key(entry.card)))
-                px = x + (item_w - w) // 2
                 if photo is not None:
                     canvas.create_image(px, y, image=photo, anchor="nw", tags=(tag,))
                 else:
@@ -593,11 +609,12 @@ class ComboPanel:
                 canvas.tag_bind(tag, "<Enter>", lambda e, en=entry: self._show_tip(e, en.card, en.label))
                 canvas.tag_bind(tag, "<Leave>", lambda e: self._hide_tip())
             if entry.label:
-                label = canvas.create_text(x + item_w // 2, top, text=entry.label, fill=MUTED if entry.card else TEXT,
-                                           font=self.font_small, anchor="n", width=item_w, justify=tk.CENTER,
-                                           tags=(tag,))
+                label = canvas.create_text(start + item_w // 2, top, text=entry.label, anchor="n", justify=tk.CENTER,
+                                           fill=MUTED if entry.card else TEXT, font=self.font_small, tags=(tag,),
+                                           width=item_w + joint - int(4 * s))  # unter den Bildern ist Platz
                 bottom = max(bottom, canvas.bbox(label)[3])
-            x += item_w
+            x = start + item_w
+            prev_right, prev_y, prev_card = (px + w if entry.card else start + item_w), y, bool(entry.card)
         canvas.config(height=bottom + int(2 * s))
 
     def _show_tip(self, event, name: str, detail: str) -> None:

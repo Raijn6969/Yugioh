@@ -264,8 +264,6 @@ class ExtrasPanel:
 
         footer = tk.Frame(body, bg=BG)
         footer.pack(fill=tk.X, pady=(int(8 * s), 0))
-        tk.Label(footer, text="Tipp: Maus über eine Karte im Deck", fg=MUTED, bg=BG,
-                 font=self.font_small).pack(side=tk.LEFT)
         self.rescan_btn = RoundedButton(footer, text="Neu scannen", command=self._rescan, bg="#5e35b1",
                                         font=self.font_bold, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s))
         self.rescan_btn.pack(side=tk.RIGHT)
@@ -278,6 +276,9 @@ class ExtrasPanel:
             self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
             self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, bg="#ad1457", **small)
             self.combos_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
+        # zuletzt packen: Tk verteilt den Platz in Packreihenfolge – bei Platzmangel wird der Tipp gekürzt, kein Knopf
+        tk.Label(footer, text="Tipp: Maus über eine Karte im Deck", fg=MUTED, bg=BG,
+                 font=self.font_small).pack(side=tk.LEFT)
 
     def _build_calculator(self, parent: tk.Frame) -> None:
         s = self.s
