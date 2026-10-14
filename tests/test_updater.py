@@ -154,30 +154,40 @@ class ExtractTest(TempTest):
             updater.extract(path, os.path.join(self.tmp, "neu"))
 
 
-class DropUnchangedTest(TempTest):
-    def write(self, folder, name, data):
-        path = os.path.join(self.tmp, folder, *name.split("/"))
+class ExtractUnchangedTest(TempTest):
+    def write(self, name, data):
+        path = os.path.join(self.tmp, "app", *name.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(data)
-        return path
 
-    def test_only_identical_files_are_dropped(self):
-        same = self.write("neu", "gleich.dll", b"abc")
-        self.write("app", "gleich.dll", b"abc")
-        sub_same = self.write("neu", "_internal/lib.dll", b"lib")
-        self.write("app", "_internal/lib.dll", b"lib")
-        other = self.write("neu", "anders.txt", b"abc")
-        self.write("app", "anders.txt", b"abd")                 # gleiche Größe, anderer Inhalt
-        bigger = self.write("neu", "groesser.txt", b"abcd")
-        self.write("app", "groesser.txt", b"abc")
-        new = self.write("neu", "neu.txt", b"x")                # fehlt im Programmordner
-        count = updater.drop_unchanged(os.path.join(self.tmp, "neu"), os.path.join(self.tmp, "app"))
-        self.assertEqual(count, 2)
-        self.assertFalse(os.path.exists(same) or os.path.exists(sub_same))
-        self.assertTrue(all(os.path.exists(path) for path in (other, bigger, new)))
-        with open(os.path.join(self.tmp, "app", "gleich.dll"), "rb") as f:
-            self.assertEqual(f.read(), b"abc")                  # die installierte Datei bleibt unberührt
+    def test_only_changed_files_are_extracted(self):
+        zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {
+            "MD/MD_Importer.exe": b"exe", "MD/gleich.dll": b"abc", "MD/_internal/lib.dll": b"lib",
+            "MD/anders.txt": b"abc", "MD/groesser.txt": b"abcd", "MD/neu.txt": b"x"})
+        self.write("gleich.dll", b"abc")
+        self.write("_internal/lib.dll", b"lib")
+        self.write("anders.txt", b"abd")                        # gleiche Größe, anderer Inhalt
+        self.write("groesser.txt", b"abc")
+        self.write("MD_Importer.exe", b"alt")                   # andere Größe
+        source = updater.extract(zip_path, os.path.join(self.tmp, "neu"), os.path.join(self.tmp, "app"))
+        self.assertEqual(source, os.path.join(self.tmp, "neu", "MD"))
+        found = sorted(os.path.relpath(os.path.join(d, n), source).replace(os.sep, "/")
+                       for d, _, names in os.walk(source) for n in names)
+        self.assertEqual(found, ["MD_Importer.exe", "anders.txt", "groesser.txt", "neu.txt"])
+
+    def test_source_folder_exists_when_everything_is_unchanged(self):
+        zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {"MD_Importer.exe": b"exe", "a/b.txt": b"b"})
+        self.write("MD_Importer.exe", b"exe")
+        self.write("a/b.txt", b"b")
+        folder = os.path.join(self.tmp, "neu")
+        self.assertEqual(updater.extract(zip_path, folder, os.path.join(self.tmp, "app")), folder)
+        self.assertEqual(os.listdir(folder), [])
+
+    def test_missing_exe_is_an_error_with_app_dir(self):
+        zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {"MD/readme.txt": b"x"})
+        with self.assertRaisesRegex(updater.UpdateError, "fehlt"):
+            updater.extract(zip_path, os.path.join(self.tmp, "neu"), os.path.join(self.tmp, "app"))
 
 
 class ScriptTest(TempTest):
@@ -309,7 +319,7 @@ class PrepareTest(TempTest):
         self.assertFalse(os.path.exists(stale))
         progress.assert_called_with(len(data), len(data))
 
-    def test_prepare_with_app_dir_drops_unchanged_files(self):
+    def test_prepare_with_app_dir_skips_unchanged_files(self):
         source_zip = make_zip(os.path.join(self.tmp, "src.zip"),
                               {"MD/MD_Importer.exe": b"neu", "MD/lib.dll": b"lib"})
         with open(source_zip, "rb") as f:
