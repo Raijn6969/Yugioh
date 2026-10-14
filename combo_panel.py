@@ -576,7 +576,7 @@ class ComboPanel:
             canvas.create_text(x, row_y + (h // 2 if has_card else int(8 * s)), text=sign, fill=NEON, font=font_joint)
 
         x, y, bottom = left, 0, 0
-        prev_right, prev_y, prev_card = 0, 0, False   # rechte Kante des vorigen Eintrags, seine Reihe, hatte er ein Bild
+        prev_right, prev_y, prev_card = 0, 0, False   # rechte Kante, Reihe und Bild des vorigen Eintrags
         for i, entry in enumerate(entries):
             sign = "+" if i and entries[i - 1].connector == "plus" else "→"
             mode = "same"                   # Verbinder zwischen den Bildern, am Reihenende oder vor der neuen Reihe
