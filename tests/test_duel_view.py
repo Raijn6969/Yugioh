@@ -176,10 +176,11 @@ def mock_db():
             self.name = name
 
     class Db:
-        def replay_for(self, played_at):  # nur für entry(1) gibt es einen Mitschnitt
-            if played_at != 1001.0:
-                return None
-            return Replay(1001, "1", 0, 0, [], [], [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": 0}])
+        def replay_starts_by_match(self):  # nur für entry(1) (Duell-ID "1") gibt es einen Mitschnitt
+            return {"1": 1001}
+
+        def replay_at(self, start):
+            return Replay(start, "1", 0, 0, [], [], [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": 0}])
 
         def konami_passcodes(self):
             return {}

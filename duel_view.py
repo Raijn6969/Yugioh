@@ -115,6 +115,7 @@ class DuelView:
         self.folder = image_folder
         self.photos: Dict[float, card_images.PhotoCache] = {}  # je Kartengröße ein Cache
         self.replay: Optional[Replay] = None
+        self._starts: Optional[Dict[str, int]] = None      # Duell-ID → Start des Mitschnitts (erst bei replay=True)
         self.frame_no = 0
         self.mode = "decks"               # "replay" (Mitschnitt vorhanden) oder "decks"
         self._play_job = None
@@ -194,7 +195,10 @@ class DuelView:
         self._stop_play()
         match = self.match
         try:
-            self.replay = self.db.replay_for(match.played_at) if self.want_replay else None
+            if self.want_replay and self._starts is None:  # einmal je Ansicht: jeder Mitschnitt gehört zu einem Match
+                self._starts = self.db.replay_starts_by_match()
+            start = (self._starts or {}).get(match.did)
+            self.replay = self.db.replay_at(start) if start is not None else None
         except Exception:  # Datenbank gesperrt, alte Datenbank-Fassung …
             self.replay = None
         self.mode, self.frame_no = ("replay" if self.replay else "decks"), 0

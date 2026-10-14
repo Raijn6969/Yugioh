@@ -285,9 +285,9 @@ class WinratePanel:
             matches = self.db.matches(self.selected, self.mode, MATCH_LIMIT, since)
             self._shown_matches = matches
             try:
-                self._replay_starts = self.db.replay_starts()
+                self._replay_by_match = self.db.replay_starts_by_match()
             except Exception:  # ältere Datenbank ohne Mitschnitte
-                self._replay_starts = []
+                self._replay_by_match = {}
             opponents = self.db.opponent_stats(self.selected, self.mode, since)
         except Exception as e:  # Datenbank gesperrt/defekt → Fenster bleibt benutzbar
             self.info_label.config(text=f"Matches nicht lesbar: {e}", fg=RED)
@@ -531,10 +531,8 @@ class WinratePanel:
             widget.bind("<Button-1>", lambda e, i=index: self.view_duel(i))
 
     def _has_replay(self, match: MatchEntry) -> bool:
-        """Gibt es einen Mitschnitt? (wie CardStatsDB.replay_for: Startzeit bis 30 Min. vor dem Ergebnis)"""
-        from card_stats import CardStatsDB
-        return any(match.played_at - CardStatsDB.REPLAY_BEFORE <= start <= match.played_at + CardStatsDB.REPLAY_AFTER
-                   for start in getattr(self, "_replay_starts", []))
+        """Gibt es einen Mitschnitt? (genaue Zuordnung: jeder Mitschnitt gehört zu genau einem Match)"""
+        return match.did in getattr(self, "_replay_by_match", {})
 
     def view_duel(self, index: int, replay: bool = False) -> None:
         """Duell-Übersicht für dieses Match (◀/▶ blättern); replay: mit Replay-Mitschnitt, sonst nur die Decklisten."""

@@ -587,29 +587,35 @@ class WinratePanelTest(unittest.TestCase):
         import duel_view
         import replay_recorder as rr
         from tests.test_replay import DUEL
-        mh.store_matches(self.db, mh.parse_history({"58": {"9": entry(9, time.time() - 5 * 3600, mh.WIN)}}))
+        now = time.time()  # fünf Matches innerhalb von 30 Minuten: nur eins gehört zur Aufnahme
+        mh.store_matches(self.db, mh.parse_history({"58": {
+            "11": entry(11, now - 1500, mh.WIN), "12": entry(12, now - 1200, mh.LOSS),
+            "13": entry(13, now - 900, mh.WIN)}}))
         self.panel.refresh()
-        self.assertEqual(len(self.panel._shown_matches), 3)
+        self.assertEqual([m.did for m in self.panel._shown_matches], ["2", "1", "13", "12", "11"])
         self.assertEqual(self.replay_buttons(), [])                    # noch kein Mitschnitt
-        older = self.panel._shown_matches[1]
         frames = [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": 0}]
-        self.db.save_replay(rr.replay_info({**DUEL, "time": int(older.played_at)}), frames)
+        start = int(self.panel._shown_matches[3].played_at) - 5       # kurz vor dem mittleren Match (did 12)
+        self.db.save_replay(rr.replay_info({**DUEL, "time": start}), frames)
         self.panel.refresh()
         self.root.update()
         buttons = self.replay_buttons()
-        self.assertEqual(len(buttons), 2)                              # die zwei jüngeren; das alte Match ohne
+        self.assertEqual(len(buttons), 1)                              # nur das zugeordnete Match
+        with mock.patch.object(duel_view.card_images, "download", return_value=0):
+            self.panel.view_duel(2, replay=True)                       # Nachbar im Zeitfenster: keine Aufnahme
+            self.assertIsNone(self.panel.duel.replay)
         self.assertFalse(any("▶ Replay  ·" in t for t in self.texts(self.panel.inner)))
         with mock.patch.object(duel_view.card_images, "download", return_value=0):
             buttons[0].master.event_generate("<Button-1>", x=0, y=0)   # Klick auf die Zeile: nur die Decklisten
             self.root.update()
             duel = self.panel.duel
-            self.assertEqual(duel.index, 0)
+            self.assertEqual(duel.index, 3)
             self.assertIsNone(duel.replay)
             self.assertEqual(duel.controls.winfo_manager(), "")
             with mock.patch.object(self.panel, "view_duel", wraps=self.panel.view_duel) as view:
                 buttons[0].event_generate("<ButtonPress-1>", x=0, y=0)
                 buttons[0].event_generate("<ButtonRelease-1>", x=0, y=0)
-            view.assert_called_once_with(0, replay=True)               # nicht zusätzlich der Zeilen-Klick
+            view.assert_called_once_with(3, replay=True)               # nicht zusätzlich der Zeilen-Klick
             self.assertIsNot(self.panel.duel, duel)
             self.assertIsNotNone(self.panel.duel.replay)
             self.assertEqual((self.panel.duel.mode, self.panel.duel.controls.winfo_manager()), ("replay", "pack"))

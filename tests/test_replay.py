@@ -6,6 +6,7 @@ import time
 import unittest
 from unittest import mock
 
+import match_history as mh
 import replay_recorder as rr
 from card_stats import CardStatsDB, MatchEntry
 from md_memory import BoardCard
@@ -59,6 +60,12 @@ def make_db():
     return CardStatsDB(os.path.join(tempfile.mkdtemp(), "stats.db"), base_path=None, fetch=lambda ids: {})
 
 
+def add_match(db, did="8385", played_at=1791623727):
+    """Das Match zum Mitschnitt (DUEL) – ohne gespeichertes Match gibt es keine Zuordnung."""
+    db.add_matches([(mh.MatchRecord(did, played_at, 3, mh.WIN, True, 3, 1, [], [], [], [], "", "history", True),
+                     "Elfnote", "", "", "")])
+
+
 class RecorderTest(unittest.TestCase):
     def setUp(self):
         self.db, self.memory, self.saved = make_db(), FakeMemory(), []
@@ -96,7 +103,7 @@ class RecorderTest(unittest.TestCase):
         (info, steps), = self.saved
         self.assertEqual((info.start, info.my_id, info.names, steps), (1791623726, 0, ["Raijn", "WXGY"], 4))
         self.assertEqual(info.decks[0], {"main": [22116, 22117], "extra": [12321]})
-        replay = self.db.replay_for(1791623726)
+        replay = self.db.replay_at(1791623726)
         self.assertEqual(len(replay.frames), 4)
         self.assertEqual(replay.frames[1]["cards"], [[1, 0, 2, 0, 22116, 1, 1, 2500, 1800]])
         self.assertEqual((replay.frames[2]["lp"], replay.frames[3]["turn"]), ({"0": 8000, "1": 5500}, "Turn 2"))
@@ -127,9 +134,8 @@ class StorageTest(unittest.TestCase):
         frames = [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": i} for i in range(5)]
         self.assertTrue(db.save_replay(info, frames))
         self.assertFalse(db.save_replay(info, frames[:3]))  # kürzerer Mitschnitt ersetzt nicht
-        self.assertEqual(len(db.replay_for(1791623727).frames), 5)       # Match History: Startzeit
-        self.assertIsNotNone(db.replay_for(1791623726 + 600))            # live erfasst: Ergebnis 10 Min. später
-        self.assertIsNone(db.replay_for(1791623726 + 3 * 3600))
+        self.assertEqual(len(db.replay_at(1791623726).frames), 5)
+        self.assertIsNone(db.replay_at(1791623727))                      # nur genau diese Startzeit
         self.assertEqual(db.replay_starts(), [1791623726])
 
     def test_replay_info_needs_loaded_duel(self):
@@ -165,6 +171,7 @@ class PlaybackTest(unittest.TestCase):
                   {"cards": [[1, 0, rr.GRAVE, 0, 22116, 1, 1, 0, 0], [3, 1, 0, 0, 4007, 1, 0, 1000, 2000]],
                    "lp": {"0": 6000, "1": 8000}, "turn": "Turn 2", "phase": "Battle", "t": 2}]
         db.save_replay(rr.replay_info(DUEL), frames)
+        add_match(db)
         match = MatchEntry("8385", 1791623727, 3, 1, True, 3, 1, "Elfnote", "", "Sky Striker", "", "Zwölfnote", True)
         with mock.patch.object(dv.card_images, "download", return_value=0):
             view = dv.DuelView(self.root, db, [match], image_folder=tempfile.mkdtemp(), replay=True)
@@ -206,7 +213,8 @@ class ExportTest(unittest.TestCase):
                    "turn": "Turn 2", "phase": "</script><b>x", "t": 2}]
         self.db.save_replay(rr.replay_info(dict(DUEL, Deck=[{"Main": {"CardIds": [22116]}, "Extra": {}},
                                                             {"Main": {"CardIds": [4007]}, "Extra": {}}])), frames)
-        self.replay = self.db.replay_for(1791623726)
+        self.replay = self.db.replay_at(1791623726)
+        add_match(self.db)
         self.images = tempfile.mkdtemp()
         with open(os.path.join(self.images, "1001.jpg"), "wb") as f:
             f.write(bytes([0xFF, 0xD8]) + b"bild")

@@ -665,13 +665,12 @@ class CardStatsDB:
         self._store_hand(info.start, len(frames), starting_hand(frames, info.my_id))
         return True
 
-    def replay_for(self, played_at: float) -> Optional[Replay]:
-        """Mitschnitt zu einem Match (über die Startzeit; bei live erfassten die letzte davor)."""
+    def replay_at(self, start: int) -> Optional[Replay]:
+        """Mitschnitt mit dieser Startzeit (zum Match: replay_starts_by_match)."""
         import zlib
         with self._connect() as con:
             row = con.execute("""SELECT start, replay_did, my_id, first_player, names, decks, frames FROM replays
-                                 WHERE start BETWEEN ? AND ? ORDER BY start DESC LIMIT 1""",
-                              (played_at - self.REPLAY_BEFORE, played_at + self.REPLAY_AFTER)).fetchone()
+                                 WHERE start = ?""", (start,)).fetchone()
         if row is None:
             return None
         try:
@@ -688,7 +687,7 @@ class CardStatsDB:
     def _replay_assignment(self) -> list:
         """
         [(Start des Mitschnitts, my_id, decks-JSON, Duell-ID des Matches)]. Ein Mitschnitt gehört zum ersten noch freien
-        Match in seinem Zeitfenster (wie replay_for: live erfasste Matches tragen die Zeit des Ergebnisses, bis 30 Min.
+        Match in seinem Zeitfenster (live erfasste Matches tragen die Zeit des Ergebnisses, bis 30 Min.
         nach dem Start; Match History: Startzeit) – jeder Mitschnitt und jedes Match höchstens einmal, damit nichts
         doppelt zählt. Die Schritte (frames) werden dafür nicht gelesen.
         """
