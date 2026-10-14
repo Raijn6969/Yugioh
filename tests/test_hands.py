@@ -62,6 +62,21 @@ class StartingHandTest(unittest.TestCase):
         self.assertEqual(starthand.starting_hand(frames, 1), [1, 2, 3, 4, 5])
         self.assertIsNone(starthand.starting_hand(frames, 0))   # Hand des Gegners: verdeckt (Konami-ID 0)
 
+    def test_hand_after_playing_a_card_is_not_the_starting_hand(self):
+        grave, field = [99, 0, 16, 0, 2, 1, 1, 0, 0], [98, 0, 3, 0, 2, 1, 1, 1000, 1000]
+        for played in (grave, field, [97, 0, 17, 0, 2, 1, 1, 0, 0], [96, 0, 18, 0, 2, 1, 1, 0, 0]):
+            self.assertIsNone(starthand.starting_hand([frame(mine=[1, 2, 3, 4, 5], board=[played])], 0))
+        # Später im selben Zug ein echter Fall (z. B. nach einem Neustart des Mitschnitts): zählt
+        frames = [frame(mine=[1, 2, 3, 4, 5], board=[grave]), frame(mine=[1, 2, 3, 4, 6])]
+        self.assertEqual(starthand.starting_hand(frames, 0), [1, 2, 3, 4, 6])
+
+    def test_deck_extra_deck_and_opponent_cards_do_not_disturb(self):
+        mine = [[90, 0, rr.DECK, 0, 0, 0, 1, 0, 0], [91, 0, rr.EXTRA_DECK, 0, 7, 0, 1, 0, 0]]
+        theirs = [[80, 1, 2, 0, 3, 1, 1, 1500, 1000], [81, 1, 16, 0, 4, 1, 1, 0, 0]]   # Gegner war in Zug 1 dran
+        frames = [frame(mine=[1, 2, 3, 4, 5], theirs=3, board=mine + theirs)]
+        self.assertEqual(starthand.starting_hand(frames, 0), [1, 2, 3, 4, 5])
+        self.assertIsNone(starthand.starting_hand(frames, 1))   # aus Sicht des Gegners: dessen Hand verdeckt
+
     def test_turn_number(self):
         self.assertEqual((starthand.turn_number("Turn 12"), starthand.turn_number("Zug 3")), (12, 3))
         self.assertIsNone(starthand.turn_number(""))
@@ -128,6 +143,29 @@ class StorageTest(unittest.TestCase):
         with mock.patch("zlib.decompress", side_effect=AssertionError("noch einmal gelesen")):
             self.assertEqual(db.starting_hands(starts), {starts[0]: [1, 2, 3, 4, 5], starts[1]: None})
         self.assertEqual(db.starting_hands([12345]), {})                       # unbekannter Mitschnitt
+
+    def test_hand_stored_with_older_rules_is_evaluated_again(self):
+        db = make_db()
+        duels = Duels(db)
+        duels.add([1, 2, 3, 4, 5], True)
+        start = db.replay_starts()[0]
+        with db._connect() as con:   # wie mit der alten Regel gespeichert: andere Hand, keine Regelversion
+            con.execute("UPDATE replay_hands SET hand = '[7, 7, 7, 7, 7]', rules = NULL")
+        self.assertEqual(db.starting_hands([start]), {start: [1, 2, 3, 4, 5]})
+        with db._connect() as con:
+            self.assertEqual(con.execute("SELECT rules FROM replay_hands").fetchone()[0], starthand.HAND_RULES)
+        with mock.patch("zlib.decompress", side_effect=AssertionError("noch einmal gelesen")):
+            self.assertEqual(db.starting_hands([start]), {start: [1, 2, 3, 4, 5]})
+
+    def test_table_without_rules_column_is_extended(self):
+        db = make_db()
+        with db._connect() as con:
+            con.execute("DROP TABLE replay_hands")
+            con.execute("CREATE TABLE replay_hands (start INTEGER PRIMARY KEY, steps INTEGER, hand TEXT)")
+            con.execute("INSERT INTO replay_hands VALUES (1, 4, '[1]')")
+        db2 = CardStatsDB(db.path, base_path=None, fetch=lambda ids: {})
+        with db2._connect() as con:
+            self.assertEqual(con.execute("SELECT start, rules FROM replay_hands").fetchall(), [(1, None)])
 
     def test_longer_recording_replaces_the_stored_hand(self):
         db = make_db()

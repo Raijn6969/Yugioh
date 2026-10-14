@@ -205,6 +205,9 @@ def create_tables(con: sqlite3.Connection) -> None:
                        first_player INTEGER, names TEXT, decks TEXT, frames BLOB, steps INTEGER, recorded_at REAL)""")
     # Starthand je Mitschnitt (starthand.py): Konami-IDs als JSON, leer = keine verlässliche; steps = Stand des Mitschnitts
     con.execute("CREATE TABLE IF NOT EXISTS replay_hands (start INTEGER PRIMARY KEY, steps INTEGER, hand TEXT)")
+    # rules = starthand.HAND_RULES beim Auswerten (NULL = vor Regelversion 2 → wird neu ausgewertet)
+    if "rules" not in {row[1] for row in con.execute("PRAGMA table_info(replay_hands)")}:
+        con.execute("ALTER TABLE replay_hands ADD COLUMN rules INTEGER")
     # Side-Deck-Profile je Deck (Name nach Archetypen wie im Verlauf), Karten als JSON {Passcode: Kopien}
     con.execute("""CREATE TABLE IF NOT EXISTS side_profiles (deck_name TEXT, name TEXT, cards_out TEXT, cards_in TEXT,
                        saved_at REAL, PRIMARY KEY (deck_name, name))""")
@@ -730,17 +733,17 @@ class CardStatsDB:
         Neue Mitschnitte werden schon beim Speichern ausgewertet; ältere hier einmalig aus den Schritten und gemerkt.
         """
         import zlib
-        from starthand import starting_hand
+        from starthand import HAND_RULES, starting_hand
         wanted = sorted({int(s) for s in starts})
         result: Dict[int, Optional[List[int]]] = {}
         for begin in range(0, len(wanted), 500):
             chunk = wanted[begin:begin + 500]
             with self._connect() as con:
-                rows = con.execute(f"""SELECT r.start, r.my_id, r.steps, h.steps, h.hand FROM replays AS r
+                rows = con.execute(f"""SELECT r.start, r.my_id, r.steps, h.steps, h.hand, h.rules FROM replays AS r
                                        LEFT JOIN replay_hands AS h ON h.start = r.start
                                        WHERE r.start IN ({','.join('?' * len(chunk))})""", chunk).fetchall()
-            for start, my_id, steps, stored_steps, hand in rows:
-                if stored_steps == steps:  # schon ausgewertet (und der Mitschnitt seitdem nicht ersetzt)
+            for start, my_id, steps, stored_steps, hand, rules in rows:
+                if stored_steps == steps and rules == HAND_RULES:  # schon nach den heutigen Regeln ausgewertet
                     result[start] = json.loads(hand) if hand else None
                     continue
                 with self._connect() as con:
@@ -755,9 +758,10 @@ class CardStatsDB:
         return result
 
     def _store_hand(self, start: int, steps: int, hand: Optional[List[int]]) -> None:
+        from starthand import HAND_RULES
         with self._connect() as con:
-            con.execute("INSERT OR REPLACE INTO replay_hands VALUES (?, ?, ?)",
-                        (start, steps, json.dumps(hand) if hand else None))
+            con.execute("INSERT OR REPLACE INTO replay_hands (start, steps, hand, rules) VALUES (?, ?, ?, ?)",
+                        (start, steps, json.dumps(hand) if hand else None, HAND_RULES))
 
     def opponent_names(self) -> List[str]:
         """Spielernamen der Gegner aus den Mitschnitten (nicht die Deck-Namen der Matches) – für den Fehlerbericht."""
