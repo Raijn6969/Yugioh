@@ -223,11 +223,12 @@ class MasterDuelImporter:
             percent = done * 100 // total
             if percent >= last[0] + 5 or done == total:
                 last[0] = percent
-                self._run_on_ui(self.update_status, f"Update wird geladen … {percent} %", "cyan")
+                text = "Update wird entpackt …" if done == total else f"Update wird geladen … {percent} %"
+                self._run_on_ui(self.update_status, text, "cyan")
 
         try:
             temp_root = tempfile.gettempdir()
-            source = updater.prepare(release, temp_root, progress)
+            source = updater.prepare(release, temp_root, progress, app_dir=APP_DIR)
             script = updater.write_script(source, APP_DIR, os.getpid(), updater.EXE_NAME,
                                           updater.update_dir(temp_root, release.version))
             updater.launch(script)

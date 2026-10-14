@@ -280,7 +280,7 @@ class OverlayHookTest(unittest.TestCase):
         app._update_running = True
         release = make_release()
 
-        def prepare(rel, temp_root, progress):
+        def prepare(rel, temp_root, progress, app_dir=None):
             for done in (10, 50, 52, 100):                 # Statuszeile höchstens alle 5 %
                 progress(done, 100)
             return r"C:\Temp\MD_Importer_update_9.4\neu\MD_ImporterV9.4"
@@ -298,7 +298,7 @@ class OverlayHookTest(unittest.TestCase):
             app.close.assert_not_called()                  # beendet wird erst im UI-Thread
             self.run_queue(app)
         self.assertEqual([text for text, _ in app.status],
-                         ["Update wird geladen … 10 %", "Update wird geladen … 50 %", "Update wird geladen … 100 %"])
+                         ["Update wird geladen … 10 %", "Update wird geladen … 50 %", "Update wird entpackt …"])
         app.close.assert_called_once()
 
     def test_failed_download_closes_nothing_and_reports(self):

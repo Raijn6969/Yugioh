@@ -8,13 +8,14 @@ neuen Dateien (robocopy /E – eigene Daten wie Config, Datenbank, Backups liege
 unberührt) und startet die neue exe. Geschrieben wird nur im eigenen Temp-Ordner und im Programmordner.
 """
 
+import filecmp
 import os
 import shutil
 import subprocess
 import time
 import urllib.request
 import zipfile
-from typing import Callable
+from typing import Callable, Optional
 
 from update_check import DOWNLOAD_PREFIXES, Release
 
@@ -71,21 +72,37 @@ def extract(zip_path: str, folder: str) -> str:
     target = _long_path(folder)
     try:
         with zipfile.ZipFile(zip_path) as archive:
-            if archive.testzip() is not None:
-                raise UpdateError("Die heruntergeladene zip ist beschädigt.")
             for name in archive.namelist():
                 path = name.replace("\\", "/")
                 if path.startswith("/") or ":" in path or ".." in path.split("/"):
                     raise UpdateError(f"Unzulässiger Pfad in der zip: {name}")
-            archive.extractall(target)
+            archive.extractall(target)  # prüft die CRC jeder Datei (falsch → BadZipFile)
     except zipfile.BadZipFile as e:
-        raise UpdateError(f"Keine gültige zip: {e}")
+        raise UpdateError("Die heruntergeladene zip ist beschädigt.") from e
     if os.path.isfile(os.path.join(target, EXE_NAME)):
         return folder
     subs = [d for d in os.listdir(target) if os.path.isdir(os.path.join(target, d))]
     if len(subs) == 1 and os.path.isfile(os.path.join(target, subs[0], EXE_NAME)):
         return os.path.join(folder, subs[0])
     raise UpdateError(f"In der zip fehlt {EXE_NAME}.")
+
+
+def drop_unchanged(source: str, app_dir: str) -> int:
+    """Dateien in `source` löschen, die unter `app_dir` schon gleich (Größe und Inhalt) vorliegen: robocopy kopiert sie
+    dann nicht neu (spart Schreiben und Defender-Prüfung). Jeder OSError → Datei bleibt. Zurück: Anzahl gelöscht."""
+    root, installed = _long_path(source), _long_path(app_dir)
+    dropped = 0
+    for folder, _, names in os.walk(root):
+        for name in names:
+            path = os.path.join(folder, name)
+            other = os.path.join(installed, os.path.relpath(path, root))
+            try:
+                if os.path.getsize(path) == os.path.getsize(other) and filecmp.cmp(path, other, shallow=False):
+                    os.remove(path)
+                    dropped += 1
+            except OSError:
+                pass
+    return dropped
 
 
 def write_script(source: str, app_dir: str, pid: int, exe_name: str, folder: str) -> str:
@@ -143,8 +160,9 @@ def update_dir(temp_root: str, version: str) -> str:
 
 
 def prepare(release: Release, temp_root: str, progress: Callable[[int, int], None] = lambda done, total: None,
-            opener: Callable = urllib.request.urlopen) -> str:
-    """Laden + Entpacken in `update_dir`. Zurück: Ordner mit den neuen Dateien (Quelle für das Skript)."""
+            opener: Callable = urllib.request.urlopen, app_dir: Optional[str] = None) -> str:
+    """Laden + Entpacken in `update_dir`. Mit `app_dir`: unveränderte Dateien weglassen (drop_unchanged).
+    Zurück: Ordner mit den neuen Dateien (Quelle für das Skript)."""
     if not release.zip_url.startswith(DOWNLOAD_PREFIXES) or release.zip_size <= 0:
         raise UpdateError("Der Release hat keine zip zum Herunterladen.")
     folder = update_dir(temp_root, release.version)
@@ -152,4 +170,7 @@ def prepare(release: Release, temp_root: str, progress: Callable[[int, int], Non
     os.makedirs(folder)
     zip_path = os.path.join(folder, "update.zip")
     download(release.zip_url, release.zip_size, zip_path, progress, opener)
-    return extract(zip_path, os.path.join(folder, "neu"))
+    source = extract(zip_path, os.path.join(folder, "neu"))
+    if app_dir:
+        drop_unchanged(source, app_dir)
+    return source
