@@ -508,10 +508,11 @@ class MasterDuelImporter:
                 my_pid = os.getpid()
 
                 md_active = fg_pid != my_pid and self._is_md_active(fg_hwnd, fg_pid)
-                # Editor-Prüfung nur mit Master Duel vorne – und nicht, solange das Mouseover-Fenster des
-                # Deck-Fensters offen ist (es kann über der Überschrift "Main Deck" liegen)
+                # Editor-Prüfung nur mit Master Duel vorne – und nicht, solange ein eigenes Fenster (Mouseover,
+                # Duell-Ansicht …) über der Überschrift "Main Deck" liegt: Sonst läse die OCR unser Fenster
                 self.editor_watch.md_front = md_active
-                self.editor_watch.paused = bool(self.extras and self.extras.hover.visible)
+                self.editor_watch.paused = (bool(self.extras and self.extras.hover.visible)
+                                            or self._own_window_over_header())
                 self.match_watch.enabled = self._use_memory()
                 self.replay_watch.enabled = self._use_memory()
                 self._clear_timer_after_editor()
@@ -531,6 +532,29 @@ class MasterDuelImporter:
             pass  # Läuft alle 300 ms; ein einzelner Fehlschlag (Fenster gerade geschlossen) ist egal
         finally:
             self._after_ids["focus"] = self.root.after(300, self._check_window_focus)
+
+    def _own_window_over_header(self) -> bool:
+        """Liegt ein eigenes, sichtbares Fenster (außer dem Overlay) über der Überschrift "Main Deck"?"""
+        try:
+            frame = md_layout.md_frame()
+            if frame is None:
+                return False
+            r = frame.region(*md_layout.MAIN_HEADER_REGION)
+            left, top, right, bottom = r["left"], r["top"], r["left"] + r["width"], r["top"] + r["height"]
+            todo = list(self.root.winfo_children())
+            while todo:
+                w = todo.pop()
+                todo.extend(w.winfo_children())
+                if not isinstance(w, tk.Toplevel) or not w.winfo_viewable():
+                    continue
+                if float(w.wm_attributes("-alpha")) <= 0:
+                    continue
+                x, y = w.winfo_rootx(), w.winfo_rooty()
+                if x < right and x + w.winfo_width() > left and y < bottom and y + w.winfo_height() > top:
+                    return True
+        except tk.TclError:
+            pass
+        return False
 
     def _clear_timer_after_editor(self) -> None:
         """Die Endzeit des letzten Imports/Exports bleibt stehen, bis man den Deck-Editor verlässt – beim nächsten

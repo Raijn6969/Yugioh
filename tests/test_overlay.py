@@ -19,6 +19,8 @@ except Exception:
 import Overlay
 from dark_scrollbar import DarkScrollbar
 
+_REAL_FOCUS_LOOP = Overlay.MasterDuelImporter._check_window_focus  # vor dem Patch in OverlayTest.setUp
+
 
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
 class OverlayTest(unittest.TestCase):
@@ -157,6 +159,52 @@ class OverlayTest(unittest.TestCase):
         app.editor_watch.detector.visible = False  # Editor verlassen
         app._clear_timer_after_editor()
         self.assertEqual(app.timer_label.cget("text"), "")
+
+    def test_own_window_over_header_pauses_the_editor_check(self):
+        import md_layout
+        root, app = self.open_app()
+        win = tk.Toplevel(root)
+        win.overrideredirect(True)
+        win.geometry("300x200+100+100")
+        self.pump(root, 0.1)
+        frame = md_layout.Frame(0, 0, 1920, 1080)
+        header = frame.region(*md_layout.MAIN_HEADER_REGION)
+
+        def over(frame_or_none=frame):
+            with mock.patch.object(md_layout, "md_frame", return_value=frame_or_none):
+                return app._own_window_over_header()
+
+        win.geometry(f"300x200+{header['left'] + 10}+{header['top'] + 10}")
+        self.pump(root, 0.1)
+        self.assertTrue(over())
+        win.geometry(f"300x200+{header['left'] + header['width'] + 50}+{header['top']}")  # daneben
+        self.pump(root, 0.1)
+        self.assertFalse(over())
+        win.geometry(f"300x200+{header['left'] + 10}+{header['top'] + 10}")
+        win.wm_attributes("-alpha", 0.0)  # ausgeblendet stört die Erkennung nicht
+        self.pump(root, 0.1)
+        self.assertFalse(over())
+        win.wm_attributes("-alpha", 1.0)
+        self.pump(root, 0.1)
+        self.assertFalse(over(None))  # ohne Master-Duel-Fenster
+
+        # Focus-Loop übernimmt es nach editor_watch.paused
+        app.extras = None
+        with mock.patch.object(Overlay.win32gui, "GetForegroundWindow", return_value=1), \
+             mock.patch.object(Overlay.win32process, "GetWindowThreadProcessId", return_value=(0, 4242)), \
+             mock.patch.object(app, "_is_md_active", return_value=True), \
+             mock.patch.object(app, "_should_show", return_value=True), \
+             mock.patch.object(app, "_own_window_over_header", return_value=True):
+            _REAL_FOCUS_LOOP(app)
+            self.assertTrue(app.editor_watch.paused)
+        with mock.patch.object(Overlay.win32gui, "GetForegroundWindow", return_value=1), \
+             mock.patch.object(Overlay.win32process, "GetWindowThreadProcessId", return_value=(0, 4242)), \
+             mock.patch.object(app, "_is_md_active", return_value=True), \
+             mock.patch.object(app, "_should_show", return_value=True), \
+             mock.patch.object(app, "_own_window_over_header", return_value=False):
+            _REAL_FOCUS_LOOP(app)
+            self.assertFalse(app.editor_watch.paused)
+        root.after_cancel(app._after_ids["focus"])  # die Schleife hat sich neu eingeplant
 
     def test_flat_and_snaps_to_bottom_edge(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
