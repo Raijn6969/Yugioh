@@ -512,7 +512,7 @@ class MasterDuelImporter:
                 # Duell-Ansicht …) über der Überschrift "Main Deck" liegt: Sonst läse die OCR unser Fenster
                 self.editor_watch.md_front = md_active
                 self.editor_watch.paused = (bool(self.extras and self.extras.hover.visible)
-                                            or self._own_window_over_header())
+                                            or (md_active and self._own_window_over_header()))
                 self.match_watch.enabled = self._use_memory()
                 self.replay_watch.enabled = self._use_memory()
                 self._clear_timer_after_editor()

@@ -206,6 +206,19 @@ class OverlayTest(unittest.TestCase):
             self.assertFalse(app.editor_watch.paused)
         root.after_cancel(app._after_ids["focus"])  # die Schleife hat sich neu eingeplant
 
+    def test_own_window_over_header_not_checked_without_master_duel_front(self):
+        root, app = self.open_app()
+        app.extras = None
+        with mock.patch.object(Overlay.win32gui, "GetForegroundWindow", return_value=1), \
+             mock.patch.object(Overlay.win32process, "GetWindowThreadProcessId", return_value=(0, 4242)), \
+             mock.patch.object(app, "_is_md_active", return_value=False), \
+             mock.patch.object(app, "_should_show", return_value=False), \
+             mock.patch.object(app, "_own_window_over_header", return_value=True) as over:
+            _REAL_FOCUS_LOOP(app)
+            over.assert_not_called()  # ohne Master Duel vorne keine Fenstersuche alle 300 ms
+            self.assertFalse(app.editor_watch.paused)
+        root.after_cancel(app._after_ids["focus"])
+
     def test_flat_and_snaps_to_bottom_edge(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
