@@ -1,6 +1,5 @@
 """Duell-Übersicht: ein gespeichertes Match auf dem Spielfeld (Decks beider Spieler, Ergebnis, blättern)."""
 
-import os
 import tempfile
 import time
 import unittest

@@ -56,8 +56,19 @@ def download(url: str, size: int, target: str, progress: Callable[[int, int], No
         raise
 
 
+def _long_path(folder: str) -> str:
+    """Windows: Langpfad-Präfix, damit auch Pfade über 260 Zeichen gehen (zip-Einträge sind bis ~105 Zeichen lang,
+    der Temp-Ordner kann bei langen Benutzernamen schon lang sein). shortcut: UNC-Pfade (Netzlaufwerk als Temp)
+    bekommen es nicht richtig – der Temp-Ordner liegt lokal; sonst das UNC-Präfix ergänzen."""
+    prefix = r"\\?" + "\\"
+    if os.name != "nt" or folder.startswith(prefix):
+        return folder
+    return prefix + os.path.abspath(folder)
+
+
 def extract(zip_path: str, folder: str) -> str:
-    """Zip prüfen (Zip-Slip!) und entpacken. Zurück: der Ordner, in dem EXE_NAME liegt."""
+    """Zip prüfen (Zip-Slip!) und entpacken. Zurück: der Ordner (ohne Langpfad-Präfix), in dem EXE_NAME liegt."""
+    target = _long_path(folder)
     try:
         with zipfile.ZipFile(zip_path) as archive:
             if archive.testzip() is not None:
@@ -66,14 +77,14 @@ def extract(zip_path: str, folder: str) -> str:
                 path = name.replace("\\", "/")
                 if path.startswith("/") or ":" in path or ".." in path.split("/"):
                     raise UpdateError(f"Unzulässiger Pfad in der zip: {name}")
-            archive.extractall(folder)
+            archive.extractall(target)
     except zipfile.BadZipFile as e:
         raise UpdateError(f"Keine gültige zip: {e}")
-    if os.path.isfile(os.path.join(folder, EXE_NAME)):
+    if os.path.isfile(os.path.join(target, EXE_NAME)):
         return folder
-    subs = [os.path.join(folder, d) for d in os.listdir(folder) if os.path.isdir(os.path.join(folder, d))]
-    if len(subs) == 1 and os.path.isfile(os.path.join(subs[0], EXE_NAME)):
-        return subs[0]
+    subs = [d for d in os.listdir(target) if os.path.isdir(os.path.join(target, d))]
+    if len(subs) == 1 and os.path.isfile(os.path.join(target, subs[0], EXE_NAME)):
+        return os.path.join(folder, subs[0])
     raise UpdateError(f"In der zip fehlt {EXE_NAME}.")
 
 

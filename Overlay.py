@@ -536,9 +536,10 @@ class MasterDuelImporter:
     def _should_show(self, own_window_in_front: bool, md_in_front: bool) -> bool:
         """
         Sichtbar: ein Fenster des Importers ist vorne (z.B. gerade angeklickt), oder Master Duel ist vorne und
-        zeigt den Deck-Editor (unbekannt bzw. nicht prüfbar zählt als ja) – während eines Imports immer.
+        zeigt den Deck-Editor (unbekannt bzw. nicht prüfbar zählt als ja) – während eines Imports immer, ebenso
+        während eines Updates (sonst sähe man den Fortschritt nicht).
         """
-        if own_window_in_front:
+        if own_window_in_front or self._update_running:
             return True
         return md_in_front and (self.is_running or self.editor_watch.visible is not False)
 

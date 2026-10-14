@@ -100,7 +100,6 @@ class CreateReportTest(unittest.TestCase):
             log = archive.read("md_debug.log").decode("utf-8")
             old = archive.read("md_debug.1.log").decode("utf-8")
             info = archive.read("info.txt").decode("utf-8")
-            config = archive.read("md_config.json").decode("utf-8")
         self.assertNotIn("WXGY\n", log.replace("WXGYZ", ""))
         self.assertIn("(Raijn vs <Gegner>, Start", log)           # eigener Name bleibt, der des Gegners nicht
         self.assertIn("Ash Blossom & Joyous Spring", log)

@@ -64,9 +64,10 @@ class EditorDetectorTest(unittest.TestCase):
 
 
 class ShouldShowTest(unittest.TestCase):
-    def decide(self, own, md, editor, running=False):
+    def decide(self, own, md, editor, running=False, updating=False):
         fake = type("App", (), {})()
         fake.is_running = running
+        fake._update_running = updating
         fake.editor_watch = type("W", (), {"visible": editor})()
         import Overlay
         return Overlay.MasterDuelImporter._should_show(fake, own, md)
@@ -78,6 +79,7 @@ class ShouldShowTest(unittest.TestCase):
         self.assertTrue(self.decide(own=False, md=True, editor=None))     # unbekannt → zeigen
         self.assertTrue(self.decide(own=False, md=True, editor=False, running=True))  # Import läuft
         self.assertTrue(self.decide(own=True, md=False, editor=False))    # Importer selbst angeklickt
+        self.assertTrue(self.decide(own=False, md=False, editor=False, updating=True))  # Update lädt: Fortschritt zeigen
 
 
 if __name__ == "__main__":

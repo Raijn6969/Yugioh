@@ -406,7 +406,7 @@ class DuelView:
             factor -= 0.05
 
     def _grid(self, grid, main: List[Tuple[str, int]], extra: List[Tuple[str, int]]) -> None:
-        c, s = self.canvas, self.s
+        s = self.s
         x0, y0, x1, y1 = grid
         rows = lambda cols: -(-len(main) // cols) + (-(-len(extra) // cols) if extra else 0)  # noqa: E731
         factor, columns = self._fit(grid, rows)

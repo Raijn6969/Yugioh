@@ -52,7 +52,7 @@ class TempTest(unittest.TestCase):
         """Mit Wiederholung (bis ~10 s): cmd/wscript laufen nach dem Marker evtl. noch kurz. Bleibt der Ordner
         trotzdem stehen, scheitert der Test deswegen nicht."""
         for _ in range(20):
-            shutil.rmtree(self.tmp, ignore_errors=True)
+            shutil.rmtree(updater._long_path(self.tmp), ignore_errors=True)   # auch tief verschachteltes
             if not os.path.exists(self.tmp):
                 return
             time.sleep(0.5)
@@ -105,6 +105,18 @@ class ExtractTest(TempTest):
         zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {"MD_Importer.exe": b"exe", "a/b.txt": b"b"})
         folder = os.path.join(self.tmp, "neu")
         self.assertEqual(updater.extract(zip_path, folder), folder)
+
+    def test_paths_over_260_characters_are_extracted(self):
+        deep = "/".join(["d" * 40] * 6) + "/COPYING"                  # 240 Zeichen + Temp-Ordner > 260
+        zip_path = make_zip(os.path.join(self.tmp, "u.zip"), {"MD/MD_Importer.exe": b"exe", "MD/" + deep: b"lang"})
+        folder = os.path.join(self.tmp, "neu")
+        source = updater.extract(zip_path, folder)
+        self.assertEqual(source, os.path.join(folder, "MD"))
+        self.assertFalse(source.startswith("\\\\?"))                    # zurückgegeben wird der Pfad ohne Präfix
+        full = os.path.join(updater._long_path(source), deep.replace("/", os.sep))
+        self.assertGreater(len(full), 260)
+        with open(full, "rb") as f:
+            self.assertEqual(f.read(), b"lang")
 
     def test_zip_slip_is_refused_and_nothing_is_extracted(self):
         for evil in ("../evil.txt", "MD/../../evil.txt", "/evil.txt", "C:/evil.txt", "..\\evil.txt"):
