@@ -6,10 +6,12 @@ Inhalt: das Log (md_debug.log und die rotierten md_debug.1.log … bzw. md_start
 Einstellungen (md_config.json) und info.txt (Version, Windows, Python, Bildschirm, Datenordner). Nie dabei: Datenbanken,
 Sicherungen und Replays.
 
-Gegnernamen: Das Log schreibt beim Mitschnitt eines Replays die Spielernamen ("[REPLAY] Mitschnitt gestartet (A vs B …").
-Die Namen der Gegner, die in den gespeicherten Replays vorkommen, werden im Log-Text durch "<Gegner>" ersetzt. (Die
-"Gegner-Decks" der Matches sind Deck-Namen aus den Archetypen, keine Spielernamen – die bleiben, sonst wären die
-Kartennamen im Log unleserlich.)
+Gegnernamen: Ältere Logs enthalten beim Mitschnitt eines Replays die Spielernamen ("[REPLAY] Mitschnitt gestartet
+(A vs B …"; neuere schreiben sie nicht mehr). Die Namen der Gegner, die in den gespeicherten Replays vorkommen,
+werden im Log-Text durch "<Gegner>" ersetzt. (Die "Gegner-Decks" der Matches sind Deck-Namen aus den Archetypen,
+keine Spielernamen – die bleiben, sonst wären die Kartennamen im Log unleserlich.)
+
+Benutzerordner: der Windows-Benutzerordner (Logs, Tracebacks, Datenordner) wird überall durch %USERPROFILE% ersetzt (hide_user).
 """
 
 import ctypes
@@ -42,6 +44,16 @@ def redact(text: str, names: Iterable[str]) -> Tuple[str, int]:
         text, count = re.subn(rf"(?<!\w){re.escape(name)}(?!\w)", REDACTED, text)
         total += count
     return text, total
+
+
+def hide_user(text: str, home: str = os.path.expanduser("~")) -> str:
+    """Den Windows-Benutzerordner (mit \\ oder /, auch in JSON doppelt geschrieben, Groß-/Kleinschreibung egal)
+    durch %USERPROFILE% ersetzen. Leerer/ungültiger home (ohne Ordnertrennzeichen) → Text unverändert."""
+    parts = [p for p in re.split(r"[\\/]+", home or "") if p]
+    if len(parts) < 2:  # "~" (nicht aufgelöst) oder nur ein Laufwerk: zu ungenau
+        return text
+    pattern = r"[\\/]+".join(re.escape(p) for p in parts)
+    return re.sub(rf"(?<!\w){pattern}(?!\w)", lambda m: "%USERPROFILE%", text, flags=re.IGNORECASE)
 
 
 def read_text(path: str, limit: int = MAX_LOG_BYTES) -> str:
@@ -98,7 +110,8 @@ def system_info(now: Optional[float] = None, redacted: Optional[Tuple[int, int]]
              f"Datenordner: {data_dir}",
              "",
              "Enthalten: " + ", ".join(included),
-             "Nicht enthalten: Datenbanken, Sicherungen, Replays."]
+             "Nicht enthalten: Datenbanken, Sicherungen, Replays.",
+             "Der Windows-Benutzerordner ist überall als %USERPROFILE% ersetzt."]
     if redacted is not None:
         names, count = redacted
         lines.append(f"Gegnernamen: {names} bekannte Name(n) aus den Replays, {count}× im Text durch "
@@ -108,7 +121,7 @@ def system_info(now: Optional[float] = None, redacted: Optional[Tuple[int, int]]
 
 def create(db=None, folder: Optional[str] = None, now: Optional[float] = None, log_file: str = LOG_FILE,
            config_file: str = CONFIG_FILE, startup_error: Optional[str] = STARTUP_ERROR_LOG,
-           data_dir: str = DATA_DIR) -> str:
+           data_dir: str = DATA_DIR, home: str = os.path.expanduser("~")) -> str:
     """ZIP schreiben (Downloads-Ordner, nichts überschreiben). db: Karten-Datenbank für die Gegnernamen (None =
     keine Schwärzung). Returns: Pfad."""
     now = time.time() if now is None else now
@@ -121,19 +134,20 @@ def create(db=None, folder: Optional[str] = None, now: Optional[float] = None, l
     entries, replaced = [], 0
     for path in log_files(log_file, startup_error):
         try:
-            text, count = redact(read_text(path), names)
+            text, count = redact(hide_user(read_text(path), home), names)
         except OSError:
             continue  # Log ist gerade gesperrt
         entries.append((os.path.basename(path), text))
         replaced += count
     if os.path.exists(config_file):
         try:
-            text, count = redact(read_text(config_file), names)
+            text, count = redact(hide_user(read_text(config_file), home), names)
             entries.append((os.path.basename(config_file), text))
             replaced += count
         except OSError:
             pass
-    info = system_info(now, (len(names), replaced), [name for name, _ in entries] + ["info.txt"], data_dir)
+    info = hide_user(system_info(now, (len(names), replaced), [name for name, _ in entries] + ["info.txt"], data_dir),
+                     home)
 
     folder = folder or downloads_dir()
     os.makedirs(folder, exist_ok=True)

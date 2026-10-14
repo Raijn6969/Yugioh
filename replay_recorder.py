@@ -115,7 +115,7 @@ class ReplayRecorder:
             if info is None:
                 return
             self.info, self.frames, self._last, self._t0 = info, [], None, self.clock()
-            dlog(f"[REPLAY] Mitschnitt gestartet ({' vs '.join(info.names)}, Start {info.start}).")
+            dlog(f"[REPLAY] Mitschnitt gestartet (Start {info.start}).")  # keine Spielernamen ins Log (Fehlerbericht)
             self.on_started()
         worker = memory.duel_worker()
         if not worker:

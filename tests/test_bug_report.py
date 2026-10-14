@@ -50,6 +50,25 @@ class RedactTest(unittest.TestCase):
         self.assertEqual(br.redact("Al and Bo", ["Al", "", "  ", None]), ("Al and Bo", 0))
 
 
+class HideUserTest(unittest.TestCase):
+    HOME = "C:\\Users\\Raijn"
+
+    def test_both_spellings_and_any_case(self):
+        text = ("C:\\Users\\Raijn\\AppData\\x.py, c:/users/raijn/AppData, C:\\\\USERS\\\\RAIJN\\\\y "
+                "und C:/Users/Raijn")
+        self.assertEqual(br.hide_user(text, self.HOME),
+                         "%USERPROFILE%\\AppData\\x.py, %USERPROFILE%/AppData, %USERPROFILE%\\\\y "
+                         "und %USERPROFILE%")
+
+    def test_other_folders_stay(self):
+        text = "C:\\Users\\Andere\\x und C:\\Users\\Raijn2\\x und D:\\Users\\Raijn"
+        self.assertEqual(br.hide_user(text, self.HOME), text)
+
+    def test_empty_or_invalid_home_changes_nothing(self):
+        for home in ("", None, "~", "C:\\"):
+            self.assertEqual(br.hide_user("C:\\Users\\Raijn ~", home), "C:\\Users\\Raijn ~")
+
+
 class OpponentNamesTest(unittest.TestCase):
     def test_only_the_other_player_of_every_replay(self):
         db = make_db()
@@ -62,12 +81,15 @@ class OpponentNamesTest(unittest.TestCase):
 
 class CreateReportTest(unittest.TestCase):
     def setUp(self):
-        self.data = tempfile.mkdtemp()
+        self.home = os.path.join(tempfile.mkdtemp(), "Users", "Testnutzer")
+        self.data = os.path.join(self.home, "AppData", "MD")
+        os.makedirs(self.data)
         self.downloads = tempfile.mkdtemp()
         self.log = os.path.join(self.data, "md_debug.log")
         self.config = os.path.join(self.data, "md_config.json")
         self.startup = os.path.join(self.data, "md_startup_error.log")
-        self.write(self.log, LOG)
+        slashes = self.home.lower().replace("\\", "/")           # zweite Schreibweise, kleingeschrieben
+        self.write(self.log, LOG + f"Traceback File \"{self.home}\\x.py\" und {slashes}/y\n")
         self.write(os.path.join(self.data, "md_debug.1.log"), "alter Lauf gegen WXGY\n")
         self.write(os.path.join(self.data, "md_debug.2.log"), "noch älter\n")
         self.write(self.config, '{"SPEED_PROFILE": "normal", "READ_METHOD": "memory"}')
@@ -86,7 +108,7 @@ class CreateReportTest(unittest.TestCase):
 
     def create(self, **kwargs):
         args = dict(db=self.db, folder=self.downloads, log_file=self.log, config_file=self.config,
-                    startup_error=self.startup, data_dir=self.data)
+                    startup_error=self.startup, data_dir=self.data, home=self.home)
         args.update(kwargs)
         return br.create(**args)
 
@@ -108,11 +130,21 @@ class CreateReportTest(unittest.TestCase):
         self.assertIn("Windows:", info)
         self.assertIn("Python:", info)
         self.assertIn("Bildschirm:", info)
-        self.assertIn(f"Datenordner: {self.data}", info)
+        self.assertIn("Datenordner: %USERPROFILE%", info)
+        self.assertIn("als %USERPROFILE% ersetzt", info)
         self.assertIn("Nicht enthalten: Datenbanken, Sicherungen, Replays.", info)
         self.assertIn("1 bekannte Name(n)", info)
         self.assertIn('durch "<Gegner>" ersetzt', info)
         self.assertNotIn("WXGY", info)                            # der Name selbst steht nirgends in info.txt
+
+    def test_user_folder_is_nowhere_in_the_zip(self):
+        self.write(self.config, '{"DIR": "' + self.home.replace("\\", "\\\\") + '\\\\x"}')
+        with zipfile.ZipFile(self.create()) as archive:
+            texts = {n: archive.read(n).decode("utf-8").lower() for n in archive.namelist()}
+        user = "testnutzer"
+        self.assertEqual([n for n, t in texts.items() if user in t], [])
+        self.assertIn("%userprofile%", texts["md_debug.log"])
+        self.assertIn("%userprofile%", texts["md_config.json"])
 
     def test_never_contains_databases_backups_or_replays(self):
         path = self.create()

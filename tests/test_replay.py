@@ -101,6 +101,14 @@ class RecorderTest(unittest.TestCase):
         self.assertEqual(replay.frames[1]["cards"], [[1, 0, 2, 0, 22116, 1, 1, 2500, 1800]])
         self.assertEqual((replay.frames[2]["lp"], replay.frames[3]["turn"]), ({"0": 8000, "1": 5500}, "Turn 2"))
 
+    def test_log_has_no_player_names(self):
+        with mock.patch.object(rr, "dlog") as dlog:
+            self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
+        self.assertTrue(dlog.called)
+        for call in dlog.call_args_list:
+            for name in DUEL["name"]:
+                self.assertNotIn(name, call.args[0])
+
     def test_too_short_recordings_are_dropped(self):
         self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
         self.step(LIVE_DUEL)
