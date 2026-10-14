@@ -119,6 +119,8 @@ class DuelViewTest(unittest.TestCase):
         c = view.canvas
         tag, box = self.hover_card(view)
         x, y = (box[0] + box[2]) // 2, (box[1] + box[3]) // 2
+        view.win.geometry("+-5000+-5000")  # der echte Mauszeiger darf keine Enter/Leave-Ereignisse beisteuern
+        view.win.update()
         with mock.patch.object(c, "create_text", wraps=c.create_text) as create:
             for _ in range(6):  # echte Enter/Motion-Ereignisse über derselben Karte
                 c.event_generate("<Motion>", x=x, y=y)
