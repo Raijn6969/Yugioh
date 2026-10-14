@@ -117,6 +117,7 @@ class DuelView:
         self._play_job = None
         self._passcodes: Optional[Dict[int, str]] = None   # Konami-ID → Passcode (fürs Bild)
         self._art: Dict[tuple, object] = {}                # gedrehte Kartenbilder
+        self._tip_key: Optional[tuple] = None              # Karte, für die der Hinweis gerade steht
 
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
@@ -441,21 +442,35 @@ class DuelView:
             c.create_rectangle(x + w - bw, y + h - bh, x + w, y + h, fill="#101018", outline=GOLD, tags=(tag,))
             c.create_text(x + w - bw // 2, y + h - bh // 2, text=f"{count}×", fill=GOLD, font=self.font_small_bold,
                           tags=(tag,))
-        c.tag_bind(tag, "<Enter>", lambda e, cid=cid, x=x, y=y, h=h: self._tip(cid, count, x, y + h))
-        c.tag_bind(tag, "<Leave>", lambda e: c.delete("tip"))
+        c.tag_bind(tag, "<Enter>", lambda e, cid=cid, x=x, y=y, h=h: self._tip(cid, count, x, y, h))
+        c.tag_bind(tag, "<Leave>", lambda e: self._untip())
 
-    def _tip(self, cid: str, count: int, x: int, y: int, plain: bool = False) -> None:
+    def _untip(self) -> None:
+        self._tip_key = None
+        self.canvas.delete("tip")
+
+    def _tip(self, cid: str, count: int, x: int, y: int, h: int, plain: bool = False) -> None:
+        """Namenshinweis unter (sonst über) der Karte (x, y, Höhe h); nie auf der Karte und nie anklickbar."""
         c, s = self.canvas, self.s
+        key = (cid, count, x, y)
+        if key == self._tip_key and c.find_withtag("tip"):
+            return  # steht schon für diese Karte (kein Neuzeichnen bei wiederholtem <Enter>)
         c.delete("tip")
+        self._tip_key = key
         text = self.names.get(cid, cid) if plain else f"{count}× {self.names.get(cid, cid)}"
-        label = c.create_text(x, y + int(6 * s), text=text, fill=TEXT, font=self.font, anchor="nw", tags=("tip",))
+        # state="disabled": der Hinweis wird nie "current item" – sonst Enter/Leave-Endlosschleife unter dem Zeiger
+        label = c.create_text(x, y + h + int(6 * s), text=text, fill=TEXT, font=self.font, anchor="nw",
+                              tags=("tip",), state="disabled")
         x0, y0, x1, y1 = c.bbox(label)
+        if y1 + int(4 * s) > self.size[1]:  # unten kein Platz: über die Karte
+            c.move(label, 0, y - int(6 * s) - y1)
+            x0, y0, x1, y1 = c.bbox(label)
         if x1 > self.size[0] - int(10 * s):  # rechts nicht aus dem Feld hinaus
             c.move(label, self.size[0] - int(10 * s) - x1, 0)
             x0, y0, x1, y1 = c.bbox(label)
         pad = int(4 * s)
         c.tag_lower(c.create_rectangle(x0 - pad, y0 - pad, x1 + pad, y1 + pad, fill=PANEL, outline=GOLD,
-                                       tags=("tip",)), label)
+                                       tags=("tip",), state="disabled"), label)
 
     # ── Replay: Spielfeld wie in der Schattenarena ──
     def _geometry(self):
@@ -589,8 +604,8 @@ class DuelView:
         tag = f"bc{card['uid']}_{x}_{y}"
         c.create_rectangle(x, y, x + w, y + h, outline="", fill="", tags=(tag,))
         if shown:
-            c.tag_bind(tag, "<Enter>", lambda e, p=shown, x=x, y=y, h=h: self._tip(p, 1, x, y + h, plain=True))
-            c.tag_bind(tag, "<Leave>", lambda e: c.delete("tip"))
+            c.tag_bind(tag, "<Enter>", lambda e, p=shown, x=x, y=y, h=h: self._tip(p, 1, x, y, h, plain=True))
+            c.tag_bind(tag, "<Leave>", lambda e: self._untip())
         if stats and card["face"] and card["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) and card["atk"] >= 0:
             c.create_text(cx, y + h - int(2 * s), text=f"{card['atk']} / {card['def']}", fill=GOLD,
                           font=self.font_small_bold, anchor="s")

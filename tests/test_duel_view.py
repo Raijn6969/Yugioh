@@ -82,9 +82,55 @@ class DuelViewTest(unittest.TestCase):
         view = self.view([entry(1)])
         tile = next(i for i in view.canvas.find_all() if any(t.startswith("card5_") for t in view.canvas.gettags(i)))
         tag = next(t for t in view.canvas.gettags(tile) if t.startswith("card5_"))
-        view._tip("5", 3, 100, 100)
+        view._tip("5", 3, 100, 100, 50)
         self.assertIn("3× Ash Blossom", self.texts(view))
         self.assertTrue(tag)
+
+    def hover_card(self, view):
+        """Liefert (Tag, bbox) der Gegner-Karte 5."""
+        c = view.canvas
+        tile = next(i for i in c.find_all() if any(t.startswith("card5_") for t in c.gettags(i)))
+        tag = next(t for t in c.gettags(tile) if t.startswith("card5_"))
+        self.assertTrue(c.tag_bind(tag, "<Enter>"))
+        return tag, c.bbox(tag)
+
+    def test_tip_is_disabled_and_not_over_card(self):
+        view = self.view([entry(1)])
+        c = view.canvas
+        tag, box = self.hover_card(view)
+        view._tip("5", 3, box[0], box[1], box[3] - box[1])
+        tips = c.find_withtag("tip")
+        self.assertEqual(len(tips), 2)  # Text + Rechteck
+        self.assertTrue(all(c.itemcget(i, "state") == "disabled" for i in tips))
+        tip_box = c.bbox("tip")
+        self.assertGreaterEqual(tip_box[1], box[3])  # unterhalb der Karte
+        # nahe am unteren Rand: kein Platz mehr unten, also oberhalb – und wieder nicht auf der Karte
+        view._untip()
+        self.assertEqual(c.find_withtag("tip"), ())
+        low = view.size[1] - 10
+        view._tip("5", 3, 100, low - 40, 40)
+        tip_box = c.bbox("tip")
+        self.assertLessEqual(tip_box[3], low - 40)
+        self.assertLessEqual(tip_box[3], view.size[1])
+
+    def test_tip_not_redrawn_for_same_card(self):
+        from unittest import mock
+        view = self.view([entry(1)])
+        c = view.canvas
+        tag, box = self.hover_card(view)
+        x, y = (box[0] + box[2]) // 2, (box[1] + box[3]) // 2
+        with mock.patch.object(c, "create_text", wraps=c.create_text) as create:
+            for _ in range(6):  # echte Enter/Motion-Ereignisse über derselben Karte
+                c.event_generate("<Motion>", x=x, y=y)
+                view.win.update()
+            tip_calls = [k for k in create.call_args_list if k.kwargs.get("tags") == ("tip",)]
+            self.assertEqual(len(tip_calls), 1, create.call_args_list)  # einmal gemalt, dann nie wieder
+            args = view._tip_key  # (cid, count, x, y): derselbe Aufruf bei stehendem Hinweis malt nicht neu
+            view._tip(args[0], args[1], args[2], args[3], box[3] - box[1])
+            self.assertEqual(len([k for k in create.call_args_list if k.kwargs.get("tags") == ("tip",)]), 1)
+        view._untip()
+        self.assertIsNone(view._tip_key)
+        self.assertEqual(c.find_withtag("tip"), ())
 
     def test_opens_from_winrate_match_row(self):
         from winrate_panel import WinratePanel
