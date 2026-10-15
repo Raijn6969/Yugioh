@@ -243,6 +243,19 @@ class LogStepTest(unittest.TestCase):
                                                                 " · Ash Blossom wird Xyz-Material"))
         self.assertEqual(step.marks, ())
 
+    def test_cost_sending_itself_to_the_graveyard(self):
+        self.assertEqual(self.one(act(50, 100, cost=1)),
+                         ("kosten", "Du schickst Ash Blossom als Kosten auf den Friedhof", "KOSTEN"))
+        self.assertEqual(self.one(act(50, 100, 1, cost=1))[1],
+                         "Gegner schickt Ash Blossom als Kosten auf den Friedhof")
+
+    def test_control_change_text_from_the_view_of_the_new_owner(self):
+        self.assertEqual(self.one(act(22, 200, 1, 0, zt=0)),
+                         ("kontrolle", "Du übernimmst die Kontrolle über Accesscode Talker", ""))
+        self.assertEqual(self.one(act(22, 100, 0, 1, zt=1))[1], "Gegner übernimmt die Kontrolle über Ash Blossom")
+        step = log_steps(act(22, 200, 1, 0, zt=0), act(23, 100))[1]     # Rang wie "ziel": Ziel bleibt Hauptereignis
+        self.assertEqual(step.kind, "ziel")
+
     def test_chain_number_in_the_activation_text(self):
         step = log_steps(chain_entry(2, 200, 1), act(11, 200, 1, 0))[1]
         self.assertEqual(step.text, "Gegner aktiviert Accesscode Talker (Kette 2)")

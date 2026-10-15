@@ -20,7 +20,8 @@ FIELD = (*MONSTER, *SPELL)
 # Dauer der Animation je Art in Sekunden bei 1× (wie Factory PHASES), "still" = kein sichtbarer Unterschied
 DURATION = {"aktiviert": 0.85, "beschworen": 0.7, "gesetzt": 0.6, "umgedreht": 0.35, "friedhof": 0.7,
             "verbannt": 0.7, "hand": 0.8, "zug": 0.6, "still": 0.0,
-            "kosten": 0.7, "material": 0.6, "ziel": 0.6, "negiert": 0.7, "zerstoert": 0.7, "angriff": 0.8, "kette": 0.6}
+            "kosten": 0.7, "material": 0.6, "ziel": 0.6, "kontrolle": 0.6, "negiert": 0.7, "zerstoert": 0.7,
+            "angriff": 0.8, "kette": 0.6}
 SET_FLIP = 0.35      # gesetzte Karte: erst offen gezeigt, dann umgedreht (kommt zur Dauer dazu)
 LP_TIME = 0.5        # Schritt ohne Kartenänderung, aber mit LP-Änderung
 STEP_PAUSE = 1.0     # Pause nach einem Schritt beim Abspielen (bei 1×, wie Factory STEP_TIME)
@@ -31,11 +32,12 @@ SUMMON = (("link", "Linkbeschwörung"), ("xyz", "Xyz-Beschwörung"), ("synchro",
 CODE_SUMMON = (2, 3, 5, 7, 9)  # Normal-, Spezial-, Extra-Deck-, Xyz-, Linkbeschwörung (die Art kommt vom Kartentyp)
 CODE_DESTROY = {20: "durch Kampf", 21: "durch Effekt"}
 CODE_COST = {46: ("verbannst", "verbannt", "als Kosten"), 49: ("schickst", "schickt", "als Kosten auf den Friedhof"),
-             51: ("wirfst", "wirft", "als Kosten ab"), 31: ("zeigst", "zeigt", "als Kosten vor")}
-LOG_ORDER = ("aktiviert", "beschworen", "zerstoert", "kosten", "material", "negiert", "angriff", "ziel", "kette",
-             "gesetzt", "hand")
+             51: ("wirfst", "wirft", "als Kosten ab"), 31: ("zeigst", "zeigt", "als Kosten vor"),
+             50: ("schickst", "schickt", "als Kosten auf den Friedhof")}
+LOG_ORDER = ("aktiviert", "beschworen", "zerstoert", "kosten", "material", "negiert", "angriff", "ziel", "kontrolle",
+             "kette", "gesetzt", "hand")
 # diese nennt der Text zusätzlich zum Hauptereignis
-EXTRA_KINDS = ("kosten", "material", "ziel", "negiert", "zerstoert", "kette")
+EXTRA_KINDS = ("kosten", "material", "ziel", "kontrolle", "negiert", "zerstoert", "kette")
 MARK_KINDS = ("kosten", "ziel", "negiert", "zerstoert", "angriff")  # diese bekommen ein Schild auf der Karte
 LOG_LABELS = {"kosten": "KOSTEN", "ziel": "ZIEL", "negiert": "NEGIERT", "zerstoert": "ZERSTÖRT", "angriff": "ANGRIFF",
               "gesetzt": "GESETZT"}
@@ -246,8 +248,8 @@ def event_kind(e: dict) -> Optional[str]:
         return "beschworen"
     if code in CODE_DESTROY:
         return "zerstoert"
-    return {28: "material", 12: "negiert", 10: "angriff", 23: "ziel", 13: "gesetzt", 14: "gesetzt", 26: "hand",
-            1: "hand"}.get(code)
+    return {28: "material", 12: "negiert", 10: "angriff", 23: "ziel", 22: "kontrolle", 13: "gesetzt", 14: "gesetzt",
+            26: "hand", 1: "hand"}.get(code)
 
 
 def _locate(card: int, team: int, zone: Optional[int], frame: dict, prev_frame: Optional[dict],
@@ -291,6 +293,9 @@ def describe_event(kind_: str, e: dict, name_of: Callable[[int], Optional[str]],
         return f"{name} wird negiert"
     if kind_ == "ziel":
         return f"{name} wird zum Ziel"
+    if kind_ == "kontrolle":   # "zt" = neuer Besitzer
+        who = "Du übernimmst" if e.get("zt") == my_id else "Gegner übernimmt"
+        return f"{who} die Kontrolle über {name}"
     if kind_ == "angriff":
         target = (name_of(e["rc"]) if e.get("rc") else None) or "eine Karte"
         return f"{name} greift {target} an" if e.get("rc") else f"{name} greift direkt an"
