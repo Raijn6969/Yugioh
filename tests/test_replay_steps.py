@@ -52,13 +52,13 @@ class KindTest(unittest.TestCase):
     def test_every_kind(self):
         hand = frame(row(1, 0, rr.HAND, 100))
         self.assertEqual(kind_of(hand, frame(row(1, 0, 0, 100))), "beschworen")
-        self.assertEqual(kind_of(hand, frame(row(1, 0, 2, 100, 0))), "gesetzt")                  # verdeckt ins Monsterfeld
+        self.assertEqual(kind_of(hand, frame(row(1, 0, 2, 100, 0))), "gesetzt")  # verdeckt ins Monsterfeld
         self.assertEqual(kind_of(hand, frame(row(1, 0, 9, 100, 0))), "gesetzt")                  # verdeckt in Z/F
         self.assertEqual(kind_of(frame(row(1, 0, 9, 100, 0)), frame(row(1, 0, 9, 100, 1))), "umgedreht")
         self.assertEqual(kind_of(hand, frame(row(1, 0, rr.GRAVE, 100))), "friedhof")
         self.assertEqual(kind_of(hand, frame(row(1, 0, rr.BANISHED, 100))), "verbannt")
         self.assertEqual(kind_of(frame(row(1, 0, rr.DECK)), frame(row(1, 0, rr.HAND, 100))), "hand")
-        self.assertEqual(kind_of(hand, frame(row(1, 0, 9, 100, 1))), "zug")                      # Zauber offen aufs Feld
+        self.assertEqual(kind_of(hand, frame(row(1, 0, 9, 100, 1))), "zug")  # Zauber offen aufs Feld
         self.assertEqual(kind_of(frame(row(1, 0, 0, 100)), frame(row(1, 0, 2, 100))), "zug")   # Monster wechselt Zone
 
     def test_activation_comes_from_the_tracker_and_only_when_new(self):
@@ -70,7 +70,7 @@ class KindTest(unittest.TestCase):
 
     def test_still_steps(self):
         self.assertEqual(kind_of(frame(), frame()), "still")                                           # nur LP/Phase
-        self.assertEqual(kind_of(frame(), frame(row(1, 0, rr.DECK))), "still")                         # erscheint im Deck
+        self.assertEqual(kind_of(frame(), frame(row(1, 0, rr.DECK))), "still")  # erscheint im Deck
         self.assertEqual(kind_of(frame(), frame(row(1, 1, rr.EXTRA_DECK))), "still")
         self.assertEqual(kind_of(frame(row(1, 0, rr.DECK, index=3)), frame(row(1, 0, rr.DECK, index=2))), "still")
         self.assertEqual(kind_of(frame(row(1, 0, rr.HAND, 100, index=1)), frame(row(1, 0, rr.HAND, 100))), "still")
@@ -140,7 +140,8 @@ class DescribeTest(unittest.TestCase):
 
     def test_summon_and_activation_labels(self):
         for card_type, label in (("Link Monster", "Linkbeschwörung"), ("XYZ Monster", "Xyz-Beschwörung"),
-                                 ("Synchro Effect Monster", "Synchrobeschwörung"), ("Fusion Monster", "Fusionsbeschwörung"),
+                                 ("Synchro Effect Monster", "Synchrobeschwörung"),
+                                 ("Fusion Monster", "Fusionsbeschwörung"),
                                  ("Ritual Effect Monster", "Ritualbeschwörung"), ("Effect Monster", "")):
             self.assertEqual(rs.summon_label(card_type), label)
         self.assertEqual(rs.activation_label("Effect Monster"), "EFFEKT")

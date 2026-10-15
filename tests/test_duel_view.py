@@ -5,6 +5,7 @@ import time
 import unittest
 
 import duel_view as dv
+import replay_recorder as rr
 import match_history as mh
 from card_stats import MatchEntry, Replay
 
@@ -202,6 +203,142 @@ class DuelViewTest(unittest.TestCase):
         self.assertTrue(len(tips) >= 1)
         view._untip()
         self.assertEqual(view.canvas.find_withtag("tip"), ())
+
+
+def row(uid, zone, card=100, face=1, team=0, index=0, atk=2500, defense=1800):
+    return [uid, team, zone, index, card, face, 1, atk, defense]
+
+
+def frame(*cards, lp=None, phase="Main1"):
+    return {"cards": list(cards), "lp": lp or {"0": 8000, "1": 8000}, "turn": "Turn 1", "phase": phase, "t": 0}
+
+
+# Hand (0), nichts (1), Beschwörung (2), nur LP (3), zweite Karte auf den Friedhof (4)
+FRAMES = [frame(row(1, rr.HAND), row(2, rr.HAND, 101, index=1)),
+          frame(row(1, rr.HAND), row(2, rr.HAND, 101, index=1)),
+          frame(row(1, 0), row(2, rr.HAND, 101)),
+          frame(row(1, 0), row(2, rr.HAND, 101), lp={"0": 7000, "1": 8000}),
+          frame(row(1, 0), row(2, rr.GRAVE, 101), lp={"0": 7000, "1": 8000})]
+
+
+class Clock:
+    """Steuerbare Uhr für time.perf_counter: so läuft eine Animation ohne Warten."""
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+@unittest.skipUnless(HAS_TK, "kein Tk")
+class AnimationTest(unittest.TestCase):
+    def setUp(self):
+        self.root = tk.Tk()
+        self.root.withdraw()
+        self.addCleanup(self.root.destroy)
+        self.folder = tempfile.mkdtemp()
+
+    def view(self, frames=FRAMES):
+        from unittest import mock
+        db = mock_db()
+        db.replay_at = lambda start: Replay(start, "1", 0, 0, ["Du", "Gegner"], [], frames)
+        patch = mock.patch.object(dv.card_images, "download", return_value=0)
+        patch.start()
+        self.addCleanup(patch.stop)
+        view = dv.DuelView(self.root, db, [entry(1)], 0, image_folder=self.folder, replay=True)
+        self.addCleanup(view.close)
+        self.root.update()
+        return view
+
+    def jobs(self):
+        return len(self.root.tk.splitlist(self.root.tk.call("after", "info")))
+
+    def hover_areas(self, view):
+        return [i for i in view.canvas.find_all() if any(t.startswith("bc") for t in view.canvas.gettags(i))]
+
+    def test_steps_are_classified(self):
+        view = self.view()
+        self.assertEqual([s.kind for s in view.steps], ["still", "still", "beschworen", "still", "friedhof"])
+        self.assertEqual([s.dur for s in view.steps], [0.0, 0.0, 0.7, 0.5, 0.7])
+
+    def test_step_forward_starts_exactly_one_job_and_ends_in_the_final_state(self):
+        view = self.view()
+        before = self.jobs()
+        view.manual(2)                      # kein "ein Schritt vor": springt
+        self.assertIsNone(view._anim)
+        view.manual(1)
+        view.manual(2)                      # ein Schritt vor: gleitet
+        self.assertIsNotNone(view._anim)
+        self.assertEqual(self.jobs(), before + 1)
+        view.manual(3)                      # während der Animation: kein zweiter Job
+        self.assertEqual(self.jobs(), before + 1)
+        self.assertEqual(view.frame_no, 3)
+        self.assertIsNotNone(view._anim)
+        self.assertEqual(self.hover_areas(view), [])           # Animationsbilder tragen keine Hinweis-Flächen
+        view._anim["t0"] -= 100             # Zeit läuft ab: der nächste Takt beendet die Animation
+        end = time.time() + 3
+        while view._anim is not None and time.time() < end:
+            self.root.update()
+            time.sleep(0.01)
+        self.assertIsNone(view._anim)
+        self.assertIsNone(view._job)
+        self.assertEqual(self.jobs(), before)
+        self.assertTrue(self.hover_areas(view))                # Standbild: Karten wieder bindbar
+        self.assertIn("2500 / 1800", [view.canvas.itemcget(i, "text") for i in view.canvas.find_all()
+                                      if view.canvas.type(i) == "text"])
+
+    def test_back_jump_pause_and_close_cancel_the_animation(self):
+        view = self.view()
+        view.manual(1)
+        view.manual(2)
+        view.manual(1)                      # zurück
+        self.assertEqual((view.frame_no, view._anim, view._job), (1, None, None))
+        view.manual(2)
+        view.manual(0)                      # Anfang
+        self.assertEqual((view._anim, view._job), (None, None))
+        view.manual(1)
+        view.manual(2)
+        view.toggle_play()                  # Abspielen während einer Animation: weiter derselbe Job
+        self.assertTrue(view.playing)
+        self.assertIsNotNone(view._job)
+        view.toggle_play()                  # Pause: Endzustand steht, kein Job mehr
+        self.assertEqual((view.playing, view._anim, view._job), (False, None, None))
+        view.manual(3)
+        view.close()
+        self.assertEqual((view._anim, view._job), (None, None))
+
+    def test_playing_skips_invisible_steps_and_stops_at_the_end(self):
+        from unittest import mock
+        view = self.view()
+        view.speed = 4.0
+        clock, seen = Clock(), []
+
+        def tick():                         # einen Takt von Hand (der echte after-Job wird vorher abgesagt)
+            if view._job is not None:
+                view.win.after_cancel(view._job)
+                view._job = None
+            clock.now += 0.3
+            view._loop()
+        with mock.patch.object(dv.time, "perf_counter", clock):
+            view.toggle_play()
+            for _ in range(300):
+                tick()
+                seen.append(view.frame_no)
+                if not view.playing and view._anim is None:
+                    break
+        self.assertFalse(view.playing)
+        self.assertEqual((view.frame_no, view._anim, view._job), (4, None, None))
+        self.assertNotIn(1, seen)           # ohne sichtbare Änderung: übersprungen
+        self.assertEqual(seen[0], 2)
+        self.assertIn(3, seen)              # LP-Schritt wird gezeigt
+
+    def test_moving_card_slides_to_its_destination_at_once(self):
+        frames = [frame(row(1, rr.HAND)), frame(row(1, rr.MOVING)), frame(row(1, 0))]
+        view = self.view(frames)
+        spot = lambda n: tuple(getattr(view._scene(n)[0][1], k) for k in "xy")  # noqa: E731
+        self.assertEqual(spot(1), spot(2))
+        self.assertNotEqual(spot(0), spot(1))
+        self.assertEqual([s.kind for s in view.steps], ["still", "beschworen", "still"])
 
 
 def mock_db():

@@ -189,6 +189,7 @@ class PlaybackTest(unittest.TestCase):
         self.assertEqual(view.mode, "replay")
         self.assertIn("Schritt 1 / 3", view.step_label.cget("text"))
         view.ctrl_buttons["next"].invoke()
+        view._finish_anim(draw=True)                      # ein Schritt vor gleitet; hier gleich der Endzustand
         self.assertIn("2500 / 1800", texts())
         view.ctrl_buttons["last"].invoke()
         self.assertIn("LP 6000", texts())
@@ -196,9 +197,9 @@ class PlaybackTest(unittest.TestCase):
         self.assertIn("Turn 2", view.step_label.cget("text"))
         view.ctrl_buttons["first"].invoke()
         view.toggle_play()
-        self.assertIsNotNone(view._play_job)
+        self.assertIsNotNone(view._job)
         view.toggle_play()
-        self.assertIsNone(view._play_job)
+        self.assertIsNone(view._job)
         view.mode_btn.invoke()                            # Deck-Ansicht
         self.assertEqual(view.mode, "decks")
         self.assertIn("SIEG", texts())
