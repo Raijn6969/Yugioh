@@ -9,7 +9,7 @@ from unittest import mock
 import match_history as mh
 import replay_recorder as rr
 from card_stats import CardStatsDB, MatchEntry
-from md_memory import BoardCard
+from md_memory import BoardCard, DuelLog
 
 try:
     import tkinter as tk
@@ -34,6 +34,8 @@ class FakeMemory:
     def __init__(self):
         self.views, self.board, self.lp, self.phase = ["HomeViewController"], [], {0: 8000, 1: 8000}, ("Turn 1", "Main 1")
         self.reads = []
+        self.log = []          # alle Protokollzeilen des Spiels (eine Zeile = ein Eintrag)
+        self.log_error = None
 
     def open_views(self):
         return self.views
@@ -54,6 +56,17 @@ class FakeMemory:
 
     def duel_phase(self, worker):
         return self.phase
+
+    def duel_log_controller(self, worker):
+        self.reads.append("log")
+        if self.log_error:
+            raise self.log_error
+        return 7
+
+    def duel_log(self, ctl, start=0):
+        out = DuelLog(len(self.log))
+        out.extend(self.log[start:])
+        return out
 
 
 def make_db():
@@ -107,6 +120,34 @@ class RecorderTest(unittest.TestCase):
         self.assertEqual(len(replay.frames), 4)
         self.assertEqual(replay.frames[1]["cards"], [[1, 0, 2, 0, 22116, 1, 1, 2500, 1800]])
         self.assertEqual((replay.frames[2]["lp"], replay.frames[3]["turn"]), ({"0": 8000, "1": 5500}, "Turn 2"))
+
+    def test_protocol_entries_land_in_the_frame_they_were_read_in(self):
+        act = {"k": "act", "a": 11, "c": 22116, "t": 0, "f": 13, "z": 0, "cost": 0}
+        res = {"k": "chain", "c": 22116, "n": 1, "t": 0, "res": 1}
+        self.memory.log = [act]
+        self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])          # erster Blick: alles bisherige
+        self.step(REPLAY)                                              # nichts Neues → kein Schritt
+        self.memory.log = [act, res]
+        self.step(REPLAY)                                              # Feld gleich, aber neue Zeile → Schritt
+        self.step(REPLAY, [card(1, 0, 2, kid=22116)])                  # Feld neu, Protokoll nicht → ohne "log"
+        self.assertEqual([f.get("log") for f in self.rec.frames], [[act], [res], None])
+        self.step(["HomeViewController", "ColosseumHistoryViewController"])
+        frames = self.db.replay_at(1791623726).frames
+        self.assertEqual([f.get("log") for f in frames], [[act], [res], None])
+
+    def test_protocol_error_never_stops_the_recording(self):
+        self.memory.log_error = OSError("nicht lesbar")
+        with mock.patch.object(rr, "dlog") as dlog:
+            self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
+            self.step(REPLAY, [card(1, 0, 2, kid=22116)])
+        self.assertEqual(len(self.rec.frames), 2)
+        self.assertTrue(all("log" not in f for f in self.rec.frames))
+        self.assertEqual(sum("Protokoll" in c.args[0] for c in dlog.call_args_list), 1)   # nur einmal gemeldet
+
+    def test_protocol_is_not_read_outside_a_replay(self):
+        self.memory.log = [{"k": "phase", "p": 1}]
+        self.step(LIVE_DUEL, [card(1, 0, rr.HAND, kid=22116)])
+        self.assertNotIn("log", self.memory.reads)
 
     def test_log_has_no_player_names(self):
         with mock.patch.object(rr, "dlog") as dlog:

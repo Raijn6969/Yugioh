@@ -8,8 +8,9 @@ Gelesen wird NUR während eines Replays aus der Match History: oberstes Menü "D
 der Rekorder außer der Menüliste nichts (wie match_history).
 
 Je Schritt: alle Karten, die das Spiel zeigt (md_memory.duel_board: Spieler, Zone, Platz, Karte, offen, Position,
-ATK/DEF), Lebenspunkte und Zug/Phase vom Phasen-Knopf. Zu Beginn aus ClientWork["Duel"]: Startzeit (ordnet das
-Replay dem Match zu), eigene Spieler-Nummer, wer anfängt, Namen und beide Decks.
+ATK/DEF), Lebenspunkte und Zug/Phase vom Phasen-Knopf, dazu die neuen Zeilen des Duell-Protokolls des Spiels
+(md_memory.duel_log: Aktivierungen, Ketten, Kosten, Beschwörungen …) als frame["log"]. Zu Beginn aus
+ClientWork["Duel"]: Startzeit (ordnet das Replay dem Match zu), eigene Spieler-Nummer, wer anfängt, Namen und Decks.
 """
 
 import threading
@@ -83,6 +84,8 @@ class ReplayRecorder:
         self.frames: List[dict] = []
         self._last = None
         self._t0 = 0.0
+        self._log_pos = 0          # so viele Protokollzeilen des Spiels sind schon gelesen
+        self._log_failed = False   # Fehler beim Protokoll wurde schon ins Log geschrieben
         self._stop = threading.Event()
 
     @property
@@ -115,6 +118,7 @@ class ReplayRecorder:
             if info is None:
                 return
             self.info, self.frames, self._last, self._t0 = info, [], None, self.clock()
+            self._log_pos, self._log_failed = 0, False
             dlog(f"[REPLAY] Mitschnitt gestartet (Start {info.start}).")  # keine Spielernamen ins Log (Fehlerbericht)
             self.on_started()
         worker = memory.duel_worker()
@@ -122,14 +126,30 @@ class ReplayRecorder:
             return
         turn, phase = memory.duel_phase(worker)
         step = frame(memory.duel_board(worker), memory.duel_lp(worker), turn, phase)
-        if step != self._last:
+        log = self._read_log(memory, worker)
+        if step != self._last or log:   # neue Protokollzeilen allein (z.B. "Kette löst auf") sind auch ein Schritt
             self._last = step
-            self.frames.append(dict(step, t=round(self.clock() - self._t0, 2)))
+            self.frames.append(dict(step, t=round(self.clock() - self._t0, 2), **({"log": log} if log else {})))
+
+    def _read_log(self, memory, worker) -> List[dict]:
+        """Neue Zeilen des Duell-Protokolls. Jeder Fehler → [] – die Aufnahme läuft dann ohne Protokoll weiter."""
+        try:
+            ctl = memory.duel_log_controller(worker)
+            if not ctl:
+                return []
+            entries = memory.duel_log(ctl, self._log_pos)
+            self._log_pos = getattr(entries, "size", self._log_pos)
+            return list(entries)
+        except Exception as e:
+            if not self._log_failed:
+                self._log_failed = True
+                dlog(f"[REPLAY] Duell-Protokoll nicht lesbar: {e}")
+            return []
 
     def finish(self) -> None:
         """Mitschnitt beenden und speichern (zu kurze verwerfen)."""
         info, frames = self.info, self.frames
-        self.info, self.frames, self._last = None, [], None
+        self.info, self.frames, self._last, self._log_pos = None, [], None, 0
         if info is None or len(frames) < MIN_STEPS:
             return
         db = self.get_db()
