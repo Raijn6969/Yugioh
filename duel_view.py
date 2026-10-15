@@ -290,7 +290,7 @@ class ReplayStateTracker:
                                 gy[team] = [x for x in gy[team] if x["uid"] != uid]
                             ban_uids[team].add(uid)
                             ban[team].append(dict(c, zone=rr.BANISHED))
-                    elif is_discard_cost(info) or (dest == rr.GRAVE and not is_spell_trap):
+                    elif dest == rr.GRAVE and (is_discard_cost(info) or not is_spell_trap):
                         if uid not in gy_uids[team] and uid not in ban_uids[team]:
                             entry = dict(c, zone=rr.GRAVE)
                             gy_uids[team].add(uid)

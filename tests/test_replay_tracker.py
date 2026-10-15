@@ -153,6 +153,23 @@ class TestReplayTracker(unittest.TestCase):
         self.assertEqual(len(tracker.get(1)["gy"][1]), 1)
         self.assertEqual(tracker.get(1)["gy"][1][0]["card"], 14553)
 
+    def test_discard_cost_card_on_way_to_field_not_in_gy(self):
+        from unittest import mock
+        from card_stats import CardInfo
+        # Kostentext mit "banish" vor dem Semikolon, aber Ziel ist die Monsterzone: darf nie im Friedhof landen
+        aleister = CardInfo("22964", "Aleister the Invoker", "Effect Monster", "effect", "Spellcaster", 4, "",
+                            "You can banish 1 Spellcaster monster from your GY; Special Summon this card.")
+        mock_db = mock.Mock()
+        mock_db.info.return_value = aleister
+
+        f0 = {"cards": [[22, 0, rr.HAND, 0, 22964, 0, 0, 0, 0]]}
+        f1 = {"cards": [[22, 0, rr.MOVING, 0, 22964, 1, 0, 0, 0]]}
+        f2 = {"cards": [[22, 0, 1, 0, 22964, 1, 1, 1800, 1000]]}
+        tracker = ReplayStateTracker([f0, f1, f2], db=mock_db, passcode_func=lambda kid: "22964")
+
+        for idx in range(3):
+            self.assertEqual(tracker.get(idx)["gy"][0], [])
+
     def test_spell_stays_on_field_until_resolved(self):
         from unittest import mock
         from card_stats import CardInfo
