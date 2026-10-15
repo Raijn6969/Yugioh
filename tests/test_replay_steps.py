@@ -5,8 +5,8 @@ import unittest
 import replay_recorder as rr
 import replay_steps as rs
 
-NAMES = {100: "Ash Blossom", 200: "Accesscode Talker", 300: "Triple Tactics Talent"}
-TYPES = {100: "Effect Monster", 200: "Link Monster", 300: "Spell Card"}
+NAMES = {100: "Ash Blossom", 200: "Accesscode Talker", 300: "Triple Tactics Talent", 400: "Number 39"}
+TYPES = {100: "Effect Monster", 200: "Link Monster", 300: "Spell Card", 400: "Xyz Monster"}
 name_of = NAMES.get
 type_of = lambda card: TYPES.get(card, "")  # noqa: E731
 
@@ -232,6 +232,17 @@ class LogStepTest(unittest.TestCase):
         self.assertEqual(self.one(act(13, 0, 1, 13)), ("gesetzt", "Gegner setzt eine Karte", "GESETZT"))
         self.assertEqual(self.one(chain_entry(2, 200, 1, res=1)), ("kette", "Kette 2 löst auf", "KETTE 2 LÖST AUF"))
 
+    def test_xyz_summon_material_and_showing_as_cost(self):
+        self.assertEqual(self.one(act(7, 400)),
+                         ("beschworen", "Du beschwörst Number 39 (Xyz-Beschwörung)", "XYZ-BESCHWÖRUNG"))
+        self.assertEqual(self.one(act(28, 100)), ("material", "Ash Blossom wird Xyz-Material", ""))
+        self.assertEqual(self.one(act(31, 100)), ("kosten", "Du zeigst Ash Blossom als Kosten vor", "KOSTEN"))
+        self.assertEqual(self.one(act(31, 100, 1))[1], "Gegner zeigt Ash Blossom als Kosten vor")
+        step = log_steps(act(28, 100), act(7, 400))[1]
+        self.assertEqual((step.kind, step.text), ("beschworen", "Du beschwörst Number 39 (Xyz-Beschwörung)"
+                                                                " · Ash Blossom wird Xyz-Material"))
+        self.assertEqual(step.marks, ())
+
     def test_chain_number_in_the_activation_text(self):
         step = log_steps(chain_entry(2, 200, 1), act(11, 200, 1, 0))[1]
         self.assertEqual(step.text, "Gegner aktiviert Accesscode Talker (Kette 2)")
@@ -277,8 +288,9 @@ class LogStepTest(unittest.TestCase):
         self.assertEqual((steps[1].kind, steps[1].marks, steps[1].chain), ("beschworen", (), None))
 
     def test_durations_of_the_new_kinds(self):
-        self.assertEqual([rs.duration(k) for k in ("kosten", "ziel", "negiert", "zerstoert", "angriff", "kette")],
-                         [0.7, 0.6, 0.7, 0.7, 0.8, 0.6])
+        kinds = ("kosten", "ziel", "negiert", "zerstoert", "angriff", "kette", "material")
+        self.assertEqual([rs.duration(k) for k in kinds],
+                         [0.7, 0.6, 0.7, 0.7, 0.8, 0.6, 0.6])
 
 
 if __name__ == "__main__":
