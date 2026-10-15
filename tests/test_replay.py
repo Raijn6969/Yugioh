@@ -138,6 +138,13 @@ class StorageTest(unittest.TestCase):
         self.assertIsNone(db.replay_at(1791623727))                      # nur genau diese Startzeit
         self.assertEqual(db.replay_starts(), [1791623726])
 
+    def test_each_replay_belongs_to_one_match(self):
+        db = make_db()
+        add_match(db, "1")
+        add_match(db, "2", 1791623730)
+        db.save_replay(rr.replay_info(DUEL), [])
+        self.assertEqual(list(db.replay_starts_by_match()), ["1"])
+
     def test_replay_info_needs_loaded_duel(self):
         self.assertIsNone(rr.replay_info(None))
         self.assertIsNone(rr.replay_info({"MyID": 0}))
