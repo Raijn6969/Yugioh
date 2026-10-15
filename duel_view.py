@@ -1146,7 +1146,11 @@ class DuelView:
             inner_id = canvas.create_window(0, 0, window=inner, anchor="nw")
             inner.bind("<Configure>", lambda e: canvas.config(scrollregion=canvas.bbox("all")))
             canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
-            canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120) * 2, "units"))
+
+            def wheel(e):
+                canvas.yview_scroll(int(-e.delta / 120) * 2, "units")
+                return "break"  # sonst scrollt ein Mausrad-Binding des Toplevels ein zweites Mal
+            canvas.bind("<MouseWheel>", wheel)
 
             # Zuletzt hineingelegte Karte oben
             for idx, c_dict in enumerate(reversed(card_list)):
@@ -1186,6 +1190,12 @@ class DuelView:
                         pass
                 if info_text:
                     tk.Label(info_frame, text=info_text, fg=MUTED, bg=PANEL, font=self.font_small, anchor="w").pack(fill=tk.X)
+
+            def bind_wheel(widget):  # das Mausrad soll auch über den Zeilen scrollen, nicht nur über der Canvas
+                widget.bind("<MouseWheel>", wheel)
+                for child in widget.winfo_children():
+                    bind_wheel(child)
+            bind_wheel(inner)
 
         apply_frame(win)
         no_activate(win)

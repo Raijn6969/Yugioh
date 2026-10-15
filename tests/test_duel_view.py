@@ -184,6 +184,17 @@ class DuelViewTest(unittest.TestCase):
         view._close_inspector()
         self.assertIsNone(view._pile_inspector)
 
+    def test_pile_inspector_wheel_scrolls_over_the_rows_too(self):
+        view = self.view([entry(1)], replay=True)
+        view._open_pile_inspector("Friedhof", [{"uid": 10, "card": 101, "team": 0}], 0)
+
+        def widgets(widget):
+            return [widget] + [w for child in widget.winfo_children() for w in widgets(child)]
+        canvas = next(w for w in widgets(view._pile_inspector) if isinstance(w, tk.Canvas))
+        rows = widgets(canvas.winfo_children()[0])
+        self.assertGreater(len(rows), 2)
+        self.assertTrue(all(w.bind("<MouseWheel>") for w in rows + [canvas]))
+
     def test_tip_text_draws_tip_with_bold_font(self):
         view = self.view([entry(1)])
         view._tip_text("Friedhof: 5 Karten")
