@@ -105,6 +105,120 @@ class DeckEditorMemoryTest(unittest.TestCase):
         self.assertEqual(self.memory.shown_name(), "Ash Blossom & Joyous Spring")
 
 
+class FakeLogIl2Cpp:
+    """Klassen des Duell-Protokolls (DuelClient, DuelLogController, Listen, Wörterbuch)."""
+
+    FIELDS = {
+        0xA00: {"instance": 0x10, "<effectWorker>k__BackingField": 0x10},        # DuelClient
+        0xB00: {"m_LogBaseItemList": 0x10, "m_DataTypeNumDict": 0x18, "m_Host": 0x20,
+                "m_DataList_ShowAction": 0x28, "m_DataList_ShowChain": 0x30},    # DuelLogController
+        0xD00: {"_entries": 0x10},
+        0x200: {"_items": 0x10, "_size": 0x18},
+    }
+    NAMES = {0x200: "List`1", 0xD00: "Dictionary`2"}
+
+    def __init__(self, reader):
+        self.r = reader
+
+    def fields(self, klass):
+        return self.FIELDS.get(klass, {})
+
+    def field(self, obj, name):
+        return self.FIELDS[self.r.u64(obj)][name]
+
+    def class_name(self, klass):
+        return self.NAMES.get(klass, "?")
+
+    def find_class(self, namespace, name):
+        return 0xB00 if name == "DuelLogController" else 0xA00
+
+
+def action(code, card, team, zone, other=0, other_zone=0, other_team=0, value=0, cost=0):
+    """ShowActionData (32 Byte) wie im Spiel."""
+    return struct.pack("<iBBBBiBBBB", card | 0x10000, 5, zone, team, 0, other, 5, other_zone, other_team, 0) + \
+        struct.pack("<iiBBBB", value, 0, 0, 0, code, 3) + bytes([cost, 0, 0, 0])
+
+
+class DuelLogTest(unittest.TestCase):
+    """Duell-Protokoll lesen: Zeitleiste + Datenlisten, von Hand im Fake-Speicher gebaut."""
+
+    def struct_list(self, addr, array_class, element, records):
+        """List<Struct> bei addr; das Array liegt bei addr + 0x100."""
+        r, items = self.r, addr + 0x100
+        r.put(addr, struct.pack("<QQQi", 0x200, 0, items, len(records)))
+        r.put(array_class + 0x104, struct.pack("<i", element))
+        r.put(items, struct.pack("<QQQQ", array_class, 0, 0, len(records)) + b"".join(records))
+
+    def controller(self, addr, host):
+        self.r.put(addr, struct.pack("<QQQQQQQ", 0xB00, 0, 0x13000, 0x14000, host, 0x15000, 0x16000))
+
+    def setUp(self):
+        r = self.r = FakeReader()
+        r.put(0xA00 + 0xB8, struct.pack("<Q", 0x10000))          # statische Felder des DuelClient
+        r.put(0x10000, bytes(0x10) + struct.pack("<Q", 0x11000))  # instance
+        r.put(0x11000, struct.pack("<QQQ", 0xA00, 0, 0x17000))   # DuelClient → effectWorker
+        self.controller(0x12000, 0x11000)
+        self.controller(0x12800, 0x99999)                         # Überbleibsel eines alten Duells
+        labels = {"ShowAction": 0x20000, "SeparateLine": 0x20100, "ShowChain": 0x20200, "ShowFoo": 0x20300}
+        for name, addr in labels.items():
+            r.put(addr, struct.pack("<QQi", 0, 0, len(name)) + name.encode("utf-16-le"))
+        r.put(0x14000, struct.pack("<Q", 0xD00))                  # m_DataTypeNumDict
+        base = [(labels["ShowAction"], 0), (labels["SeparateLine"], -1), (labels["ShowChain"], 0),
+                (labels["ShowAction"], 1), (labels["ShowFoo"], 0), (labels["ShowAction"], 2)]
+        self.struct_list(0x13000, 0x900, 16, [struct.pack("<Qi4x", ptr, idx) for ptr, idx in base])
+        self.struct_list(0x15000, 0x940, 32, [action(11, 3409, 1, 13), action(10, 100, 0, 1, 200, 2, 1),
+                                                action(0, 0, 0, 0, value=-1000)])
+        self.struct_list(0x16000, 0x980, 12, [struct.pack("<HHii", 3432, 2, 1, 0)])
+        self.memory = md_memory.DeckEditorMemory(r, FakeLogIl2Cpp(r), klass=0x100)
+        r.find_pointers = mock.Mock(return_value=[0x12800, 0x12000])
+
+    def test_entries_are_decoded_in_timeline_order(self):
+        log = self.memory.duel_log(0x12000)
+        self.assertEqual(list(log), [
+            {"k": "act", "a": 11, "c": 3409, "t": 1, "f": 13, "z": 0, "cost": 0},
+            {"k": "chain", "c": 3432, "n": 2, "t": 1, "res": 0},
+            {"k": "act", "a": 10, "c": 100, "t": 0, "f": 1, "z": 2, "cost": 0, "rc": 200, "zt": 1},
+            {"k": "act", "a": 0, "c": 0, "t": 0, "f": 0, "z": 0, "cost": 0, "v": -1000}])
+        self.assertEqual(log.size, 6)
+
+    def test_only_new_lines_from_start(self):
+        log = self.memory.duel_log(0x12000, 3)
+        self.assertEqual([e["a"] for e in log], [10, 0])
+        self.assertEqual(log.size, 6)
+        self.assertEqual((list(self.memory.duel_log(0x12000, 6)), self.memory.duel_log(0x12000, 6).size), ([], 6))
+
+    def test_smaller_timeline_starts_over(self):
+        self.assertEqual(len(self.memory.duel_log(0x12000, 40)), 4)
+
+    def test_read_errors_give_nothing_and_keep_the_position(self):
+        log = self.memory.duel_log(0x99000, 2)
+        self.assertEqual((list(log), log.size), ([], 2))
+
+    def test_turn_phase_and_tag_entries(self):
+        turn = struct.pack("<iiiiii", 1, 3, 1, 8000, 6600, 0)
+        self.assertEqual(md_memory.log_entry("ShowTurn", turn), {"k": "turn", "n": 4, "lp": [8000, 6600]})
+        self.assertEqual(md_memory.log_entry("ShowPhase", struct.pack("<i", 2)), {"k": "phase", "p": 2})
+        self.assertEqual(md_memory.log_entry("ShowTag", struct.pack("<ii", 1, 1)), {"k": "tag", "y": 1})
+        self.assertIsNone(md_memory.log_entry("ShowCardName", bytes(6)))
+        self.assertIsNone(md_memory.log_entry("ShowAction", bytes(8)))          # zu kurz
+        self.assertEqual(md_memory.log_entry("ShowChain", struct.pack("<HHii", 5, 1, 0, 1))["res"], 1)
+
+    def test_controller_is_the_one_of_this_duel_and_remembered(self):
+        self.assertEqual(self.memory.duel_log_controller(1), 0x12000)     # 0x12800 hat einen anderen Host
+        self.assertEqual(self.memory.duel_log_controller(1), 0x12000)
+        self.assertEqual(self.r.find_pointers.call_count, 1)              # zweiter Aufruf ohne Suche
+        self.assertEqual(self.memory.duel_log_controller(0), 0)           # ohne Replay-Worker nichts
+
+    def test_failed_search_waits_before_the_next_one(self):
+        self.r.find_pointers.return_value = []
+        with mock.patch.object(md_memory.time, "monotonic", side_effect=[100.0, 105.0, 111.0]):
+            self.assertEqual(self.memory.duel_log_controller(1), 0)
+            self.assertEqual(self.memory.duel_log_controller(1), 0)       # nur 5 s später: keine Suche
+            self.assertEqual(self.r.find_pointers.call_count, 1)
+            self.r.find_pointers.return_value = [0x12000]
+            self.assertEqual(self.memory.duel_log_controller(1), 0x12000)  # 11 s später: neuer Versuch
+
+
 class KonamiAliasTest(unittest.TestCase):
     def test_learned_artwork_counts_as_the_card_next_time(self):
         from card_stats import CardStatsDB

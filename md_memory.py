@@ -49,6 +49,20 @@ CLIENT_WORK_CLASS = ("YgomSystem.Utility", "ClientWork")
 # Spielfeld während eines Replays (replay_recorder): DuelClient.instance → <effectWorker> (RunEffectWorker) →
 # <goManager> (DuelGameObjectManager) → cardRoots (eine CardRoot je Karte, die das Spiel gerade zeigt)
 DUEL_CLIENT_CLASS = ("YgomGame.Duel", "DuelClient")
+# Duell-Protokoll (nur Replays): YgomGame.Duel.DuelLogController hält die Zeitleiste m_LogBaseItemList (je Eintrag
+# Bezeichnung + Index) und je Bezeichnung eine Liste m_DataList_<Bezeichnung> mit den Daten (Il2Cpp-Structs)
+LOG_CLASS = ("YgomGame.Duel", "DuelLogController")
+ARRAY_ELEMENT_SIZE = 0x104   # Il2CppClass eines Arrays: Größe eines Elements (Struct-Listen)
+LOG_MAX = 50000              # Schutz vor kaputten Längen
+LOG_SEARCH_PAUSE = 10.0      # Sekunden Pause nach erfolgloser Suche nach dem Controller (die Suche dauert ~8 s)
+LOG_BASE = struct.Struct("<Qi")   # LogBaseData: loglabel (String*), dataindex
+# Aufbau der Datensätze (aus einem echten Replay entschlüsselt; die Elementgröße des Spiels wird dazu geprüft):
+#   ShowAction (32 Byte): links LogDataSide {dataint i32, boolbits, zone, team, datatype}, rechts ebenso, dann
+#   LogDataCenter {dataint0 i32, dataint1 i32, boolbits, databyte0, AKTIONSCODE, datatype} und isCost (Byte 28)
+#   ShowChain: cardid u16, chainnum u16, team i32, type i32 (0 = Glied aufgebaut, 1 = löst auf)
+#   ShowTurn: Spieler i32, Zug-1 i32, ?, restlpl i32 (Byte 12), restlpr i32 (Byte 16)
+LOG_SIDES = struct.Struct("<iBBBBiBBBB")
+LOG_CENTER = struct.Struct("<iiBBBB")
 CARD_INTS = {"uid": "<uniqueId>k__BackingField", "team": "<team>k__BackingField", "zone": "position",
              "index": "<index>k__BackingField", "card": "<cardId>k__BackingField", "atk": "m_Atk", "def": "m_Def"}
 CARD_BYTES = {"face": "<isFace>k__BackingField", "attack": "<isAttack>k__BackingField"}
@@ -89,6 +103,38 @@ class BoardCard(NamedTuple):
     attack: int     # Angriffsposition?
     atk: int
     def_: int
+
+
+class DuelLog(list):
+    """Neue Einträge des Duell-Protokolls; size = so viele Protokollzeilen sind damit gelesen (nächstes start)."""
+
+    def __init__(self, size: int = 0):
+        super().__init__()
+        self.size = size
+
+
+def log_entry(label: str, rec: bytes) -> Optional[dict]:
+    """Ein Datensatz des Duell-Protokolls → kompakter Eintrag; None = uninteressant oder zu kurz. Rein rechnerisch."""
+    if label == "ShowAction" and len(rec) >= 29:
+        card, _, zone, team, _, other, _, other_zone, other_team, _ = LOG_SIDES.unpack_from(rec, 0)
+        value, _, _, _, code, _ = LOG_CENTER.unpack_from(rec, 16)
+        entry = {"k": "act", "a": code, "c": card & 0xFFFF, "t": team, "f": zone, "z": other_zone, "cost": rec[28]}
+        if other & 0xFFFF:
+            entry.update(rc=other & 0xFFFF, zt=other_team)
+        if code == 0:   # LP: der Wert ist die Änderung; sonst steht in dataint0 nur Beiwerk
+            entry["v"] = value
+        return entry
+    if label == "ShowChain" and len(rec) >= 12:
+        card, number, team, kind = struct.unpack_from("<HHii", rec, 0)
+        return {"k": "chain", "c": card, "n": number, "t": team, "res": 1 if kind == 1 else 0}
+    if label == "ShowTurn" and len(rec) >= 20:
+        number, left, right = struct.unpack_from("<4xi4xii", rec, 0)
+        return {"k": "turn", "n": number + 1, "lp": [left, right]}
+    if label == "ShowPhase" and len(rec) >= 4:
+        return {"k": "phase", "p": struct.unpack_from("<i", rec, 0)[0]}
+    if label == "ShowTag" and len(rec) >= 4:
+        return {"k": "tag", "y": struct.unpack_from("<i", rec, 0)[0]}
+    return None
 
 
 class MemoryUnavailable(RuntimeError):
@@ -392,11 +438,13 @@ class DeckEditorMemory:
 
     def duel_worker(self) -> int:
         """RunEffectWorker des laufenden Duells/Replays (0 = keins)."""
+        return self._member(self._duel_client(), "<effectWorker>k__BackingField")
+
+    def _duel_client(self) -> int:
         klass = getattr(self, "_duel_client_klass", 0) or self.il.find_class(*DUEL_CLIENT_CLASS)
         self._duel_client_klass = klass
         statics = self.r.u64(klass + CLASS_STATIC_FIELDS)
-        instance = self.r.u64(statics + self.il.fields(klass)["instance"]) if statics else 0
-        return self._member(instance, "<effectWorker>k__BackingField")
+        return self.r.u64(statics + self.il.fields(klass)["instance"]) if statics else 0
 
     def duel_board(self, worker: int) -> List[BoardCard]:
         """Alle Karten, die das Spiel gerade zeigt (Feld, Hand, oberste Karten von Deck/Friedhof …)."""
@@ -451,6 +499,87 @@ class DeckEditorMemory:
                     text = self._string(self.r.u64(label + offsets["m_text"]))
             texts.append(text)
         return texts[0], texts[1]
+
+    def _log_controller_ok(self, ctl: int, host: int) -> bool:
+        """Ist das der DuelLogController des laufenden Duells (Klasse, Zeitleiste, Wörterbuch, Host, lebendig)?"""
+        try:
+            if self.r.u64(ctl) != self._log_klass:
+                return False
+            f = self.il.fields(self._log_klass)
+            lst, dic = self.r.u64(ctl + f["m_LogBaseItemList"]), self.r.u64(ctl + f["m_DataTypeNumDict"])
+            return bool(lst and dic and self._class_of(lst).startswith("List")
+                        and self._class_of(dic).startswith("Dictionary")
+                        and self.r.u64(ctl + f["m_Host"]) == host and self._unity_alive(ctl))
+        except (OSError, KeyError):
+            return False
+
+    def duel_log_controller(self, worker: int) -> int:
+        """
+        DuelLogController des laufenden Replays (0 = nicht gefunden). Kein statischer Weg: die Instanz wird im Speicher
+        gesucht (~8 s) und gemerkt; nach einem Fehlschlag frühestens nach LOG_SEARCH_PAUSE wieder. Nur lesend.
+        """
+        if not worker:
+            return 0
+        host = self._duel_client()
+        ctl = getattr(self, "_log_ctl", 0)
+        if ctl and getattr(self, "_log_klass", 0) and self._log_controller_ok(ctl, host):
+            return ctl
+        self._log_ctl = 0
+        now = time.monotonic()
+        if getattr(self, "_log_search_at", 0.0) and now - self._log_search_at < LOG_SEARCH_PAUSE:
+            return 0
+        self._log_search_at = now
+        self._log_klass = getattr(self, "_log_klass", 0) or self.il.find_class(*LOG_CLASS)
+        for addr in self.r.find_pointers(self._log_klass, limit=200):
+            if self._log_controller_ok(addr, host):
+                self._log_ctl = addr
+                return addr
+        return 0
+
+    def _struct_list(self, lst: int) -> Tuple[int, int, int]:
+        """List<Struct> → (Adresse des ersten Elements, Anzahl, Elementgröße); (0, 0, 0) bei unsinnigen Werten."""
+        if not lst:
+            return 0, 0, 0
+        items = self.r.u64(lst + self.il.field(lst, "_items"))
+        size = self.r.i32(lst + self.il.field(lst, "_size"))
+        if not items or not 0 <= size <= LOG_MAX:
+            return 0, 0, 0
+        element = self.r.i32(self.r.u64(items) + ARRAY_ELEMENT_SIZE)
+        return (items + ARRAY_DATA, size, element) if 0 < element <= 256 else (0, 0, 0)
+
+    def duel_log(self, ctl: int, start: int = 0) -> DuelLog:
+        """
+        Protokollzeilen ab Nummer `start` als kompakte Einträge (siehe log_entry); .size = nächstes start. Nur lesend;
+        bei jedem Lesefehler kommt zurück, was bis dahin gelesen war (leer, wenn nichts); später wird weitergelesen.
+        """
+        out = DuelLog(start)
+        try:
+            f = self.il.fields(self.r.u64(ctl))
+            base, size, element = self._struct_list(self.r.u64(ctl + f["m_LogBaseItemList"]))
+            if not base or element < LOG_BASE.size or start == size:
+                return out
+            if start > size:   # Zeitleiste kleiner als beim letzten Mal: neues Duell, von vorn
+                start = out.size = 0
+            raw = self.r.read(base + start * element, (size - start) * element)
+            lists, labels = {}, {}
+            for i in range(start, size):
+                ptr, index = LOG_BASE.unpack_from(raw, (i - start) * element)
+                if ptr not in labels:
+                    labels[ptr] = self._string(ptr)
+                label = labels[ptr]
+                name = "m_DataList_" + label
+                if label and name in f and index >= 0:
+                    if name not in lists:
+                        lists[name] = self._struct_list(self.r.u64(ctl + f[name]))
+                    first, count, width = lists[name]
+                    if first and index < count:
+                        entry = log_entry(label, self.r.read(first + index * width, width))
+                        if entry:
+                            out.append(entry)
+                out.size = i + 1
+        except (OSError, KeyError, MemoryUnavailable, struct.error):
+            pass
+        return out
 
     def _unity_alive(self, obj: int) -> bool:
         """Geschlossene Fenster: Unity hat das Objekt zerstört (m_CachedPtr = 0), es liegt nur noch im Speicher."""
