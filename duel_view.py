@@ -153,8 +153,9 @@ class ReplayStateTracker:
     - Ketten-Sequenzen (chain): Verfolgt Kettenglieder (CL1, CL2 ...) wie in Master Duel.
     - Feld-Zonen (field_zones): Merkt sich die Position von Zauber-/Fallenkarten auf dem Spielfeld.
     """
-    def __init__(self, frames: List[dict], db=None, passcode_func=None):
+    def __init__(self, frames: List[dict], db=None, passcode_func=None, my_id: int = 0):
         self.frames = frames or []
+        self.my_id = my_id
         self.db = db
         self.passcode_func = passcode_func
         self._info_cache: Dict[int, Optional[CardInfo]] = {}
@@ -319,7 +320,7 @@ class ReplayStateTracker:
             # 3d. Hand reveal (z. B. Vorzeigen in der Hand)
             if activating is None:
                 revealed = [c for c in cards if c["zone"] == rr.HAND and c["face"] == 1
-                            and c["team"] == 1 and c["card"] > 0]
+                            and c["team"] != self.my_id and c["card"] > 0]
                 if revealed:
                     prev = prev_cards.get(revealed[0]["uid"])
                     if prev is None or prev["face"] == 0:
@@ -499,7 +500,8 @@ class DuelView:
         self._close_inspector()
         self.mode, self.frame_no = ("replay" if self.replay else "decks"), 0
         if self.replay:
-            self.tracker = ReplayStateTracker(self.replay.frames, db=self.db, passcode_func=self.passcode)
+            self.tracker = ReplayStateTracker(self.replay.frames, db=self.db, passcode_func=self.passcode,
+                                          my_id=self.replay.my_id)
             self.controls.pack(fill=tk.X, before=self.canvas)
         else:
             self.tracker = None
@@ -1211,7 +1213,13 @@ class DuelView:
     # ── Zustand von außen ──
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
+            alpha = 1.0 if visible else 0.0
+            self.win.wm_attributes("-alpha", alpha)
+            if self._pile_inspector is not None:
+                try:
+                    self._pile_inspector.wm_attributes("-alpha", alpha)
+                except tk.TclError:
+                    pass
 
     def close(self) -> None:
         if self.closed:

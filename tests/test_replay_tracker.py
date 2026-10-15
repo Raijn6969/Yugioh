@@ -300,6 +300,16 @@ class TestReplayTracker(unittest.TestCase):
         self.assertEqual(len(st2["chain"]), 0)
 
 
+    def test_hand_reveal_nur_beim_gegner(self):
+        # Mit my_id=1 ist Team 1 man selbst: neu gezogene eigene Handkarte ist keine Aktivierung,
+        # eine neu aufgedeckte Gegner-Handkarte (Team 0) dagegen schon.
+        f0 = {"cards": [[9, 1, rr.DECK, 0, 900, 0, 0, 0, 0]]}
+        f_own = {"cards": [[9, 1, rr.DECK, 0, 900, 0, 0, 0, 0], [1, 1, rr.HAND, 0, 901, 1, 0, 0, 0]]}
+        f_opp = {"cards": [[9, 1, rr.DECK, 0, 900, 0, 0, 0, 0], [2, 0, rr.HAND, 0, 902, 1, 0, 0, 0]]}
+        self.assertIsNone(ReplayStateTracker([f0, f_own], my_id=1).get(1)["activating"])
+        self.assertEqual(ReplayStateTracker([f0, f_opp], my_id=1).get(1)["activating"]["uid"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()
 
