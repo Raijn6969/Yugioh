@@ -99,6 +99,24 @@ class ClickFocusTest(unittest.TestCase):
             self.click(md_in_front=False)
 
 
+class UserInterruptionTest(unittest.TestCase):
+    def test_first_check_with_none_pos_does_not_interrupt(self):
+        a = wa.WindowAutomator.__new__(wa.WindowAutomator)
+        a.last_bot_pos = None
+        with mock.patch.object(win_api, "get_cursor_pos", return_value=(500, 500)):
+            a.check_user_interruption()
+            self.assertEqual(a.last_bot_pos, (500, 500))
+
+    def test_interruption_detected_when_moved(self):
+        a = wa.WindowAutomator.__new__(wa.WindowAutomator)
+        a.last_bot_pos = (500, 500)
+        with mock.patch.object(win_api, "get_cursor_pos", return_value=(505, 510)):
+            a.check_user_interruption()  # innerhalb der Toleranz
+        with mock.patch.object(win_api, "get_cursor_pos", return_value=(600, 500)):
+            with self.assertRaises(wa.UserInterrupt):
+                a.check_user_interruption()
+
+
 class DataDirTest(unittest.TestCase):
     """Schreibgeschützter Programmordner (z.B. C:\\Programme): Daten nach %APPDATA%\\MD_Importer."""
 

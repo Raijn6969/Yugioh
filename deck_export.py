@@ -310,6 +310,7 @@ class DeckExporter:
         """Zum Anklicken unbekannter Artworks: Master Duel nach vorne, Kartenliste für die Namen."""
         db = load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, "cyan"))
         automator = WindowAutomator(self.config)
+        automator.last_bot_pos = win_api.get_cursor_pos()
         focus_master_duel()
         time.sleep(0.15)
         return automator, db
