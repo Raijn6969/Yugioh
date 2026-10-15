@@ -358,7 +358,8 @@ class MasterDuelImporter:
             "IS_CALIBRATED": False,
             # Skaliert kritische Wait-Zeiten für schwächere PCs.
             # "fast" = 0.85x (high-end), "normal" = 1.0x (default), "slow" = 1.5x (alter/langsamer PC)
-            "SPEED_PROFILE": "normal"
+            "SPEED_PROFILE": "normal",
+            "DECK_HOVER_SCAN_ENABLED": True
         }
         loaded = base_config.copy()
         needs_save = True

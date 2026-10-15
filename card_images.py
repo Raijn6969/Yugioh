@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Iterable, Optional, Tuple
 
+from PIL import Image, ImageTk
 import requests
 
 from app_paths import DATA_DIR
@@ -72,7 +73,6 @@ class PhotoCache:
         if not passcode:
             return None
         if passcode not in self._photos:
-            from PIL import ImageTk
             resized = self._prepared.pop(passcode, None) or self._load(passcode)
             self._photos[passcode] = ImageTk.PhotoImage(resized, master=self.master) if resized else None
         return self._photos[passcode]
@@ -86,7 +86,6 @@ class PhotoCache:
                     self._prepared[passcode] = resized
 
     def _load(self, passcode: str):
-        from PIL import Image
         try:
             with Image.open(image_path(passcode, self.folder)) as image:
                 return image.convert("RGB").resize(self.size, Image.LANCZOS)

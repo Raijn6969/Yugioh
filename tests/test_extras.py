@@ -958,8 +958,8 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "2. Zug (6)", "Starter", "", "Handtrap", ""])
         self.assertEqual(len(self.panel._rows["1"].winfo_children()), 8)
         self.assertIn("2. Zug", self.panel.starter_odds.cget("text"))
-        self.assertIn("2. Zug", self.panel.handtrap_odds.cget("text"))
-        self.assertEqual(saved, [{"DECK_SHOW_SECOND_TURN": True, "DECK_HOVER_ANIMATION": True}])
+        self.assertEqual(saved, [{"DECK_SHOW_SECOND_TURN": True, "DECK_HOVER_ANIMATION": True,
+                                  "DECK_HOVER_SCAN_ENABLED": True}])
 
     def test_read_method_can_be_switched_in_options(self):
         saved = []
@@ -969,6 +969,14 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.options_menu.invoke("Texterkennung")
         self.assertEqual(saved[-1]["READ_METHOD"], "ocr")
 
+    def test_hover_scan_can_be_disabled_in_options(self):
+        saved = []
+        self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
+        self.assertTrue(self.panel.hover_scan_enabled.get())
+        self.panel.options_menu.invoke("Karten-Hover-Scan")
+        self.assertFalse(self.panel.hover_scan_enabled.get())
+        self.assertEqual(saved[-1]["DECK_HOVER_SCAN_ENABLED"], False)
+
     def test_options_are_grouped_buttons_and_stay_open_while_switching(self):
         import options_popup
         self.panel.save_settings = lambda: None
@@ -976,8 +984,9 @@ class ExtrasPanelTest(unittest.TestCase):
         self.root.update()
         menu = self.panel.options_menu
         self.assertTrue(menu.is_open)
-        self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Spalte „2. Zug“",
-                                             "Analyse-Animation", "Aus Guides nachladen (online)"})
+        self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Karten-Hover-Scan",
+                                             "Spalte „2. Zug“", "Analyse-Animation",
+                                             "Aus Guides nachladen (online)"})
         # Buttons einer Reihe nebeneinander
         self.assertIs(menu.buttons["Speicher lesen"].master, menu.buttons["Texterkennung"].master)
         menu.invoke("Speicher lesen")

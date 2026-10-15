@@ -20,10 +20,13 @@ import subprocess
 import threading
 import tkinter as tk
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
+from PIL import Image, ImageTk
 
 import card_images
 import replay_recorder as rr
 from card_stats import MatchEntry, Replay
+from dark_dialog import _make_draggable
+from dark_scrollbar import DarkScrollbar
 from extras_panel import BG, GOLD, MUTED, PANEL, TEXT
 from history_panel import when
 from hover_card import AMBER, GREEN, RED
@@ -42,6 +45,24 @@ ZONE, ZONE_EDGE, ZONE_TEXT = "#1a284c", "#30468a", "#5a6eaa"
 OPP_ZONE, OPP_ZONE_EDGE = "#2c1a28", "#823c50"
 CARD_BACK = "#7a4828"
 PLAY_MS = 700            # Abspielen: so lange steht jeder Schritt
+
+PILES = {
+    rr.FIELD_ZONE: (("my_m", 0), ("opp_m", 6)),
+    rr.GRAVE: (("my_m", 6), ("opp_m", 0)),
+    rr.DECK: (("my_s", 6), ("opp_s", 0)),
+    rr.EXTRA_DECK: (("my_s", 0), ("opp_s", 6)),
+    rr.BANISHED: (("emz", 6), ("emz", 0)),
+}
+
+BOARD_LABELS = {(r, k): "Monster" for r in ("opp_m", "my_m") for k in range(1, 6)}
+BOARD_LABELS.update({(r, k): "Zauber/Falle" for r in ("opp_s", "my_s") for k in range(1, 6)})
+BOARD_LABELS.update({
+    ("emz", 2): "Extra-MZ", ("emz", 4): "Extra-MZ", ("my_m", 0): "Feld", ("opp_m", 6): "Feld",
+    ("my_m", 6): "Friedhof", ("opp_m", 0): "Friedhof", ("my_s", 6): "Deck", ("opp_s", 0): "Deck",
+    ("my_s", 0): "Extra Deck", ("opp_s", 6): "Extra Deck", ("emz", 6): "Verbannt",
+    ("emz", 0): "Verbannt"
+})
+CARD_KEYS = ("uid", "team", "zone", "index", "card", "face", "attack", "atk", "def")
 
 
 def ydk_parts(code: str) -> Tuple[List[str], List[str]]:
@@ -92,6 +113,114 @@ def details(match: MatchEntry) -> str:
     return "  ·  ".join(parts)
 
 
+class ReplayStateTracker:
+    """
+    Verfolgt den kumulativen Zustand eines Replays über alle Frames:
+    - Friedhof (gy): Welche Karten liegen in welchem Schritt im Friedhof jedes Spielers.
+    - Verbannung (banished): Welche Karten liegen in der Verbannungszone.
+    - Aktivierungen (activating): Welche Karte führt im aktuellen Schritt einen Effekt aus.
+    - Ketten-Sequenzen (chain): Verfolgt Kettenglieder (CL1, CL2 ...) wie in Master Duel.
+    """
+    def __init__(self, frames: List[dict]):
+        self.frames = frames or []
+        self.frame_states: List[dict] = []
+        self._compute()
+
+    def _compute(self) -> None:
+        gy = {0: [], 1: []}
+        ban = {0: [], 1: []}
+        gy_uids = {0: set(), 1: set()}
+        ban_uids = {0: set(), 1: set()}
+        prev_cards: Dict[int, dict] = {}
+        current_chain: List[dict] = []
+
+        for f in self.frames:
+            cards = [dict(zip(("uid", "team", "zone", "index", "card", "face", "attack", "atk", "def"), row))
+                     for row in f.get("cards", [])]
+            current_uids = {c["uid"] for c in cards}
+
+            # 1. Zonen-Updates
+            for c in cards:
+                uid, team, zone = c["uid"], c["team"], c["zone"]
+                if team not in gy:
+                    continue
+                if zone == rr.GRAVE:
+                    if uid in ban_uids[team]:
+                        ban_uids[team].remove(uid)
+                        ban[team] = [x for x in ban[team] if x["uid"] != uid]
+                    if uid not in gy_uids[team]:
+                        gy_uids[team].add(uid)
+                        gy[team].append(c)
+                elif zone == rr.BANISHED:
+                    if uid in gy_uids[team]:
+                        gy_uids[team].remove(uid)
+                        gy[team] = [x for x in gy[team] if x["uid"] != uid]
+                    if uid not in ban_uids[team]:
+                        ban_uids[team].add(uid)
+                        ban[team].append(c)
+                elif zone in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES, *rr.SPELL_ZONES,
+                              rr.FIELD_ZONE, rr.HAND, rr.EXTRA_DECK, rr.DECK):
+                    if uid in gy_uids[team]:
+                        gy_uids[team].remove(uid)
+                        gy[team] = [x for x in gy[team] if x["uid"] != uid]
+                    if uid in ban_uids[team]:
+                        ban_uids[team].remove(uid)
+                        ban[team] = [x for x in ban[team] if x["uid"] != uid]
+
+            # 2. Despawnte Karten (MOVING / Spielfeld ins Grab)
+            for uid, last_c in prev_cards.items():
+                if uid not in current_uids:
+                    last_zone = last_c["zone"]
+                    team = last_c["team"]
+                    if team in gy:
+                        if last_zone in (rr.MOVING, rr.FIELD_ZONE, *rr.SPELL_ZONES,
+                                         *rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES, rr.HAND):
+                            if uid not in gy_uids[team] and uid not in ban_uids[team]:
+                                entry = dict(last_c, zone=rr.GRAVE)
+                                gy_uids[team].add(uid)
+                                gy[team].append(entry)
+
+            prev_cards = {c["uid"]: c for c in cards}
+
+            # 3. Aktivierungserkennung
+            activating = None
+            moving = [c for c in cards if c["zone"] == rr.MOVING and c["card"] > 0]
+            if moving:
+                activating = moving[0]
+            else:
+                revealed = [c for c in cards if c["zone"] == rr.HAND and c["face"] == 1
+                            and c["team"] == 1 and c["card"] > 0]
+                if revealed:
+                    activating = revealed[0]
+
+            # 4. Ketten-Tracking (Master Duel Chain Links)
+            if activating is not None:
+                act_uid = activating["uid"]
+                act_cid = activating["card"]
+                act_team = activating["team"]
+                if not any(x["uid"] == act_uid for x in current_chain):
+                    cl_num = len(current_chain) + 1
+                    current_chain.append({"cl": cl_num, "uid": act_uid, "card": act_cid, "team": act_team})
+            else:
+                if current_chain and not moving:
+                    last_uid = current_chain[-1]["uid"]
+                    c_now = next((c for c in cards if c["uid"] == last_uid), None)
+                    if c_now is None or c_now["zone"] != rr.MOVING:
+                        current_chain = []
+
+            self.frame_states.append({
+                "gy": {0: list(gy[0]), 1: list(gy[1])},
+                "banished": {0: list(ban[0]), 1: list(ban[1])},
+                "activating": activating,
+                "chain": list(current_chain),
+            })
+
+    def get(self, frame_no: int) -> dict:
+        if 0 <= frame_no < len(self.frame_states):
+            return self.frame_states[frame_no]
+        return {"gy": {0: [], 1: []}, "banished": {0: [], 1: []}, "activating": None, "chain": []}
+
+
 class DuelView:
     def __init__(self, master: tk.Misc, db, matches: List[MatchEntry], index: int = 0,
                  on_close: Callable[[], None] = lambda: None, image_folder: str = card_images.FOLDER,
@@ -108,6 +237,7 @@ class DuelView:
         self._poll_job = None
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = ("Helvetica", int(10 * s))
+        self.font_bold = ("Helvetica", int(10 * s), "bold")
         self.font_small = ("Helvetica", int(8 * s))
         self.font_small_bold = ("Helvetica", int(8 * s), "bold")
         self.font_head = ("Helvetica", int(12 * s), "bold")
@@ -115,6 +245,8 @@ class DuelView:
         self.folder = image_folder
         self.photos: Dict[float, card_images.PhotoCache] = {}  # je Kartengröße ein Cache
         self.replay: Optional[Replay] = None
+        self.tracker: Optional[ReplayStateTracker] = None
+        self._pile_inspector: Optional[tk.Toplevel] = None
         self._starts: Optional[Dict[str, int]] = None      # Duell-ID → Start des Mitschnitts (erst bei replay=True)
         self.frame_no = 0
         self.mode = "decks"               # "replay" (Mitschnitt vorhanden) oder "decks"
@@ -201,10 +333,13 @@ class DuelView:
             self.replay = self.db.replay_at(start) if start is not None else None
         except Exception:  # Datenbank gesperrt, alte Datenbank-Fassung …
             self.replay = None
+        self._close_inspector()
         self.mode, self.frame_no = ("replay" if self.replay else "decks"), 0
         if self.replay:
+            self.tracker = ReplayStateTracker(self.replay.frames)
             self.controls.pack(fill=tk.X, before=self.canvas)
         else:
+            self.tracker = None
             self.controls.pack_forget()
         self.title_label.config(text=f"{match.deck_name or match.md_deck or 'Unbekanntes Deck'}  vs  "
                                      f"{match.opp_name or 'unbekannt'}  ·  {index + 1} / {len(self.matches)}")
@@ -506,11 +641,8 @@ class DuelView:
             return "emz", (2 if left else 4) if mine else (4 if left else 2)
         if zone in rr.SPELL_ZONES:
             return ("my_s", 1 + zone - 7) if mine else ("opp_s", 5 - (zone - 7))
-        piles = {rr.FIELD_ZONE: (("my_m", 0), ("opp_m", 6)), rr.GRAVE: (("my_m", 6), ("opp_m", 0)),
-                 rr.DECK: (("my_s", 6), ("opp_s", 0)), rr.EXTRA_DECK: (("my_s", 0), ("opp_s", 6)),
-                 rr.BANISHED: (("emz", 6), ("emz", 0))}
-        if zone in piles:
-            return piles[zone][0 if mine else 1]
+        if zone in PILES:
+            return PILES[zone][0 if mine else 1]
         return None
 
     def _draw_replay(self) -> None:
@@ -518,26 +650,34 @@ class DuelView:
         c.delete("all")
         replay = self.replay
         frame = replay.frames[self.frame_no]
+        state = self.tracker.get(self.frame_no) if self.tracker else {
+            "gy": {0: [], 1: []}, "banished": {0: [], 1: []}, "activating": None, "chain": []
+        }
         w, h = self.size
         cw, ch, cols, rows = self._geometry()
         c.create_rectangle(int(4 * s), int(4 * s), w - int(4 * s), h - int(4 * s), fill=FIELD, outline=FIELD_EDGE)
         c.create_rectangle(cols[0] - int(4 * s), rows["opp_hand"] - int(4 * s), cols[6] + cw + int(4 * s),
                            rows["emz"] - int(3 * s), fill=OPP_HALF, outline="")
-        labels = {(r, k): "Monster" for r in ("opp_m", "my_m") for k in range(1, 6)}
-        labels.update({(r, k): "Zauber/Falle" for r in ("opp_s", "my_s") for k in range(1, 6)})
-        labels.update({("emz", 2): "Extra-MZ", ("emz", 4): "Extra-MZ", ("my_m", 0): "Feld", ("opp_m", 6): "Feld",
-                       ("my_m", 6): "Friedhof", ("opp_m", 0): "Friedhof", ("my_s", 6): "Deck", ("opp_s", 0): "Deck",
-                       ("my_s", 0): "Extra Deck", ("opp_s", 6): "Extra Deck", ("emz", 6): "Verbannt",
-                       ("emz", 0): "Verbannt"})
-        for (row, col), text in labels.items():
+        for (row, col), text in BOARD_LABELS.items():
             opp = row.startswith("opp") or (row == "emz" and col == 0)
             x, y = cols[col], rows[row]
             c.create_rectangle(x, y, x + cw, y + ch, fill=OPP_ZONE if opp else ZONE,
                                outline=OPP_ZONE_EDGE if opp else ZONE_EDGE)
             c.create_text(x + cw // 2, y + ch // 2, text=text, fill=ZONE_TEXT, font=self.font_small, width=cw - 4,
                           justify=tk.CENTER)
-        cards = [dict(zip(("uid", "team", "zone", "index", "card", "face", "attack", "atk", "def"), row))
-                 for row in frame["cards"]]
+            # Klick-Bereiche für leeren Friedhof / Verbannt binden
+            if (row, col) in (("my_m", 6), ("opp_m", 0)):
+                pile_team = replay.my_id if (row, col) == ("my_m", 6) else 1 - replay.my_id
+                pile_tag = f"bg_gy_{pile_team}"
+                c.create_rectangle(x, y, x + cw, y + ch, outline="", fill="", tags=(pile_tag,))
+                c.tag_bind(pile_tag, "<Button-1>", lambda e, t=pile_team: self._open_pile_inspector("Friedhof", state["gy"][t], t))
+            elif (row, col) in (("emz", 6), ("emz", 0)):
+                pile_team = replay.my_id if (row, col) == ("emz", 6) else 1 - replay.my_id
+                pile_tag = f"bg_ban_{pile_team}"
+                c.create_rectangle(x, y, x + cw, y + ch, outline="", fill="", tags=(pile_tag,))
+                c.tag_bind(pile_tag, "<Button-1>", lambda e, t=pile_team: self._open_pile_inspector("Verbannt", state["banished"][t], t))
+
+        cards = [dict(zip(CARD_KEYS, row)) for row in frame["cards"]]
         piles: Dict[Tuple[str, int], List[dict]] = {}
         hands: Dict[bool, List[dict]] = {True: [], False: []}
         for card in cards:
@@ -552,23 +692,102 @@ class DuelView:
                 piles.setdefault(spot, []).append(card)
                 continue
             row, col = spot
-            self._board_card(cols[col], rows[row], cw, ch, card, mine, stats=True)
+            act = (state["activating"] is not None and card["uid"] == state["activating"]["uid"])
+            cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == card["uid"]), None)
+            self._board_card(cols[col], rows[row], cw, ch, card, mine, stats=True, activation=act, chain_link=cl_info)
+
+        # Stapel (Deck, Extra Deck, Feldzauber)
         for (row, col), stack in piles.items():
             top = max(stack, key=lambda k: k["index"])
+            if top["zone"] in (rr.GRAVE, rr.BANISHED):
+                continue  # Friedhof und Verbannt werden kumulativ gezeichnet
             self._board_card(cols[col], rows[row], cw, ch, top, top["team"] == replay.my_id)
-            if top["zone"] in (rr.GRAVE, rr.EXTRA_DECK, rr.BANISHED):  # Deck: nur die oberste Karte, keine Anzahl
+            if top["zone"] == rr.EXTRA_DECK:
                 self._badge(cols[col] + cw, rows[row] + ch, str(top["index"] + 1))
+
+        # Friedhof & Verbannt (kumulativ über alle Frames verfolgt)
+        for team in (0, 1):
+            mine = (team == replay.my_id)
+            # Friedhof
+            gy_stack = state["gy"][team]
+            gy_spot = self.place(rr.GRAVE, mine)
+            if gy_spot is not None:
+                grow, gcol = gy_spot
+                gx, gy_y = cols[gcol], rows[grow]
+                gy_tag = f"gy_card_{team}"
+                if gy_stack:
+                    top_gy = gy_stack[-1]
+                    self._board_card(gx, gy_y, cw, ch, top_gy, mine, pile_tag=gy_tag)
+                    self._badge(gx + cw, gy_y + ch, str(len(gy_stack)))
+                c.tag_bind(gy_tag, "<Button-1>", lambda e, t=team, s_list=list(gy_stack): self._open_pile_inspector("Friedhof", s_list, t))
+                c.tag_bind(gy_tag, "<Enter>", lambda e, n=len(gy_stack), m=mine: self._tip_text(f"{'Dein' if m else 'Gegner-'}Friedhof: {n} Karte(n) – Klick für Details"))
+                c.tag_bind(gy_tag, "<Leave>", lambda e: self._untip())
+
+            # Verbannt
+            ban_stack = state["banished"][team]
+            ban_spot = self.place(rr.BANISHED, mine)
+            if ban_spot is not None:
+                brow, bcol = ban_spot
+                bx, by_y = cols[bcol], rows[brow]
+                ban_tag = f"ban_card_{team}"
+                if ban_stack:
+                    top_ban = ban_stack[-1]
+                    self._board_card(bx, by_y, cw, ch, top_ban, mine, pile_tag=ban_tag)
+                    self._badge(bx + cw, by_y + ch, str(len(ban_stack)))
+                c.tag_bind(ban_tag, "<Button-1>", lambda e, t=team, s_list=list(ban_stack): self._open_pile_inspector("Verbannt", s_list, t))
+                c.tag_bind(ban_tag, "<Enter>", lambda e, n=len(ban_stack), m=mine: self._tip_text(f"{'Deine' if m else 'Gegner-'}Verbannten: {n} Karte(n) – Klick für Details"))
+                c.tag_bind(ban_tag, "<Leave>", lambda e: self._untip())
+
+        # Handkarten
         for mine, hand in hands.items():
             hand.sort(key=lambda k: k["index"])
             row = rows["my_hand" if mine else "opp_hand"]
-            step = min(cw + int(4 * s), (cols[6] - cols[0]) // max(1, len(hand)))  # viele Karten: überlappen
+            step = min(cw + int(4 * s), (cols[6] - cols[0]) // max(1, len(hand)))
             left = (w - (step * (len(hand) - 1) + cw)) // 2
             for i, card in enumerate(hand):
-                self._board_card(left + i * step, row, cw, ch, card, mine, hand=True)
+                act = (state["activating"] is not None and card["uid"] == state["activating"]["uid"])
+                cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == card["uid"]), None)
+                self._board_card(left + i * step, row, cw, ch, card, mine, hand=True, activation=act, chain_link=cl_info)
+
+        # Aktivierte Karte in Bewegung (zone 18: z. B. Handtrap, Zauber/Falle, Trigger)
+        act_card = state["activating"]
+        if act_card is not None and act_card["zone"] == rr.MOVING:
+            fx = cols[3]
+            fy = rows["emz"]
+            cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == act_card["uid"]), 1)
+            self._board_card(fx, fy, cw, ch, act_card, act_card["team"] == replay.my_id,
+                             activation=True, chain_link=cl_info)
+
+        # Master Duel Ketten-Leiste (Chain Sequence)
+        chain = state["chain"]
+        if chain:
+            links = []
+            for item in chain:
+                cl_num = item["cl"]
+                cid = item["card"]
+                p = self.passcode(cid)
+                name = self.names.get(p) or f"Karte #{cid}"
+                is_mine = (item["team"] == replay.my_id)
+                links.append(f"[{cl_num}] {name} ({'Du' if is_mine else 'Gegner'})")
+            chain_str = "  ➔  ".join(links)
+            bw = int(min(w - 40, max(260 * s, len(chain_str) * 7.5 * s + 30 * s)))
+            bx = (w - bw) // 2
+            by = rows["opp_s"] + ch + int(4 * s)
+            bh = int(22 * s)
+            c.create_rectangle(bx, by, bx + bw, by + bh, fill="#0d1b2a", outline=GOLD, width=int(1.5 * s))
+            c.create_text(bx + bw // 2, by + bh // 2, text=f"⛓ KETTE:  {chain_str}", fill=GOLD, font=self.font_small_bold)
+
         self._lp_and_phase(frame, cols, rows, cw, ch)
-        self.step_label.config(text=f"Schritt {self.frame_no + 1} / {len(replay.frames)}"
-                                    + (f"  ·  {frame.get('turn')}" if frame.get("turn") else "")
-                                    + (f"  ·  {frame.get('phase')}" if frame.get("phase") else ""))
+        step_text = f"Schritt {self.frame_no + 1} / {len(replay.frames)}"
+        if frame.get("turn"):
+            step_text += f"  ·  {frame.get('turn')}"
+        if frame.get("phase"):
+            step_text += f"  ·  {frame.get('phase')}"
+        if act_card is not None:
+            act_p = self.passcode(act_card["card"])
+            act_name = self.names.get(act_p) or f"Karte #{act_card['card']}"
+            step_text += f"  ·  ⚡ {act_name}"
+        self.step_label.config(text=step_text)
 
     def _lp_and_phase(self, frame: dict, cols, rows, cw: int, ch: int) -> None:
         c, s = self.canvas, self.s
@@ -590,7 +809,8 @@ class DuelView:
             c.create_text(x, y + int(8 * s), text=frame.get("phase") or "", fill=TEXT, font=self.font_small_bold)
 
     def _board_card(self, x: int, y: int, w: int, h: int, card: dict, mine: bool, stats: bool = False,
-                    hand: bool = False) -> None:
+                    hand: bool = False, activation: bool = False, chain_link: Optional[int] = None,
+                    pile_tag: Optional[str] = None) -> None:
         """Karte im Feld: Gegner um 180° gedreht, Verteidigung quer, verdeckt als Rückseite."""
         c, s = self.canvas, self.s
         defense = not hand and card["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) and not card["attack"]
@@ -609,18 +829,143 @@ class DuelView:
                 c.create_text(cx, cy, text=self.names.get(shown, ""), fill=TEXT, font=self.font_small,
                               width=bw - 4, justify=tk.CENTER)
         tag = f"bc{card['uid']}_{x}_{y}"
-        c.create_rectangle(x, y, x + w, y + h, outline="", fill="", tags=(tag,))
-        if shown:
+        tags = (tag, pile_tag) if pile_tag else (tag,)
+        c.create_rectangle(x, y, x + w, y + h, outline="", fill="", tags=tags)
+        if shown and not pile_tag:
             c.tag_bind(tag, "<Enter>", lambda e, p=shown, x=x, y=y, h=h: self._tip(p, 1, x, y, h, plain=True))
             c.tag_bind(tag, "<Leave>", lambda e: self._untip())
         if stats and card["face"] and card["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) and card["atk"] >= 0:
             c.create_text(cx, y + h - int(2 * s), text=f"{card['atk']} / {card['def']}", fill=GOLD,
                           font=self.font_small_bold, anchor="s")
 
+        # Aktivierungseffekt: Leuchtrahmen und "⚡ AKTIV" Badge
+        if activation:
+            c.create_rectangle(x - int(3 * s), y - int(3 * s), x + w + int(3 * s), y + h + int(3 * s),
+                               outline=GOLD, width=int(2 * s))
+            c.create_rectangle(x - int(1 * s), y - int(1 * s), x + w + int(1 * s), y + h + int(1 * s),
+                               outline="#00e5ff", width=1)
+            badgew, badgeh = int(48 * s), int(15 * s)
+            c.create_rectangle(x, y, x + badgew, y + badgeh, fill="#8a1c1c", outline=GOLD)
+            c.create_text(x + badgew // 2, y + badgeh // 2, text="⚡ AKTIV", fill=GOLD, font=self.font_small_bold)
+
+        # Kettenglied-Badge (Master Duel Style): z.B. [CL 1], [CL 2]
+        if chain_link is not None:
+            clw, clh = int(36 * s), int(16 * s)
+            rx, ry = x + w - clw, y
+            c.create_rectangle(rx, ry, rx + clw, ry + clh, fill="#0d1b2a", outline="#00e5ff", width=int(1.5 * s))
+            c.create_text(rx + clw // 2, ry + clh // 2, text=f"CL {chain_link}", fill="#00e5ff", font=self.font_small_bold)
+
+    def _tip_text(self, text: str) -> None:
+        """Einfacher Text-Hinweis (z. B. für Friedhof / Verbannt)."""
+        c, s = self.canvas, self.s
+        c.delete("tip")
+        label = c.create_text(self.size[0] // 2, self.size[1] - int(20 * s), text=text,
+                              fill=GOLD, font=self.font_bold, anchor="s", tags=("tip",), state="disabled")
+        x0, y0, x1, y1 = c.bbox(label)
+        pad = int(4 * s)
+        c.tag_lower(c.create_rectangle(x0 - pad, y0 - pad, x1 + pad, y1 + pad, fill=PANEL, outline=GOLD,
+                                       tags=("tip",), state="disabled"), label)
+
+    def _close_inspector(self) -> None:
+        if self._pile_inspector is not None:
+            try:
+                self._pile_inspector.destroy()
+            except Exception:
+                pass
+            self._pile_inspector = None
+
+    def _open_pile_inspector(self, title: str, card_list: List[dict], team: int) -> None:
+        self._close_inspector()
+        s = self.s
+        replay = self.replay
+        is_mine = (team == replay.my_id)
+        team_name = replay.names[team] if team < len(replay.names) and replay.names[team] else ("Du" if is_mine else "Gegner")
+
+        win = tk.Toplevel(self.win, bg="#101018")
+        win.overrideredirect(True)
+        win.wm_attributes("-topmost", True)
+        self._pile_inspector = win
+
+        w = min(int(460 * s), self.size[0] - int(40 * s))
+        h = min(int(520 * s), self.size[1] - int(20 * s))
+        rx = max(0, self.win.winfo_rootx() + (self.win.winfo_width() - w) // 2)
+        ry = max(0, self.win.winfo_rooty() + (self.win.winfo_height() - h) // 2)
+        win.geometry(f"{w}x{h}+{rx}+{ry}")
+
+        header = tk.Frame(win, bg=PANEL, padx=int(10 * s), pady=int(6 * s))
+        header.pack(fill=tk.X)
+        _make_draggable(win, header)
+        tk.Label(header, text=f"◆ {title.upper()} ({len(card_list)})  ·  {team_name}",
+                 fg=GOLD, bg=PANEL, font=self.font_head).pack(side=tk.LEFT)
+        RoundedButton(header, text="✕", command=self._close_inspector, bg="#cc0000", border="#ff8a80",
+                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      radius=int(6 * s)).pack(side=tk.RIGHT)
+
+        body = tk.Frame(win, bg=FIELD)
+        body.pack(fill=tk.BOTH, expand=True, padx=int(6 * s), pady=int(6 * s))
+
+        if not card_list:
+            tk.Label(body, text=f"Keine Karten im {title}.", fg=MUTED, bg=FIELD,
+                     font=self.font).pack(expand=True)
+        else:
+            canvas = tk.Canvas(body, bg=FIELD, highlightthickness=0, bd=0)
+            scroll = DarkScrollbar(body, command=canvas.yview, bg=FIELD, scale=s)
+            canvas.config(yscrollcommand=scroll.set)
+            scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            inner = tk.Frame(canvas, bg=FIELD)
+            inner_id = canvas.create_window(0, 0, window=inner, anchor="nw")
+            inner.bind("<Configure>", lambda e: canvas.config(scrollregion=canvas.bbox("all")))
+            canvas.bind("<Configure>", lambda e: canvas.itemconfigure(inner_id, width=e.width))
+            canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120) * 2, "units"))
+
+            # Zuletzt hineingelegte Karte oben
+            for idx, c_dict in enumerate(reversed(card_list)):
+                cid = c_dict["card"]
+                p = self.passcode(cid)
+                name = self.names.get(p) or f"Karte #{cid}"
+                card_num = len(card_list) - idx
+
+                row_frame = tk.Frame(inner, bg=PANEL, bd=1, relief=tk.SOLID, padx=int(6 * s), pady=int(4 * s))
+                row_frame.pack(fill=tk.X, pady=int(3 * s), padx=int(4 * s))
+
+                tk.Label(row_frame, text=f"#{card_num}", fg=GOLD, bg=PANEL, font=self.font_small_bold, width=4).pack(side=tk.LEFT)
+
+                thumb_w, thumb_h = int(28 * s), int(41 * s)
+                img = self._card_image(p, thumb_w, thumb_h, 0) if p else None
+                if img:
+                    lbl_img = tk.Label(row_frame, image=img, bg=PANEL)
+                    lbl_img.image = img
+                    lbl_img.pack(side=tk.LEFT, padx=(0, int(6 * s)))
+
+                info_frame = tk.Frame(row_frame, bg=PANEL)
+                info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                tk.Label(info_frame, text=name, fg=TEXT, bg=PANEL, font=self.font_bold, anchor="w").pack(fill=tk.X)
+
+                info_text = ""
+                if self.db is not None and p:
+                    try:
+                        c_info = self.db.info(p)
+                        if c_info:
+                            parts = [c_info.card_type]
+                            if c_info.level:
+                                parts.append(f"Stufe {c_info.level}")
+                            if c_info.atk is not None and c_info.atk >= 0:
+                                parts.append(f"{c_info.atk} / {c_info.def_}")
+                            info_text = " · ".join(parts)
+                    except Exception:
+                        pass
+                if info_text:
+                    tk.Label(info_frame, text=info_text, fg=MUTED, bg=PANEL, font=self.font_small, anchor="w").pack(fill=tk.X)
+
+        apply_frame(win)
+        no_activate(win)
+        win.bind("<Escape>", lambda e: self._close_inspector())
+
     def _card_image(self, passcode: str, w: int, h: int, angle: int):
         key = (passcode, w, h, angle)
         if key not in self._art:
-            from PIL import Image, ImageTk
             try:
                 with Image.open(card_images.image_path(passcode, self.folder)) as image:
                     art = image.convert("RGB").resize((w, h), Image.LANCZOS)
@@ -646,6 +991,7 @@ class DuelView:
         if self.closed:
             return
         self.closed = True
+        self._close_inspector()
         self._stop_play()
         if self._poll_job is not None:
             try:

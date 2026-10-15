@@ -49,6 +49,7 @@ MUTED = "#9a9a9a"
 GOLD = "#c9a02f"
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
+HOVER_SCAN_KEY = "DECK_HOVER_SCAN_ENABLED" # Einstellung: Hover-Karten-Scan an/aus
 # Einstellung: Wie Karten gelesen werden (Import, Deck-Scan, Export); fehlt sie, fragt das Overlay beim Start
 READ_METHOD_KEY = "READ_METHOD"
 READ_METHODS = {"memory": "Speicher lesen", "ocr": "Texterkennung"}
@@ -151,6 +152,7 @@ class ExtrasPanel:
         self.win.wm_attributes("-alpha", 1.0)
         self.show_second = tk.BooleanVar(master=self.win, value=bool(self.settings.get(SHOW_SECOND_KEY, False)))
         self.animation = tk.BooleanVar(master=self.win, value=bool(self.settings.get(ANIMATION_KEY, True)))
+        self.hover_scan_enabled = tk.BooleanVar(master=self.win, value=bool(self.settings.get(HOVER_SCAN_KEY, True)))
         self.read_method = tk.StringVar(master=self.win, value=self.settings.get(READ_METHOD_KEY, "ocr"))
         self.speed = tk.StringVar(master=self.win, value=self.settings.get(SPEED_KEY, "normal"))
         self._build()
@@ -203,7 +205,9 @@ class ExtrasPanel:
         self.options_menu.add_choice([(label, key) for key, label in SPEEDS.items()], self.speed,
                                      command=self._on_speed_changed, visible=memory)
         self.options_menu.add_section("Anzeige")
-        self.options_menu.add_toggles([("Spalte „2. Zug“", self.show_second), ("Analyse-Animation", self.animation)],
+        self.options_menu.add_toggles([("Karten-Hover-Scan", self.hover_scan_enabled),
+                                       ("Analyse-Animation", self.animation),
+                                       ("Spalte „2. Zug“", self.show_second)],
                                       command=self._on_option_changed)
         self.options_menu.add_section("Starter", "Einstufung aus den Deck-Guides von Master Duel Meta")
         self.options_menu.add_buttons([("Aus Guides nachladen (online)", self.load_guides)])
@@ -339,9 +343,12 @@ class ExtrasPanel:
         self.options_menu.popup_below(self.options_btn)
 
     def _on_option_changed(self) -> None:
+        self.settings[HOVER_SCAN_KEY] = bool(self.hover_scan_enabled.get())
         self.settings[SHOW_SECOND_KEY] = bool(self.show_second.get())
         self.settings[ANIMATION_KEY] = bool(self.animation.get())
         self.save_settings()
+        if not self.hover_scan_enabled.get():
+            self._set_hover(None)
         self._rebuild_header()
         if self.analysis is not None:
             self._render()
@@ -979,9 +986,13 @@ class ExtrasPanel:
             self._frame_cache = (time.monotonic(), frame)
         return frame
 
+    def _is_replay_open(self) -> bool:
+        """Prüft, ob gerade ein Replay oder eine Duell-Ansicht geöffnet ist."""
+        return bool(self.winrate and getattr(self.winrate, "duel", None) and not self.winrate.duel.closed)
+
     def _update_hover(self) -> None:
-        if (self.analysis is None or self.scanning or self.offline or not self._visible
-                or not self.is_active()):
+        if (not self.hover_scan_enabled.get() or self._is_replay_open() or self.analysis is None
+                or self.scanning or self.offline or not self._visible or not self.is_active()):
             self._cursor_slot = None
             self._set_hover(None)
             return

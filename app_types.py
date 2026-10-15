@@ -43,6 +43,7 @@ class AppConfig(TypedDict, total=False):
     AUTO_CALIBRATED: bool
     DECK_SHOW_SECOND_TURN: bool
     DECK_HOVER_ANIMATION: bool
+    DECK_HOVER_SCAN_ENABLED: bool
     READ_METHOD: str
     WINRATE_MODE: str
     WINRATE_PERIOD: str

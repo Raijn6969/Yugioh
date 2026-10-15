@@ -38,6 +38,12 @@ class TestAppTypes(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertIn("SEARCH_BAR", warnings[0])
 
+    def test_hover_scan_setting(self):
+        cfg = {"DECK_HOVER_SCAN_ENABLED": False}
+        cleaned, warnings = validate_config(cfg)
+        self.assertEqual(len(warnings), 0)
+        self.assertFalse(cleaned["DECK_HOVER_SCAN_ENABLED"])
+
 
 if __name__ == "__main__":
     unittest.main()

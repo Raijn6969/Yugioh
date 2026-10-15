@@ -171,6 +171,27 @@ class DuelViewTest(unittest.TestCase):
         panel.close()
         self.assertIsNone(panel.duel)
 
+    def test_pile_inspector_open_and_close(self):
+        view = self.view([entry(1)], replay=True)
+        cards = [{"uid": 10, "card": 101, "team": 0}]
+        view._open_pile_inspector("Friedhof", cards, 0)
+        self.assertIsNotNone(view._pile_inspector)
+        self.assertTrue(view._pile_inspector.winfo_exists())
+        # Re-opening with another pile closes previous
+        view._open_pile_inspector("Verbannt", [], 0)
+        self.assertIsNotNone(view._pile_inspector)
+        self.assertTrue(view._pile_inspector.winfo_exists())
+        view._close_inspector()
+        self.assertIsNone(view._pile_inspector)
+
+    def test_tip_text_draws_tip_with_bold_font(self):
+        view = self.view([entry(1)])
+        view._tip_text("Friedhof: 5 Karten")
+        tips = view.canvas.find_withtag("tip")
+        self.assertTrue(len(tips) >= 1)
+        view._untip()
+        self.assertEqual(view.canvas.find_withtag("tip"), ())
+
 
 def mock_db():
     class Info:

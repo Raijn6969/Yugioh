@@ -275,6 +275,9 @@ class CardStatsDB:
         self.path = path
         self._fetch = fetch
         self.base_path = base_path if base_path and os.path.exists(base_path) else None
+        self._info_cache: Dict[str, Optional[CardInfo]] = {}
+        self._konami_names_cache: Optional[Dict[int, str]] = None
+        self._konami_passcodes_cache: Optional[Dict[int, str]] = None
         with self._connect() as con:
             create_tables(con)
 
@@ -298,26 +301,49 @@ class CardStatsDB:
 
     # ── Karteninfos ──
     def info(self, cid: str) -> Optional[CardInfo]:
+        cid_str = str(cid)
+        if cid_str in self._info_cache:
+            return self._info_cache[cid_str]
         for base in self._sources():
             with self._connect(base) as con:
-                row = con.execute(f"SELECT {COLUMNS} FROM cards WHERE id = ?", (str(cid),)).fetchone()
+                row = con.execute(f"SELECT {COLUMNS} FROM cards WHERE id = ?", (cid_str,)).fetchone()
             if row:
-                return CardInfo(*row)
+                card_info = CardInfo(*row)
+                self._info_cache[cid_str] = card_info
+                return card_info
+        self._info_cache[cid_str] = None
         return None
 
     def infos(self, ids: Iterable[str]) -> Dict[str, CardInfo]:
         """Karteninfos vieler Karten auf einmal (unbekannte fehlen) – schneller als info() je Karte."""
         wanted = sorted({str(i) for i in ids if i})
         result: Dict[str, CardInfo] = {}
+        todo = []
+        for cid in wanted:
+            if cid in self._info_cache:
+                cached = self._info_cache[cid]
+                if cached is not None:
+                    result[cid] = cached
+            else:
+                todo.append(cid)
+        if not todo:
+            return result
         for base in self._sources():
-            todo = [cid for cid in wanted if cid not in result]
-            if not todo:
+            missing = [cid for cid in todo if cid not in result]
+            if not missing:
                 break
             with self._connect(base) as con:
-                for start in range(0, len(todo), 500):
-                    chunk = todo[start:start + 500]
-                    result.update((row[0], CardInfo(*row)) for row in con.execute(
-                        f"SELECT {COLUMNS} FROM cards WHERE id IN ({','.join('?' * len(chunk))})", chunk))
+                for start in range(0, len(missing), 500):
+                    chunk = missing[start:start + 500]
+                    for row in con.execute(
+                        f"SELECT {COLUMNS} FROM cards WHERE id IN ({','.join('?' * len(chunk))})", chunk
+                    ).fetchall():
+                        card_info = CardInfo(*row)
+                        result[row[0]] = card_info
+                        self._info_cache[row[0]] = card_info
+        for cid in todo:
+            if cid not in result:
+                self._info_cache[cid] = None
         return result
 
     def search_cards(self, text: str, limit: int = 8) -> List[Tuple[str, str]]:
@@ -363,6 +389,7 @@ class CardStatsDB:
             dlog(f"[STATS] Karteninfos nicht geladen ({e}) – {len(missing)} Karte(n) ohne Stats.")
             return len(missing)
         now = time.time()
+        self._info_cache.update(found)
         with self._connect() as con:
             con.executemany("INSERT OR REPLACE INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [(*info, now) for info in found.values()])
@@ -375,6 +402,7 @@ class CardStatsDB:
         """Karten neu von YGOPRODeck laden (z.B. geänderte Kartentexte) und neu einstufen. Returns: Anzahl."""
         found = self._fetch(sorted({str(i) for i in ids if i}))
         now = time.time()
+        self._info_cache.update(found)
         with self._connect() as con:
             con.executemany("INSERT OR REPLACE INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [(*info, now) for info in found.values()])
@@ -422,6 +450,9 @@ class CardStatsDB:
                         rows += konami_rows(resp.json().get("data", []))
                 with self._connect() as con:
                     con.executemany("INSERT OR REPLACE INTO konami VALUES (?, ?, ?)", rows)
+                if rows:
+                    self._konami_names_cache = None
+                    self._konami_passcodes_cache = None
                 result.update({cid: kid for cid, kid, _ in rows if cid in missing})
             except Exception as e:
                 dlog(f"[SPEICHER] Konami-IDs nicht nachgeladen ({e}).")
@@ -429,6 +460,8 @@ class CardStatsDB:
 
     def konami_names(self) -> Dict[int, str]:
         """{Konami-ID: englischer Name} aller bekannten Karten (inkl. gelernter Artworks)."""
+        if self._konami_names_cache is not None:
+            return dict(self._konami_names_cache)
         names: Dict[int, str] = {}
         for base in reversed(self._sources()):  # eigene Datei zuletzt → überschreibt
             try:
@@ -439,10 +472,13 @@ class CardStatsDB:
         aliases = self.konami_aliases()
         base_ids = self._konami_lookup("id", sorted(set(aliases.values())))
         names.update({kid: names[base_ids[cid]] for kid, cid in aliases.items() if base_ids.get(cid) in names})
-        return names
+        self._konami_names_cache = names
+        return dict(names)
 
     def konami_passcodes(self) -> Dict[int, str]:
         """{Konami-ID: Passcode} aller bekannten Karten (bei mehreren Artworks der kleinste Passcode)."""
+        if self._konami_passcodes_cache is not None:
+            return dict(self._konami_passcodes_cache)
         result: Dict[int, str] = {}
         for base in reversed(self._sources()):
             try:
@@ -451,7 +487,8 @@ class CardStatsDB:
             except sqlite3.OperationalError:
                 pass
         result.update(self.konami_aliases())
-        return result
+        self._konami_passcodes_cache = result
+        return dict(result)
 
     def konami_aliases(self) -> Dict[int, str]:
         """{Konami-ID: Passcode} der Artworks, die nur Master Duel kennt (im Import gelernt)."""
@@ -462,6 +499,8 @@ class CardStatsDB:
         """Ein Artwork aus Master Duel (eigene Konami-ID) einer Karte zuordnen – gilt ab dem nächsten Import."""
         with self._connect() as con:
             con.execute("INSERT OR REPLACE INTO konami_alias VALUES (?, ?)", (int(konami_id), str(passcode)))
+        self._konami_names_cache = None
+        self._konami_passcodes_cache = None
 
     def _konami_lookup(self, column: str, values: List[str]) -> Dict[str, int]:
         result: Dict[str, int] = {}
