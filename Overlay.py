@@ -68,9 +68,6 @@ import single_instance
 import update_check
 import updater
 import win_api
-import app_types
-from event_bus import EventBus, MatchRecordedEvent, ReplaySavedEvent
-from toast_manager import ToastManager
 
 MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
 MEMORY_WARN_AFTER = 6  # so viele Fehlversuche (je MEMORY_RETRY mit Master Duel vorne) bis zum Hinweis
@@ -90,6 +87,34 @@ SPEED_PROFILES = [
     ("normal", "Normal", "#ffffff", "Normal"),
     ("slow", "Langsam", "#66aaff", "Langsam"),
 ]
+
+
+def validate_config(raw):
+    """
+    Prüft Konfigurationswerte auf Gültigkeit und liefert bereinigte Werte sowie Warnungen.
+    Verändert ungültige Werte defensiv zu Standardwerten.
+    """
+    warnings = []
+    cleaned = dict(raw)
+
+    speed = cleaned.get("SPEED_PROFILE")
+    if speed is not None and speed not in [p[0] for p in SPEED_PROFILES]:
+        warnings.append(f"Ungültiges SPEED_PROFILE '{speed}', Fallback auf 'normal'.")
+        cleaned["SPEED_PROFILE"] = "normal"
+
+    method = cleaned.get("READ_METHOD")
+    if method is not None and method not in READ_METHODS:
+        warnings.append(f"Ungültige READ_METHOD '{method}', Fallback auf 'memory'.")
+        cleaned["READ_METHOD"] = "memory"
+
+    for coord_key in ("SEARCH_BAR", "FIRST_CARD", "TRASH_BTN", "TRASH_CONFIRM", "UNOWNED_BTN"):
+        coord = cleaned.get(coord_key)
+        if coord is not None:
+            if not (isinstance(coord, (list, tuple)) and len(coord) == 2
+                    and all(isinstance(v, (int, float)) for v in coord)):
+                warnings.append(f"Koordinate {coord_key} fehlerhaft: {coord}")
+
+    return cleaned, warnings
 
 
 class MasterDuelImporter:
@@ -114,8 +139,6 @@ class MasterDuelImporter:
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
         # Warteschlange, der Haupt-Thread arbeitet sie regelmäßig ab.
         self._ui_queue = queue.Queue()
-        self.bus = EventBus(ui_dispatcher=self._run_on_ui)
-        self.toast_mgr = ToastManager(self.root, duration_ms=STARTED_TOAST_MS, gap_ms=TOAST_GAP_MS)
         self._toast_free_at = time.monotonic() + (STARTED_TOAST_MS + TOAST_GAP_MS) / 1000
         self._toast_count = 0
         self.update_release = None   # neuerer Release laut Update-Prüfung (None = keiner bzw. nicht geprüft)
@@ -263,27 +286,16 @@ class MasterDuelImporter:
     def _queue_toast(self, text):
         """Hinweis über der Taskleiste. Mehrere (Startmeldung, Update, Rückblick) kommen nacheinander, nicht übereinander
         (alle säßen an derselben Stelle)."""
-        mgr = getattr(self, "toast_mgr", None)
-        if mgr is not None:
-            key = mgr.queue_toast(text)
-            self._toast_free_at = mgr.toast_free_at
-            self._toast_count = mgr.toast_count
-            return key
         now = time.monotonic()
         start = max(now, self._toast_free_at)
         self._toast_free_at = start + (STARTED_TOAST_MS + TOAST_GAP_MS) / 1000
         self._toast_count += 1
         key = f"toast{self._toast_count}"
         self._after_ids[key] = self.root.after(int((start - now) * 1000), lambda: self._show_queued_toast(key, text))
-        return key
 
     def _show_queued_toast(self, key, text):
         self._after_ids.pop(key, None)
-        mgr = getattr(self, "toast_mgr", None)
-        if mgr is not None:
-            mgr._show_queued_toast(key, text, STARTED_TOAST_MS)
-        else:
-            show_toast(self.root, text, duration_ms=STARTED_TOAST_MS)
+        show_toast(self.root, text, duration_ms=STARTED_TOAST_MS)
 
     # --- RÜCKBLICK-HINWEIS (einmal pro neuem Monat) ---
     def _start_review_notice(self):
@@ -395,7 +407,7 @@ class MasterDuelImporter:
                     "oder neu kalibrieren.", kind="warning"
                 )
 
-        loaded, config_warnings = app_types.validate_config(loaded)
+        loaded, config_warnings = validate_config(loaded)
         for w in config_warnings:
             dlog(f"[CONFIG] {w}")
         self.config = loaded
@@ -838,10 +850,6 @@ class MasterDuelImporter:
             except tk.TclError:
                 pass
         self._after_ids.clear()
-        if hasattr(self, "toast_mgr") and self.toast_mgr is not None:
-            self.toast_mgr.cancel_all()
-        if hasattr(self, "bus") and self.bus is not None:
-            self.bus.clear()
         self.root.destroy()
 
     def update_status(self, text, color="white"):
@@ -1158,9 +1166,6 @@ class MasterDuelImporter:
             self._after_ids["reminder"] = self.root.after(REMINDER_DELAY_MS, self._show_history_reminder)
         if self.extras:
             self.extras.refresh_winrate()
-        if hasattr(self, "bus"):
-            for m in new:
-                self.bus.emit(MatchRecordedEvent(record=m, is_new=True))
 
     def _on_replay_saved(self, info, steps):
         """Replay mitgeschnitten → kurze Meldung (ansehen: Winrate → Match anklicken)."""
@@ -1171,8 +1176,6 @@ class MasterDuelImporter:
                              f"ansehen: Deck-Fenster → Winrate → Match anklicken", "MD Importer")
         if self.extras:
             self.extras.refresh_winrate()
-        if hasattr(self, "bus"):
-            self.bus.emit(ReplaySavedEvent(replay_info=info, steps=steps))
 
     def _show_history_reminder(self):
         """Hinweis in der Statuszeile – nur, solange er stimmt: Wurde die Match History inzwischen geöffnet, kommt er

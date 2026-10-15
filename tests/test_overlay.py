@@ -22,6 +22,23 @@ from dark_scrollbar import DarkScrollbar
 _REAL_FOCUS_LOOP = Overlay.MasterDuelImporter._check_window_focus  # vor dem Patch in OverlayTest.setUp
 
 
+class ValidateConfigTest(unittest.TestCase):
+    def test_valid_config_passes_without_warnings(self):
+        cfg = {"SPEED_PROFILE": "fast", "READ_METHOD": "memory", "SEARCH_BAR": [1400, 200], "FIRST_CARD": [1300, 300]}
+        cleaned, warnings = Overlay.validate_config(cfg)
+        self.assertEqual((warnings, cleaned), ([], cfg))
+
+    def test_invalid_speed_profile_and_read_method_fall_back(self):
+        cleaned, warnings = Overlay.validate_config({"SPEED_PROFILE": "turbo_ultra", "READ_METHOD": "telepathy"})
+        self.assertEqual(len(warnings), 2)
+        self.assertEqual((cleaned["SPEED_PROFILE"], cleaned["READ_METHOD"]), ("normal", "memory"))
+
+    def test_malformed_coordinates_warning(self):
+        cleaned, warnings = Overlay.validate_config({"SEARCH_BAR": "not_a_coordinate"})
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("SEARCH_BAR", warnings[0])
+
+
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
 class OverlayTest(unittest.TestCase):
     def setUp(self):
