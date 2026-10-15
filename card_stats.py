@@ -685,12 +685,22 @@ class CardStatsDB:
     REPLAY_AFTER = 10      # Match History: Startzeit (wenige Sekunden Abweichung)
 
     def save_replay(self, info, frames: List[dict]) -> bool:
-        """Mitschnitt speichern. Gibt es zu diesem Duell schon einen längeren, bleibt der. Returns: gespeichert?"""
+        """
+        Mitschnitt speichern. Gibt es zu diesem Duell schon einen längeren, bleibt der – außer die neue Aufnahme hat
+        Duell-Protokoll ("log"), die alte keins und die neue erreicht mindestens 80 % der alten Schritte.
+        Returns: gespeichert?
+        """
         import zlib
         with self._connect() as con:
-            old = con.execute("SELECT steps FROM replays WHERE start = ?", (info.start,)).fetchone()
+            old = con.execute("SELECT steps, frames FROM replays WHERE start = ?", (info.start,)).fetchone()
             if old is not None and old[0] > len(frames):
-                return False
+                has_log = lambda fs: any("log" in f for f in fs)  # noqa: E731
+                try:
+                    old_log = has_log(json.loads(zlib.decompress(old[1]).decode()))
+                except (zlib.error, ValueError):
+                    old_log = False
+                if old_log or not has_log(frames) or len(frames) < 0.8 * old[0]:
+                    return False
             con.execute("INSERT OR REPLACE INTO replays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (info.start, info.replay_did, info.my_id, info.first_player, json.dumps(info.names),
                          json.dumps(info.decks), zlib.compress(json.dumps(frames, separators=(",", ":")).encode()),

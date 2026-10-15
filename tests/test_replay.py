@@ -179,6 +179,17 @@ class StorageTest(unittest.TestCase):
         self.assertIsNone(db.replay_at(1791623727))                      # nur genau diese Startzeit
         self.assertEqual(db.replay_starts(), [1791623726])
 
+    def test_recording_with_log_replaces_old_one_without(self):
+        info = rr.replay_info(DUEL)
+        plain = lambda n: [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": i} for i in range(n)]  # noqa: E731
+        logged = lambda n: [dict(f, log=[]) for f in plain(n)]  # noqa: E731
+        for old, new, saved in ((plain(10), logged(8), True), (plain(10), logged(7), False),
+                                (logged(10), logged(9), False)):
+            db = make_db()
+            db.save_replay(info, old)
+            self.assertEqual(db.save_replay(info, new), saved)
+            self.assertEqual(len(db.replay_at(info.start).frames), len(new if saved else old))
+
     def test_each_replay_belongs_to_one_match(self):
         db = make_db()
         add_match(db, "1")
