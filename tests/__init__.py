@@ -6,10 +6,23 @@ Ausführen (im Projektordner):
 
 tests/data/golden.json enthält die Ergebnisse des Codes VOR dem Refactoring (echte Fälle aus
 md_debug.log). Die Tests stellen sicher, dass Umbauten am Verhalten nichts ändern.
+Testfenster öffnen sich auf einem unsichtbaren Desktop; MD_TEST_SHOW=1 zeigt sie.
 """
 
+import ctypes
 import os
 import sys
+
+# Testfenster auf einem unsichtbaren Windows-Desktop: nichts ploppt auf, der echte Mauszeiger stört keine Tests
+if sys.platform == "win32" and not os.environ.get("MD_TEST_SHOW"):
+    _user32 = ctypes.WinDLL("user32")
+    _user32.CreateDesktopW.restype = ctypes.c_void_p
+    _user32.CreateDesktopW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_void_p, ctypes.c_ulong,
+                                       ctypes.c_ulong, ctypes.c_void_p]
+    _user32.SetThreadDesktop.argtypes = [ctypes.c_void_p]
+    _desktop = _user32.CreateDesktopW("md_importer_tests", None, None, 0, 0x10000000, None)  # GENERIC_ALL
+    if _desktop:
+        _user32.SetThreadDesktop(_desktop)  # schlägt das fehl, erscheinen die Fenster wie früher
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
