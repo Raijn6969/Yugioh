@@ -126,6 +126,15 @@ class ProcessReader:
             _k32.CloseHandle(self.handle)
             self.handle = None
 
+    def __del__(self) -> None:
+        self.close()
+
+    def __enter__(self) -> "ProcessReader":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+
     def read(self, addr: int, size: int) -> bytes:
         buf = ctypes.create_string_buffer(size)
         got = ctypes.c_size_t()

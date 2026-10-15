@@ -25,6 +25,7 @@ from window_automation import UserInterrupt, WindowAutomator, get_md_window_size
 from deck_counter import DeckCounter
 from card_db import CardDB, CardMatch, load_card_db, ocr_fold
 from md_memory import PREMIUM_NAMES, ListScroll, MemoryUnavailable, SearchEntry
+import batch_planner
 import md_layout
 import resume_state
 import vision_engine
@@ -90,61 +91,9 @@ class DeckCard(NamedTuple):
     amount: int
 
 
-def common_prefix_len(target: str, ocr: str) -> Tuple[int, int]:
-    """
-    Wie viele Zeichen am Anfang stimmen überein? Ein führendes 'l' in der OCR ist ein
-    bekanntes Artefakt (Icon links vom Namen) und wird ignoriert.
-    Returns: (gemeinsame Zeichen, Länge der bereinigten OCR).
-    """
-    ocr = ocr[1:] if ocr.startswith("l") else ocr
-    common = 0
-    for a, b in zip(target, ocr):
-        if a != b:
-            break
-        common += 1
-    return common, len(ocr)
-
-
-def name_score(name_clean: str, s_c: str) -> Tuple[float, bool]:
-    """
-    Wie gut passt der gelesene Text zu einem Kartennamen (0..1)? Berücksichtigt das bekannte
-    führende 'l' (Icon links vom Namen) und im Detail-Panel abgeschnittene Namen: Dann zählt
-    der Vergleich mit dem Anfang des Namens ('lamenomurakumonomit' → Ame no Murakumo no Mitsurugi).
-    Returns: (Ratio, per_Abschneiden_gematcht).
-    """
-    best, truncated = 0.0, False
-    texts = (s_c, s_c[1:]) if s_c.startswith("l") and len(s_c) > 1 else (s_c,)
-    for text in texts:
-        ratio = SequenceMatcher(None, name_clean, text).ratio()
-        if ratio > best:
-            best, truncated = ratio, False
-        cut_off = ((len(name_clean) > len(text) * 1.3 and len(text) >= TRUNCATION_MIN_OCR)
-                   or (len(name_clean) > len(text) and len(text) >= TRUNCATED_LONG_OCR))
-        if cut_off:
-            prefix_ratio = SequenceMatcher(None, name_clean[:len(text)], text).ratio()
-            if prefix_ratio > best:
-                best, truncated = prefix_ratio, True
-    return best, truncated
-
-
-def number_card_overrule(target_clean: str, s_c: str) -> Optional[str]:
-    """
-    Number-Karten, deren Name im Panel abgeschnitten oder am Ende verrauscht ist.
-    Nur wenn die Nummer exakt gleich ist (inkl. C/S/F-Präfix: 106 ≠ C106), die OCR abgeschnitten
-    aussieht und NICHT länger ist als das Ziel (sonst würde "Number 39: Utopia" die Karte
-    "Number 39: Utopia Beyond" matchen). Deutsche Namen beginnen mit "Nummer".
-    Returns: die Nummer bei Treffer, sonst None.
-    """
-    ocr = s_c[1:] if re.match(r"^l(?:number|nummer)", s_c) else s_c
-    t = re.match(r"^(?:number|nummer)([a-z]{0,2}\d+)(.*)$", target_clean)
-    o = re.match(r"^(?:number|nummer)([a-z]{0,2}\d+)(.*)$", ocr)
-    if not (t and o and t.group(1) == o.group(1)):
-        return None
-    t_rest, o_rest = t.group(2), o.group(2)
-    if (len(ocr) >= NUMBER_TRUNCATED_MIN_OCR and o_rest and len(o_rest) <= len(t_rest)
-            and SequenceMatcher(None, t_rest[:len(o_rest)], o_rest).ratio() >= 0.85):
-        return t.group(1)
-    return None
+common_prefix_len = batch_planner.common_prefix_len
+name_score = batch_planner.name_score
+number_card_overrule = batch_planner.number_card_overrule
 
 
 class DeckImporterCore:
@@ -1269,104 +1218,24 @@ class DeckImporterCore:
     # =====================================================================
 
     # Erste Wörter, die zu generisch sind für eine Batch-Suche
-    _BATCH_NOISE = {
-        'dark', 'light', 'fire', 'water', 'earth', 'wind', 'divine', 'chaos',
-        'black', 'white', 'red', 'blue', 'green', 'yellow', 'number', 'numeron',
-        'true', 'super', 'ultra', 'hyper', 'mega', 'neo', 'great', 'high', 'evil',
-        'ancient', 'sacred', 'crystal', 'cyber', 'dragon', 'galaxy', 'star', 'solar',
-        'elemental', 'armed', 'the', 'of', 'for', 'a', 'an',
-        # Deutsche Master-Duel-Namen
-        'dunkel', 'dunkle', 'dunkler', 'licht', 'feuer', 'wasser', 'erde', 'göttlich', 'göttliche',
-        'schwarz', 'schwarze', 'schwarzer', 'weiß', 'weiße', 'weißer', 'roter', 'rote', 'blauer',
-        'blaue', 'grüner', 'grüne', 'gelber', 'nummer', 'wahrer', 'wahre', 'uralter', 'uralte',
-        'heilige', 'heiliger', 'kristall', 'drache', 'drachen', 'galaxie', 'stern', 'sonne',
-    }
+    _BATCH_NOISE = batch_planner.BATCH_NOISE
 
     @staticmethod
     def _normalize_word(w: str) -> str:
         """Normalisiert ein Wort für Archetype-Vergleiche: 'exosisters' → 'exosister'."""
-        return w[:-1] if (w.endswith('s') and len(w) > 4) else w
+        return batch_planner.normalize_word(w)
 
     @staticmethod
     def _name_words(name: str) -> List[str]:
         """Wörter eines Namens (klein); Teile in spitzen Klammern bleiben als eigenes Token ("<p>")."""
-        return re.findall(r"<[^>]*>|[^\W\d_]+", name.lower())
+        return batch_planner.name_words(name)
 
     def _compute_batch_groups(self, cards_ready: List) -> Dict[str, List]:
         """
         Erkennt Karten-Gruppen, die denselben Archetype-Präfix teilen (Sammelsuche statt einzeln suchen).
-        Nur Gruppen mit >= 3 Karten und einem Suchbegriff >= 6 Zeichen werden gebündelt – mit Sonderzeichen
-        reichen 3 ("d/d" für D/D und D/D/D, "u.a."), die machen ihn eindeutig genug.
-
-        Jeder Wort-Präfix jeder Karte ist ein Kandidat ("sky", "sky striker", "sky striker mecha", …). Genommen
-        wird der Präfix mit den meisten Karten (bei Gleichstand der längere, er sucht genauer), dann geht es mit
-        den übrigen Karten weiter. So stört z.B. "Red Reboot" die Gruppe "red eyes" nicht, und kurze erste
-        Wörter wie "Sky" (Striker) zählen auch. Außerdem ist jedes einzelne Wort ein Kandidat, auch mitten im
-        Namen (die Suche findet es überall): "Sword Ryzeal", "Ice Ryzeal", "Ryzeal Detonator" → "ryzeal".
-        Bei gleich vielen Karten gewinnt der Namensanfang.
-
-        Plural-Normalisierung: "exosisters magnifica" kommt in dieselbe Gruppe wie "exosister martha".
-        Suchbegriff = echter Namensanfang (mit Leerzeichen und Bindestrichen), z.B. "kewl tune" statt "kewltune"
-        und "red-eyes" statt "red eyes" (findet sonst auch "Hund-red Eyes Dragon" u.ä. → mehr fremde Treffer).
-        Ein einzelnes allgemeines Wort ("dark", "schwarzer") ist kein Archetyp.
-
-        Returns: {prefix_str: [(cid, raw_name, amount), ...]} (in der Reihenfolge des Decks)
+        Delegiert an batch_planner.compute_batch_groups.
         """
-        MIN_GROUP_SIZE = 3
-        MIN_PREFIX_CHARS = 6
-        MIN_SPECIAL_PREFIX_CHARS = 3  # Suchbegriff mit Sonderzeichen ("d/d")
-        ANYWHERE = "*"  # Kennung: einzelnes Wort irgendwo im Namen (kein Namensanfang)
-
-        # Schritt 1: Alle Wort-Präfixe (normalisiert) → {Kartenindex: echter Namensanfang bis zu diesem Wort}
-        candidates: Dict[tuple, Dict[int, str]] = {}
-        for index, card in enumerate(cards_ready):
-            name = card[1].lower()
-            spans = list(re.finditer(r"<[^>]*>|[^\W\d_]+", name))  # wie _name_words, mit Position
-            for n in range(1, len(spans) + 1):
-                if spans[n - 1].group().startswith("<"):
-                    break  # spitze Klammern ("<P>") findet die Suche nicht
-                key = tuple(self._normalize_word(m.group()) for m in spans[:n])
-                candidates.setdefault(key, {})[index] = name[:spans[n - 1].end()]
-            # Dazu jedes einzelne Wort, auch mitten im Namen: Die Suche findet es überall ("Sword Ryzeal",
-            # "Ice Ryzeal", "Ryzeal Detonator" → "ryzeal")
-            for m in spans:
-                if not m.group().startswith("<"):
-                    candidates.setdefault((ANYWHERE, self._normalize_word(m.group())), {})[index] = m.group()
-
-        def term(key: tuple, members: List[int]) -> str:
-            # Die kürzere echte Form: "exosister" steckt auch in "exosisters" ("maliss" bleibt "maliss")
-            return min((candidates[key][i] for i in members), key=len)
-
-        def usable(key: tuple, members: List[int]) -> bool:
-            if len(members) < MIN_GROUP_SIZE:
-                return False
-            text = term(key, members)
-            if len(text) < (MIN_SPECIAL_PREFIX_CHARS if re.search(r"[^\w\s]", text) else MIN_PREFIX_CHARS):
-                return False
-            single = len(key) == 1 or key[0] == ANYWHERE
-            return not single or not any(candidates[key][i] in self._BATCH_NOISE for i in members)
-
-        def rank(key: tuple, members: List[int]) -> tuple:
-            # meiste Karten; bei Gleichstand ein Namensanfang vor einem Wort irgendwo, dann der längere
-            anywhere = key[0] == ANYWHERE
-            return len(members), not anywhere, 1 if anywhere else len(key)
-
-        # Schritt 2: Gierig die größte Gruppe nehmen, ihre Karten entfernen, weiter mit dem Rest
-        taken: set = set()
-        chosen = []
-        while True:
-            best = None
-            for key, cards in candidates.items():
-                members = [i for i in cards if i not in taken]
-                if usable(key, members) and (best is None or rank(key, members) > rank(*best)):
-                    best = (key, members)
-            if best is None:
-                break
-            taken.update(best[1])
-            chosen.append(best)
-
-        chosen.sort(key=lambda group: min(group[1]))
-        return {term(key, members): [cards_ready[i] for i in members] for key, members in chosen}
+        return batch_planner.compute_batch_groups(cards_ready, self._BATCH_NOISE)
 
     def _batch_scan_for_archetype(
         self, sct, automator, prefix: str, group_cards: List, successfully_added: List,
