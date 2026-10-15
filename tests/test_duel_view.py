@@ -238,9 +238,11 @@ class AnimationTest(unittest.TestCase):
         self.addCleanup(self.root.destroy)
         self.folder = tempfile.mkdtemp()
 
-    def view(self, frames=FRAMES):
+    def view(self, frames=FRAMES, passcodes=None):
         from unittest import mock
         db = mock_db()
+        db.konami_passcodes = lambda: passcodes or {}
+        db.info = lambda passcode: None
         db.replay_at = lambda start: Replay(start, "1", 0, 0, ["Du", "Gegner"], [], frames)
         patch = mock.patch.object(dv.card_images, "download", return_value=0)
         patch.start()
@@ -331,6 +333,69 @@ class AnimationTest(unittest.TestCase):
         self.assertNotIn(1, seen)           # ohne sichtbare Änderung: übersprungen
         self.assertEqual(seen[0], 2)
         self.assertIn(3, seen)              # LP-Schritt wird gezeigt
+
+    def animate(self, view, step, frac):
+        """Schritt vor und die Animation auf frac (0…1) des Weges stellen; Uhr ist gesteuert."""
+        from unittest import mock
+        clock = Clock()
+        with mock.patch.object(dv.time, "perf_counter", clock):
+            view.manual(step - 1, False)
+            view.manual(step)
+            clock.now = view._anim["t0"] + view._anim["dur"] * frac
+            view.draw()
+        return [view.canvas.itemcget(i, "text") for i in view.canvas.find_all() if view.canvas.type(i) == "text"]
+
+    def texts(self, view):
+        return [view.canvas.itemcget(i, "text") for i in view.canvas.find_all() if view.canvas.type(i) == "text"]
+
+    def finish(self, view):
+        view._finish_anim(draw=True)
+        return self.texts(view)
+
+    def test_summon_shows_a_shield_only_while_it_runs(self):
+        view = self.view()
+        self.assertIn("BESCHWOREN", self.animate(view, 2, 0.5))
+        after = self.finish(view)
+        self.assertNotIn("BESCHWOREN", after)
+        self.assertIn("Du beschwörst eine Karte", after)             # Schritt-Text bleibt stehen
+
+    def test_activation_effect_and_step_text(self):
+        view = self.view([frame(row(1, rr.HAND)), frame(row(1, rr.MOVING))])
+        self.assertEqual(view.steps[1].kind, "aktiviert")
+        self.assertIn("AKTIVIERT", self.animate(view, 1, 0.5))
+        after = self.finish(view)
+        self.assertNotIn("AKTIVIERT", after)
+        self.assertIn("Du aktivierst eine Karte", after)
+
+    def test_lp_change_floats_next_to_the_display(self):
+        view = self.view()
+        self.assertIn("−1000", self.animate(view, 3, 0.5))
+        self.assertNotIn("−1000", self.finish(view))
+
+    def test_set_card_is_flipped_and_marked(self):
+        view = self.view([frame(row(1, rr.HAND)), frame(row(1, 9, face=0))])
+        self.assertEqual((view.steps[1].kind, view.steps[1].text), ("gesetzt", "Du setzt eine Karte"))
+        self.assertNotIn("gesetzt", self.animate(view, 1, 0.3))      # erst offen gezeigt, noch kein Schild
+        self.assertIn("gesetzt", self.finish(view))                  # verdeckt, eigene Karte: Schild
+
+    def test_chain_numbers_and_bar(self):
+        hidden = row(2, rr.HAND, 200, face=0, team=1)
+        frames = [frame(row(1, rr.HAND), hidden), frame(row(1, 9), hidden),
+                  frame(row(1, 9), row(2, rr.MOVING, 200, team=1))]
+        view = self.view(frames)
+        view.manual(1, False)
+        self.assertIn("KETTE (1)", self.texts(view))
+        view.manual(2, False)
+        texts = self.texts(view)
+        self.assertIn("KETTE (2)", texts)
+        self.assertEqual(texts.count("1") >= 2 and texts.count("2") >= 2, True)    # Plakette und Zeile je Glied
+
+    def test_search_shows_the_added_card_big(self):
+        frames = [frame(row(1, rr.DECK, 5)), frame(row(1, rr.HAND, 5))]
+        view = self.view(frames, passcodes={5: "5"})
+        self.assertEqual(view.steps[1].text, "Du fügst Ash Blossom deiner Hand hinzu")
+        self.assertIn("ZUR HAND HINZUGEFÜGT", self.animate(view, 1, 0.5))
+        self.assertNotIn("ZUR HAND HINZUGEFÜGT", self.finish(view))
 
     def test_moving_card_slides_to_its_destination_at_once(self):
         frames = [frame(row(1, rr.HAND)), frame(row(1, rr.MOVING)), frame(row(1, 0))]

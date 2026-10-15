@@ -15,6 +15,7 @@ aus der Match History), an den Seiten Deck- und Extra-Deck-Stapel mit Kartenzahl
 Matches. Alles wird auf eine Zeichenfläche gemalt (wie card_grid) – schnell, kein Ruckeln beim Blättern.
 """
 
+import math
 import os
 import subprocess
 import threading
@@ -46,6 +47,11 @@ OPP_HALF = "#281622"     # Hälfte des Gegners rötlich
 ZONE, ZONE_EDGE, ZONE_TEXT = "#1a284c", "#30468a", "#5a6eaa"
 OPP_ZONE, OPP_ZONE_EDGE = "#2c1a28", "#823c50"
 CARD_BACK = "#7a4828"
+SHIELD_BG = "#101018"    # Schilder über den Karten ("AKTIVIERT", "gesetzt" …)
+ACT_GOLD, ACT_RED = "#ffd66e", "#ff5a5a"     # Aktivierung; rot: Gegner antwortet in eine Kette
+SUMMON_BLUE, LIGHT_BLUE, ADD_BLUE = "#aadcff", "#a0e6ff", "#96e1ff"   # Beschwörung, gesetzt, zur Hand hinzugefügt
+PLAQUE = "#f0c450"       # Kettenglied-Nummer auf der Karte
+LP_DOWN, LP_UP = "#ff6464", "#78e68c"
 FRAME_MS = 33            # Animation: ein Bild alle 33 ms
 
 PILES = {
@@ -595,28 +601,6 @@ class DuelView:
         info = self._card_info(kid)
         return (info.card_type or "") if info else ""
 
-    def _is_activating(self, card: dict, state: dict, field_uids: set) -> bool:
-        act = state.get("activating")
-        if not act:
-            return False
-        if card["uid"] == act.get("uid"):
-            return True
-        if act.get("uid") not in field_uids:
-            if card.get("card", 0) > 0 and card["card"] == act.get("card") and card.get("team") == act.get("team"):
-                return True
-        return False
-
-    def _chain_link(self, card: dict, state: dict, field_uids: set) -> Optional[int]:
-        chain = state.get("chain", [])
-        for x in chain:
-            if x.get("uid") == card["uid"]:
-                return x.get("cl")
-        for x in chain:
-            if x.get("uid") not in field_uids:
-                if card.get("card", 0) > 0 and card["card"] == x.get("card") and card.get("team") == x.get("team"):
-                    return x.get("cl")
-        return None
-
     def manual(self, frame_no: int, animate: bool = True) -> None:
         """Knopf/Taste: Abspielen anhalten und springen (ein Schritt vor wird animiert)."""
         self._stop_play(draw=False)
@@ -1066,7 +1050,7 @@ class DuelView:
             self._set_label(self.frame_no)
         else:  # Animation läuft: vom Schritt davor zum aktuellen, Klick-/Hinweis-Flächen gibt es erst im Standbild
             progress = min(1.0, (time.perf_counter() - a["t0"]) / a["dur"])
-            self._draw_frame(self.frame_no, a["prev"], rs.ease(progress), bind=False)
+            self._draw_frame(self.frame_no, a["prev"], progress, bind=False)
 
     def _set_label(self, n: int) -> None:
         frame, state = self.replay.frames[n], self.tracker.get(n)
@@ -1080,34 +1064,36 @@ class DuelView:
             text += f"  ·  ⚡ {self.names.get(self.passcode(act_card['card'])) or 'Karte #' + str(act_card['card'])}"
         self.step_label.config(text=text)
 
-    def _draw_frame(self, n: int, prev: Optional[int] = None, t: float = 1.0, bind: bool = True) -> None:
-        """Schritt n malen; mit prev gleiten die Karten, die sich bewegt haben, zu t (0…1) von dort an ihren Platz."""
-        replay = self.replay
+    def _draw_frame(self, n: int, prev: Optional[int] = None, p: float = 1.0, bind: bool = True) -> None:
+        """Schritt n malen; mit prev gleiten die Karten, die sich bewegt haben, dorthin (p = Fortschritt 0…1)."""
+        replay, s = self.replay, self.s
         frame = replay.frames[n]
         state = self.tracker.get(n) if self.tracker else NO_STATE
-        w, h = self.size
         cw, ch, cols, rows = self._geometry()
         items, stacks = self._scene(n)
         old = self._scene(prev)[0] if prev is not None else {}
         moved = sorted(u for u, it in items.items() if u in old and (old[u].x, old[u].y) != (it.x, it.y))
-        field_uids = {row[0] for row in frame["cards"] if row[2] in rs.FIELD}
-        act, chain = state.get("activating"), state.get("chain", [])
+        t = rs.ease(p)
+        step = self.steps[n] if prev is not None and n < len(self.steps) else None   # Schritt, der gerade animiert wird
+
+        def where(uid: int) -> Tuple[int, int]:
+            it = items[uid]
+            if uid in moved:
+                return round(old[uid].x + (it.x - old[uid].x) * t), round(old[uid].y + (it.y - old[uid].y) * t)
+            return it.x, it.y
 
         def draw(uid: int) -> None:
             it = items[uid]
-            x, y = it.x, it.y
-            if uid in moved:
-                x, y = round(old[uid].x + (x - old[uid].x) * t), round(old[uid].y + (y - old[uid].y) * t)
-            if it.group in ("board", "pile"):
-                active = self._is_activating(it.card, state, field_uids)
-                link = self._chain_link(it.card, state, field_uids)
-            else:
-                active = act is not None and uid == act["uid"]
-                link = next((cl["cl"] for cl in chain if cl["uid"] == uid), None)
+            x, y = where(uid)
+            card, squeeze, face = it.card, 1.0, None
+            if step is not None and step.focus is not None and step.focus.uid == uid and \
+                    step.kind in ("gesetzt", "umgedreht"):
+                card, squeeze, face = self._flip(step, p, it, old.get(uid))
             tag = {"grave": "gy_card", "banished": "ban_card"}.get(it.group)
-            self._board_card(x, y, cw, ch, it.card, it.mine, stats=it.group == "board", hand=it.group == "hand",
-                             activation=active, chain_link=link, pile_tag=f"{tag}_{it.card['team']}" if tag else None,
-                             bind=bind)
+            self._board_card(x, y, cw, ch, card, it.mine, stats=it.group == "board", hand=it.group == "hand",
+                             pile_tag=f"{tag}_{card['team']}" if tag else None, bind=bind, squeeze=squeeze, face=face)
+            if it.group == "board" and it.mine and not it.card["face"] and face is None:
+                self._shield(x + cw // 2, y + ch - int(10 * s), "gesetzt", LIGHT_BLUE, small=True)
 
         for stack in stacks.values():  # Stapel: oberste Karte, die nicht gerade unterwegs ist, mit Anzahl
             rest = [u for u in stack if u not in moved]
@@ -1127,21 +1113,151 @@ class DuelView:
             draw(uid)
         if bind:
             self._bind_piles(state)
-
-        # Master Duel Ketten-Leiste (Chain Sequence)
-        if chain:
-            links = []
-            for item in chain:
-                name = self.names.get(self.passcode(item["card"])) or f"Karte #{item['card']}"
-                links.append(f"[{item['cl']}] {name} ({'Du' if item['team'] == replay.my_id else 'Gegner'})")
-            chain_str = "  ➔  ".join(links)
-            bw = int(min(w - 40, max(260 * self.s, len(chain_str) * 7.5 * self.s + 30 * self.s)))
-            bx, by, bh = (w - bw) // 2, rows["opp_s"] + ch + int(4 * self.s), int(22 * self.s)
-            self.canvas.create_rectangle(bx, by, bx + bw, by + bh, fill="#0d1b2a", outline=GOLD,
-                                         width=int(1.5 * self.s))
-            self.canvas.create_text(bx + bw // 2, by + bh // 2, text=f"⛓ KETTE:  {chain_str}", fill=GOLD,
-                                    font=self.font_small_bold)
+        self._draw_chain(state, items, where, cw, cols, rows)
         self._lp_and_phase(frame, cols, rows, cw, ch)
+        if n < len(self.steps):
+            self._draw_step_box(self.steps[n], cols, rows, ch)
+        if step is not None:
+            self._draw_effects(step, p, state, frame, items, old, where, cw, ch, cols, rows)
+
+    def _flip(self, step: rs.Step, p: float, it: Item, before: Optional[Item]):
+        """Setzen/Aufdecken: (Karte, Breite 0…1, offen?) – Breite 1 → 0 → 1 wie das Umdrehen in der Factory.
+        Eine gesetzte Karte wird erst offen gezeigt (wenn bekannt) und am Ende umgedreht."""
+        f = step.focus
+        if step.kind == "gesetzt":
+            start = rs.DURATION["gesetzt"] / rs.duration("gesetzt")
+            q = (p - start) / (1 - start)
+            if q <= 0:
+                return it.card, 1.0, bool(f.card)
+            return it.card, max(0.125, round(abs(math.cos(math.pi * q)) * 8) / 8), bool(f.card) and q < 0.5
+        card = it.card if p >= 0.5 or before is None else dict(it.card, card=before.card["card"] or it.card["card"])
+        up = f.face_after if p >= 0.5 else f.face_before
+        return card, max(0.125, round(abs(math.cos(math.pi * p)) * 8) / 8), bool(up)
+
+    def _shield(self, cx: int, cy: int, text: str, color: str, alpha: float = 1.0, small: bool = False) -> None:
+        """Schild mit Text (Hintergrund-Mischung statt Alpha: das Canvas kennt keine Durchsichtigkeit)."""
+        c, s = self.canvas, self.s
+        label = c.create_text(cx, cy, text=text, fill=rs.blend(color, SHIELD_BG, alpha),
+                              font=self.font_small_bold if small else self.font_bold)
+        x0, y0, x1, y1 = c.bbox(label)
+        pad = int(3 * s)
+        c.tag_lower(c.create_rectangle(x0 - pad, y0 - pad // 2, x1 + pad, y1 + pad // 2, fill=SHIELD_BG,
+                                       outline=rs.blend(color, SHIELD_BG, alpha * 0.7)), label)
+
+    def _draw_effects(self, step: rs.Step, p: float, state: dict, frame: dict, items: dict, old: dict, where,
+                      cw: int, ch: int, cols, rows) -> None:
+        """Was im Schritt passiert: Aktivierung, Beschwörung, zur Hand hinzugefügt, LP-Änderung."""
+        s, f = self.s, step.focus
+        spot = where(f.uid) if f is not None and f.uid in items else \
+            ((old[f.uid].x, old[f.uid].y) if f is not None and f.uid in old else None)
+        if spot is not None and step.kind == "aktiviert":
+            # rot: eine Gegner-Karte antwortet in eine offene Kette des anderen
+            red = f.team != self.replay.my_id and any(
+                x["team"] != f.team and x["uid"] != f.uid for x in state.get("chain", []))
+            self._draw_activation(spot, p, step.label, red, f.card, cw, ch)
+        elif spot is not None and step.kind == "beschworen":
+            self._shield(spot[0] + cw // 2, max(int(12 * s), spot[1] - int(10 * s)), step.label, SUMMON_BLUE,
+                         min(1.0, p * 4))
+        elif f is not None and step.kind == "hand" and frame.get("phase") != "Draw" and f.card and \
+                self.passcode(f.card) in self.names:
+            a = math.sin(math.pi * p)
+            if a > 0.12:  # zur Hand hinzugefügt: Karte groß in der Feldmitte
+                bw = int(cw * 1.7)
+                bh = int(bw * ch / cw)
+                cx, cy = self.size[0] // 2, rows["emz"] + ch // 2
+                image = self._card_image(self.passcode(f.card), bw, bh, 0)
+                if image is not None:
+                    self.canvas.create_image(cx, cy, image=image)
+                else:
+                    self.canvas.create_rectangle(cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2,
+                                                 fill=CARD_BACK, outline="#3a2010")
+                self.canvas.create_rectangle(cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2,
+                                             outline=rs.blend(ADD_BLUE, FIELD, a), width=int(2 * s))
+                self._shield(cx, cy + bh // 2 + int(14 * s), "ZUR HAND HINZUGEFÜGT", ADD_BLUE, a)
+        for team, delta in step.lp.items():  # LP-Änderung schwebt neben der Anzeige
+            y = rows["my_hand" if team == self.replay.my_id else "opp_hand"] + ch // 2 + int(10 * s)
+            self.canvas.create_text(cols[0] + int(95 * s), y - int(24 * s) * rs.ease(p),
+                                    text=f"{'−' if delta < 0 else '+'}{abs(delta)}", anchor="w",
+                                    fill=rs.blend(LP_DOWN if delta < 0 else LP_UP, FIELD, min(1.0, (1 - p) * 3)),
+                                    font=self.font_head)
+
+    def _draw_activation(self, spot: Tuple[int, int], p: float, label: str, red: bool, card_id: int, cw: int,
+                         ch: int) -> None:
+        """Aktivierung: Karte hebt sich vergrößert an, goldener Rahmen pulsiert, eine Lichtwelle breitet sich aus."""
+        c, s = self.canvas, self.s
+        color = ACT_RED if red else ACT_GOLD
+        lift = math.sin(math.pi * min(1.0, p * 1.15))
+        grow = 1 + 0.35 * round(lift * 4) / 4  # nur 5 feste Stufen: die vergrößerten Bilder bleiben im Cache
+        bw, bh = int(cw * grow), int(ch * grow)
+        cx, cy = spot[0] + cw // 2, spot[1] + ch // 2 - int(ch * 0.12 * lift)
+        r = int(cw * (0.6 + 1.4 * p))
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=rs.blend(color, FIELD, 0.63 * (1 - p)),
+                      width=max(2, int(6 * s * (1 - p)) + 1))
+        for k in range(5, 0, -1):  # pulsierender Rahmen: 5 Ringe, nach außen zur Hintergrundfarbe gemischt
+            d = int((k * 3 + 2) * s)
+            c.create_rectangle(cx - bw // 2 - d, cy - bh // 2 - d, cx + bw // 2 + d, cy + bh // 2 + d,
+                               outline=rs.blend(color, FIELD, lift * (1.1 - k * 0.18)), width=2)
+        passcode = self.passcode(card_id) if card_id else None
+        image = self._card_image(passcode, bw, bh, 0) if passcode else None
+        if image is not None:
+            c.create_image(cx, cy, image=image)
+        else:
+            c.create_rectangle(cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2, fill=CARD_BACK, outline="")
+            if passcode:
+                c.create_text(cx, cy, text=self.names.get(passcode, ""), fill=TEXT, font=self.font_small,
+                              width=bw - 4, justify=tk.CENTER)
+        c.create_rectangle(cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2, outline=color, width=int(2 * s))
+        self._shield(cx, cy - bh // 2 - int(14 * s), label, color, min(1.0, 0.1 + lift))
+
+    def _side_box(self, cols) -> Tuple[int, int]:
+        """Linker Rand neben dem Feld (Kette, Schritt-Text): (x, Breite)."""
+        return int(12 * self.s), max(int(120 * self.s), min(int(220 * self.s), cols[0] - int(24 * self.s)))
+
+    def _draw_step_box(self, step: rs.Step, cols, rows, ch: int) -> None:
+        """Schritt-Text als Kasten links auf Höhe der Gegner-Monster (gold, bei Aktionen des Gegners rötlich)."""
+        if not step.text:
+            return
+        c, s = self.canvas, self.s
+        opp = step.focus is not None and step.focus.team != self.replay.my_id
+        x, width = self._side_box(cols)
+        label = c.create_text(x + int(10 * s), rows["opp_m"] + ch // 2, text=step.text, anchor="w", font=self.font_bold,
+                              fill="#ff8c8c" if opp else "#ffecbe", width=width - int(20 * s))
+        x0, y0, x1, y1 = c.bbox(label)
+        pad = int(6 * s)
+        c.tag_lower(c.create_rectangle(x, y0 - pad, max(x1 + pad, x + width // 2), y1 + pad, fill="#10121e",
+                                       outline="#a03c3c" if opp else "#78643c"), label)
+
+    def _draw_chain(self, state: dict, items: dict, where, cw: int, cols, rows) -> None:
+        """Kette wie in Master Duel: Nummer auf jeder Kettenkarte, links die Ketten-Leiste (oberstes Glied oben)."""
+        chain = state.get("chain") or []
+        if not chain:
+            return
+        c, s = self.canvas, self.s
+        r = max(9, cw // 6)
+        for link in chain:
+            uid = link["uid"] if link["uid"] in items else next(
+                (u for u, it in items.items() if it.group in ("board", "pile") and it.card["card"] == link["card"]
+                 and it.card["team"] == link["team"]), None)
+            if uid is None:
+                continue
+            x, y = where(uid)
+            cx, cy = x + r // 2 + 4, y + r // 2 + 4
+            c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=PLAQUE, outline="#28140a", width=2)
+            c.create_text(cx, cy, text=str(link["cl"]), fill="#140e06", font=self.font_small_bold)
+        x, width = self._side_box(cols)
+        top, row = rows["emz"], int(22 * s)
+        c.create_rectangle(x, top, x + width, top + int(26 * s) + row * len(chain), fill="#0e101c", outline="#96783c")
+        c.create_text(x + int(8 * s), top + int(6 * s), text=f"KETTE ({len(chain)})", fill=GOLD,
+                      font=self.font_small_bold, anchor="nw")
+        for k, link in enumerate(reversed(chain)):
+            y = top + int(22 * s) + k * row
+            c.create_rectangle(x + int(4 * s), y, x + width - int(4 * s), y + row - 2, fill="#20243a", outline="")
+            c.create_text(x + int(14 * s), y + row // 2 - 1, text=str(link["cl"]), fill="#ffc85a",
+                          font=self.font_small_bold)
+            name = self.names.get(self.passcode(link["card"])) or "Karte"
+            room = int((width - int(36 * s)) / (5.5 * s))
+            c.create_text(x + int(26 * s), y + row // 2 - 1, anchor="w", font=self.font_small, fill=TEXT,
+                          text=name if len(name) <= room else name[:max(1, room - 1)] + "…")
 
     def _bind_piles(self, state: dict) -> None:
         """Klick und Hinweis für Friedhof und Verbannt beider Spieler (die Tags tragen die Karten der Stapel)."""
@@ -1175,20 +1291,23 @@ class DuelView:
             c.create_text(x, y + int(8 * s), text=frame.get("phase") or "", fill=TEXT, font=self.font_small_bold)
 
     def _board_card(self, x: int, y: int, w: int, h: int, card: dict, mine: bool, stats: bool = False,
-                    hand: bool = False, activation: bool = False, chain_link: Optional[int] = None,
-                    pile_tag: Optional[str] = None, bind: bool = True) -> None:
-        """Karte im Feld: Gegner um 180° gedreht, Verteidigung quer, verdeckt als Rückseite."""
+                    hand: bool = False, pile_tag: Optional[str] = None, bind: bool = True, squeeze: float = 1.0,
+                    face: Optional[bool] = None) -> None:
+        """Karte im Feld: Gegner um 180° gedreht, Verteidigung quer, verdeckt als Rückseite.
+        face erzwingt offen/verdeckt, squeeze < 1 quetscht die Karte (Umdrehen: Breite 1 → 0 → 1)."""
         c, s = self.canvas, self.s
         defense = not hand and card["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) and not card["attack"]
         angle = (0 if mine else 180) + (90 if defense else 0)
         passcode = self.passcode(card["card"]) if card["card"] else None
-        shown = passcode if card["face"] or (mine and hand) or activation or pile_tag else None
-        image = self._card_image(shown, w, h, angle) if shown else None
+        up = (card["face"] or (mine and hand) or pile_tag) if face is None else face
+        shown = passcode if up else None
+        iw, ih = (w, max(2, int(h * squeeze))) if defense else (max(2, int(w * squeeze)), h)  # Bild vor dem Drehen
+        image = self._card_image(shown, iw, ih, angle) if shown else None
         cx, cy = x + w // 2, y + h // 2
         if image is not None:
             c.create_image(cx, cy, image=image)
         else:
-            bw, bh = (h, w) if defense else (w, h)
+            bw, bh = (ih, iw) if defense else (iw, ih)
             c.create_rectangle(cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2, fill=CARD_BACK,
                                outline="#3a2010")
             if shown:
@@ -1201,26 +1320,10 @@ class DuelView:
         if bind and shown and not pile_tag:
             c.tag_bind(tag, "<Enter>", lambda e, p=shown, x=x, y=y, h=h: self._tip(p, 1, x, y, h, plain=True))
             c.tag_bind(tag, "<Leave>", lambda e: self._untip())
-        if stats and card["face"] and card["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) and card["atk"] >= 0:
+        if stats and card["face"] and card["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) \
+                and card["atk"] >= 0 and face is None:
             c.create_text(cx, y + h - int(2 * s), text=f"{card['atk']} / {card['def']}", fill=GOLD,
                           font=self.font_small_bold, anchor="s")
-
-        # Aktivierungseffekt: Leuchtrahmen und "⚡ AKTIV" Badge
-        if activation:
-            c.create_rectangle(x - int(3 * s), y - int(3 * s), x + w + int(3 * s), y + h + int(3 * s),
-                               outline=GOLD, width=int(2 * s))
-            c.create_rectangle(x - int(1 * s), y - int(1 * s), x + w + int(1 * s), y + h + int(1 * s),
-                               outline="#00e5ff", width=1)
-            badgew, badgeh = int(48 * s), int(15 * s)
-            c.create_rectangle(x, y, x + badgew, y + badgeh, fill="#8a1c1c", outline=GOLD)
-            c.create_text(x + badgew // 2, y + badgeh // 2, text="⚡ AKTIV", fill=GOLD, font=self.font_small_bold)
-
-        # Kettenglied-Badge (Master Duel Style): z.B. [CL 1], [CL 2]
-        if chain_link is not None:
-            clw, clh = int(36 * s), int(16 * s)
-            rx, ry = x + w - clw, y
-            c.create_rectangle(rx, ry, rx + clw, ry + clh, fill="#0d1b2a", outline="#00e5ff", width=int(1.5 * s))
-            c.create_text(rx + clw // 2, ry + clh // 2, text=f"CL {chain_link}", fill="#00e5ff", font=self.font_small_bold)
 
     def _tip_text(self, text: str) -> None:
         """Einfacher Text-Hinweis (z. B. für Friedhof / Verbannt)."""
