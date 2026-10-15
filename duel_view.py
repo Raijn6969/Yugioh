@@ -53,6 +53,8 @@ SUMMON_BLUE, LIGHT_BLUE, ADD_BLUE = "#aadcff", "#a0e6ff", "#96e1ff"   # Beschwö
 PLAQUE = "#f0c450"       # Kettenglied-Nummer auf der Karte
 LP_DOWN, LP_UP = "#ff6464", "#78e68c"
 FRAME_MS = 33            # Animation: ein Bild alle 33 ms
+SPEEDS = (0.5, 1.0, 2.0, 4.0)   # Wiedergabe-Tempo, der Knopf schaltet der Reihe nach weiter
+STEP_ROW = "#463a18"     # aktuelle Zeile der Schrittliste
 
 PILES = {
     rr.FIELD_ZONE: (("my_m", 0), ("opp_m", 6)),
@@ -457,6 +459,8 @@ class DuelView:
         apply_frame(self.win)
         no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
         self.win.bind("<Escape>", lambda e: self.close())
+        for key in ("Left", "Right", "space", "Home", "End"):  # nur mit Tastaturfokus (das Fenster nimmt ihn nicht)
+            self.win.bind(f"<{key}>", lambda e, k=key: self.key(k))
         self.show(index)
         self._poll()
 
@@ -484,7 +488,8 @@ class DuelView:
                                    ("back", "◀", lambda: self.manual(self.frame_no - 1)),
                                    ("play", "▶ Abspielen", self.toggle_play),
                                    ("next", "▶", lambda: self.manual(self.frame_no + 1)),
-                                   ("last", "⏭", lambda: self.manual(len(self.replay.frames) - 1, False))):
+                                   ("last", "⏭", lambda: self.manual(len(self.replay.frames) - 1, False)),
+                                   ("speed", "1×", self._cycle_speed)):
             button = RoundedButton(self.controls, text=text, command=command, **small)
             button.pack(side=tk.LEFT, padx=(int(8 * s) if key == "first" else 0, int(4 * s)), pady=int(4 * s))
             self.ctrl_buttons[key] = button
@@ -497,14 +502,28 @@ class DuelView:
         self.export_btn.pack(side=tk.RIGHT)
         self.hide_btn = RoundedButton(self.controls, text="Gegnername: aus", command=self.toggle_hide, **small)
         self.hide_btn.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
-        self.canvas = tk.Canvas(self.win, bg=BG, highlightthickness=0, bd=0)
-        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.body = tk.Frame(self.win, bg=BG)
+        self.body.pack(fill=tk.BOTH, expand=True)
+        self.side_w = int(260 * s) if self.want_replay else 0
+        self.side = tk.Frame(self.body, bg=PANEL, width=self.side_w)   # Schrittliste (wie die Factory)
+        self.steplist = tk.Canvas(self.side, bg=PANEL, highlightthickness=0, bd=0)
+        self.step_scroll = DarkScrollbar(self.side, command=self.steplist.yview, bg=PANEL, scale=s)
+        self.steplist.config(yscrollcommand=self.step_scroll.set)
+        if self.want_replay:
+            self.side.pack(side=tk.RIGHT, fill=tk.Y)
+            self.side.pack_propagate(False)
+            self.step_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            self.steplist.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.steplist.bind("<Button-1>", self._click_step)
+        self.steplist.bind("<MouseWheel>", lambda e: self.steplist.yview_scroll(int(-e.delta / 120) * 2, "units"))
+        self.canvas = tk.Canvas(self.body, bg=BG, highlightthickness=0, bd=0)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
     def _place(self) -> None:
         s = self.s
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        w, h = min(int(1000 * s), screen_w - 40), min(int(860 * s), screen_h - 80)
-        self.size = (w, h - int(76 * s))  # Zeichenfläche ohne Kopfzeile und Replay-Bedienung
+        w, h = min(int(1000 * s) + self.side_w, screen_w - 40), min(int(860 * s), screen_h - 80)
+        self.size = (w - self.side_w, h - int(76 * s))  # Zeichenfläche ohne Kopfzeile, Replay-Bedienung, Schrittliste
         self.canvas.config(width=self.size[0], height=self.size[1])
         self.win.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{max(0, (screen_h - h) // 2 - int(20 * s))}")
 
@@ -534,7 +553,7 @@ class DuelView:
         if self.replay:
             self.tracker = ReplayStateTracker(self.replay.frames, db=self.db, passcode_func=self.passcode,
                                           my_id=self.replay.my_id)
-            self.controls.pack(fill=tk.X, before=self.canvas)
+            self.controls.pack(fill=tk.X, before=self.body)
         else:
             self.tracker = None
             self.controls.pack_forget()
@@ -554,6 +573,7 @@ class DuelView:
         if self.replay:
             self.steps = rs.build_steps(self.replay.frames, self.tracker.frame_states, self.replay.my_id,
                                         lambda kid: self.names.get(self.passcode(kid)), self._card_type)
+        self._build_steplist()
         self.draw()
         if self._loaded != index:
             threading.Thread(target=self._load_images, args=(index, sorted(ids)), daemon=True,
@@ -626,6 +646,87 @@ class DuelView:
             if not self.playing:
                 self._cancel_job()
             self.draw()
+
+    def key(self, name: str) -> None:
+        """← / → Schritt, Leertaste Abspielen/Pause, Pos1/Ende springen."""
+        if self.mode != "replay" or not self.replay:
+            return
+        if name == "space":
+            self.toggle_play()
+        else:
+            target = {"Left": self.frame_no - 1, "Right": self.frame_no + 1, "Home": 0,
+                      "End": len(self.replay.frames) - 1}[name]
+            self.manual(target, animate=name in ("Left", "Right"))
+
+    def _cycle_speed(self) -> None:
+        """0,5× → 1× → 2× → 4× (wie Factory _cycle_speed); eine laufende Animation wird mit umgerechnet."""
+        new = SPEEDS[(SPEEDS.index(self.speed) + 1) % len(SPEEDS)] if self.speed in SPEEDS else 1.0
+        a = self._anim
+        if a is not None:
+            now = time.perf_counter()
+            done = (now - a["t0"]) / a["dur"]
+            a["dur"] = self.steps[self.frame_no].dur / new
+            a["t0"] = now - done * a["dur"]
+        self.speed = new
+        self.ctrl_buttons["speed"].config(text=f"{new:g}×".replace(".", ","))
+
+    def _build_steplist(self) -> None:
+        """Schrittliste rechts: nur Schritte mit sichtbarer Änderung, je Zeile Zug/Phase klein und der Schritt-Text."""
+        c, s = self.steplist, self.s
+        c.delete("all")
+        self._rows: List[Tuple[int, int, int]] = []   # (Frame, oberer, unterer Rand)
+        self._row_bg: Dict[int, int] = {}
+        self._marked: Optional[int] = None
+        c.yview_moveto(0)
+        width = self.side_w - int(12 * s)
+        y, pad = int(4 * s), int(6 * s)
+        for n, step in enumerate(self.steps if self.replay else ()):
+            if step.kind == "still":
+                continue
+            frame = self.replay.frames[n]
+            when_ = "  ·  ".join(x for x in (frame.get("turn"), frame.get("phase")) if x)
+            head = c.create_text(pad, y + int(3 * s), text=when_, anchor="nw", fill=MUTED, font=self.font_small)
+            opp = step.focus is not None and step.focus.team != self.replay.my_id
+            body = c.create_text(pad, c.bbox(head)[3], text=step.text, anchor="nw", width=width - 2 * pad,
+                                 fill="#dc96a0" if opp else TEXT, font=self.font_small_bold)
+            bottom = c.bbox(body)[3] + int(4 * s)
+            bg = c.create_rectangle(0, y, width, bottom, fill=PANEL, outline="")
+            c.tag_lower(bg)
+            self._rows.append((n, y, bottom))
+            self._row_bg[n] = bg
+            y = bottom + int(2 * s)
+        c.config(scrollregion=(0, 0, width, y))
+
+    def _click_step(self, event) -> None:
+        """Klick in die Schrittliste: dorthin springen (ohne Animation)."""
+        if not self.replay:
+            return
+        y = self.steplist.canvasy(event.y)
+        for n, top, bottom in self._rows:
+            if top <= y <= bottom:
+                self.manual(n, animate=False)
+                return
+
+    def _mark_step(self, n: int) -> None:
+        """Zeile des Schritts n (ohne eigene Zeile: die letzte davor) markieren und ins Bild holen."""
+        row = None
+        for entry in self._rows:
+            if entry[0] > n:
+                break
+            row = entry
+        key = row[0] if row else None
+        if key == self._marked:
+            return
+        c = self.steplist
+        if self._marked in self._row_bg:
+            c.itemconfigure(self._row_bg[self._marked], fill=PANEL)
+        self._marked = key
+        if row is None:
+            return
+        c.itemconfigure(self._row_bg[key], fill=STEP_ROW)
+        height, total = c.winfo_height(), int(c.cget("scrollregion").split()[3])
+        if row[1] < c.canvasy(0) or row[2] > c.canvasy(height):
+            c.yview_moveto(max(0, row[1] - height // 3) / max(1, total))
 
     def toggle_play(self) -> None:
         if self.playing:
@@ -1053,6 +1154,7 @@ class DuelView:
             self._draw_frame(self.frame_no, a["prev"], progress, bind=False)
 
     def _set_label(self, n: int) -> None:
+        self._mark_step(n)
         frame, state = self.replay.frames[n], self.tracker.get(n)
         text = f"Schritt {n + 1} / {len(self.replay.frames)}"
         if frame.get("turn"):

@@ -397,6 +397,81 @@ class AnimationTest(unittest.TestCase):
         self.assertIn("ZUR HAND HINZUGEFÜGT", self.animate(view, 1, 0.5))
         self.assertNotIn("ZUR HAND HINZUGEFÜGT", self.finish(view))
 
+    def list_texts(self, view):
+        c = view.steplist
+        return [c.itemcget(i, "text") for i in c.find_all() if c.type(i) == "text"]
+
+    def test_step_list_has_no_invisible_steps_and_a_click_jumps(self):
+        from types import SimpleNamespace
+        view = self.view()
+        self.assertEqual([n for n, top, bottom in view._rows], [2, 4])           # Schritte 0, 1, 3: "still"
+        texts = self.list_texts(view)
+        self.assertIn("Du beschwörst eine Karte", texts)
+        self.assertIn("Turn 1  ·  Main1", texts)
+        self.assertNotIn("", texts)
+        view.manual(1)
+        view.manual(2)                                    # animiert
+        _, top, bottom = view._rows[1]
+        view._click_step(SimpleNamespace(y=(top + bottom) // 2))
+        self.assertEqual((view.frame_no, view._anim), (4, None))              # Sprung ohne Animation
+        self.assertEqual(view._marked, 4)
+
+    def test_current_row_is_marked(self):
+        view = self.view()
+        mark = lambda: view.steplist.itemcget(view._row_bg[2], "fill")  # noqa: E731
+        view.manual(2, False)
+        self.assertEqual((view._marked, mark()), (2, dv.STEP_ROW))
+        view.manual(3, False)                             # Schritt ohne eigene Zeile: die davor bleibt markiert
+        self.assertEqual(view._marked, 2)
+        view.manual(4, False)
+        self.assertEqual(view._marked, 4)
+        self.assertEqual(mark(), dv.PANEL)
+
+    def test_window_is_wider_for_the_list_but_not_the_field(self):
+        view = self.view()
+        self.assertGreater(view.side_w, 0)
+        self.assertEqual(int(view.win.geometry().split("x")[0]), view.size[0] + view.side_w)
+        plain = dv.DuelView(self.root, mock_db(), [entry(1)], 0, image_folder=self.folder)
+        self.addCleanup(plain.close)
+        self.assertEqual(plain.side_w, 0)
+        self.assertGreater(view.size[0], 0)
+
+    def test_speed_button_cycles_and_rescales_a_running_animation(self):
+        view = self.view()
+        button = view.ctrl_buttons["speed"]
+        self.assertEqual(view.speed, 1.0)
+        view.manual(1)
+        view.manual(2)
+        dur = view._anim["dur"]
+        button.invoke()                                   # 2×: die laufende Animation wird kürzer
+        self.assertEqual((view.speed, button.cget("text")), (2.0, "2×"))
+        self.assertAlmostEqual(view._anim["dur"], dur / 2)
+        button.invoke()
+        button.invoke()
+        self.assertEqual((view.speed, button.cget("text")), (0.5, "0,5×"))
+        button.invoke()
+        self.assertEqual((view.speed, button.cget("text")), (1.0, "1×"))
+
+    def test_keys(self):
+        view = self.view()
+        view.key("Right")                                 # Schritt 1: ohne sichtbare Änderung, springt
+        self.assertEqual(view.frame_no, 1)
+        view.key("Right")
+        self.assertEqual((view.frame_no, view._anim is not None), (2, True))     # ein Schritt vor gleitet
+        view.key("Left")
+        self.assertEqual((view.frame_no, view._anim), (1, None))
+        view.key("End")
+        self.assertEqual(view.frame_no, 4)
+        view.key("Home")
+        self.assertEqual(view.frame_no, 0)
+        view.key("space")
+        self.assertTrue(view.playing)
+        view.key("space")
+        self.assertFalse(view.playing)
+        view.mode = "decks"
+        view.key("Right")                                 # nur in der Replay-Ansicht
+        self.assertEqual(view.frame_no, 0)
+
     def test_moving_card_slides_to_its_destination_at_once(self):
         frames = [frame(row(1, rr.HAND)), frame(row(1, rr.MOVING)), frame(row(1, 0))]
         view = self.view(frames)
