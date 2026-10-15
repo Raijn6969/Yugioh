@@ -38,6 +38,7 @@ from rounded_button import RoundedButton
 from window_style import apply_frame, no_activate
 
 POLL_MS = 100
+OPP_HAND = 0.62          # Gegnerhand: so hoch (und breit) wie eine Karte, wie in der Factory
 CARD = (50, 73)          # Kartengröße bei 1080p (wie die Karten in Master Duel: 59 × 86 mm)
 MIN_SCALE = 0.55         # so weit werden die Karten verkleinert, wenn ein Deck viele verschiedene hat …
 MAX_SCALE = 1.6          # … und so weit vergrößert, wenn Platz ist
@@ -1001,19 +1002,21 @@ class DuelView:
 
     # ── Replay: Spielfeld wie in der Schattenarena ──
     def _geometry(self):
-        """7 Spalten × 7 Reihen (Hand Gegner, Z/F, Monster, Extra-Monsterzonen, Monster, Z/F, deine Hand)."""
+        """7 Spalten × 7 Reihen (Hand Gegner – nur OPP_HAND so hoch –, Z/F, Monster, Extra-Monsterzonen, Monster, Z/F,
+        deine Hand)."""
         w, h = self.size
-        gap = int(6 * self.s)
-        card_h = (h - 2 * gap - 8 * gap) // 7
+        gap = max(3, int(4 * self.s))
+        card_h = int((h - 2 * gap - 8 * gap) / (6 + OPP_HAND))
         card_w = int(card_h * CARD[0] / CARD[1])
         if 7 * card_w + 8 * gap > w - 2 * gap:  # schmales Fenster: nach der Breite
             card_w = (w - 2 * gap - 8 * gap) // 7
             card_h = int(card_w * CARD[1] / CARD[0])
         left = (w - (7 * card_w + 6 * gap)) // 2
-        top = (h - (7 * card_h + 6 * gap)) // 2
+        top = (h - (int(card_h * OPP_HAND) + 6 * card_h + 6 * gap)) // 2
         cols = [left + i * (card_w + gap) for i in range(7)]
-        rows = {name: top + i * (card_h + gap) for i, name in
-                enumerate(("opp_hand", "opp_s", "opp_m", "emz", "my_m", "my_s", "my_hand"))}
+        rows = {name: top + int(card_h * OPP_HAND) + gap + i * (card_h + gap) for i, name in
+                enumerate(("opp_s", "opp_m", "emz", "my_m", "my_s", "my_hand"))}
+        rows["opp_hand"] = top
         return card_w, card_h, cols, rows
 
     @staticmethod
@@ -1133,8 +1136,9 @@ class DuelView:
         w = self.size[0]
         for mine, hand in hands.items():
             hand.sort(key=lambda k: k["index"])
-            step = min(cw + int(4 * s), (cols[6] - cols[0]) // max(1, len(hand)))
-            left = (w - (step * (len(hand) - 1) + cw)) // 2
+            hw = cw if mine else int(cw * OPP_HAND)
+            step = min(hw + int(4 * s), (cols[6] - cols[0]) // max(1, len(hand)))
+            left = (w - (step * (len(hand) - 1) + hw)) // 2
             for i, card in enumerate(hand):
                 items[card["uid"]] = Item(card, left + i * step, rows["my_hand" if mine else "opp_hand"], mine, "hand")
         self._scenes[n] = (items, stacks)
@@ -1184,15 +1188,23 @@ class DuelView:
                 return round(old[uid].x + (it.x - old[uid].x) * t), round(old[uid].y + (it.y - old[uid].y) * t)
             return it.x, it.y
 
+        def dims(it: Item) -> Tuple[int, int]:  # Gegnerhand ist kleiner
+            k = OPP_HAND if it.group == "hand" and not it.mine else 1.0
+            return int(cw * k), int(ch * k)
+
         def draw(uid: int) -> None:
             it = items[uid]
             x, y = where(uid)
+            w, h = dims(it)
+            if uid in moved:  # Größe gleitet mit (Gegnerhand → Feld)
+                (ow, oh), t = dims(old[uid]), rs.ease(p)
+                w, h = round(ow + (w - ow) * t), round(oh + (h - oh) * t)
             card, squeeze, face = it.card, 1.0, None
             if step is not None and step.focus is not None and step.focus.uid == uid and \
                     step.kind in ("gesetzt", "umgedreht"):
                 card, squeeze, face = self._flip(step, p, it, old.get(uid))
             tag = {"grave": "gy_card", "banished": "ban_card"}.get(it.group)
-            self._board_card(x, y, cw, ch, card, it.mine, stats=it.group == "board", hand=it.group == "hand",
+            self._board_card(x, y, w, h, card, it.mine, stats=it.group == "board", hand=it.group == "hand",
                              pile_tag=f"{tag}_{card['team']}" if tag else None, bind=bind, squeeze=squeeze, face=face)
             if it.group == "board" and it.mine and not it.card["face"] and face is None:
                 self._shield(x + cw // 2, y + ch - int(10 * s), "gesetzt", LIGHT_BLUE, small=True)
@@ -1256,6 +1268,9 @@ class DuelView:
             # rot: eine Gegner-Karte antwortet in eine offene Kette des anderen
             red = f.team != self.replay.my_id and any(
                 x["team"] != f.team and x["uid"] != f.uid for x in state.get("chain", []))
+            fi = items.get(f.uid) or old.get(f.uid)
+            if fi is not None and fi.group == "hand" and not fi.mine:  # kleine Gegnerhand-Karte: Mitte behalten
+                spot = (spot[0] - int(cw * (1 - OPP_HAND)) // 2, spot[1] - int(ch * (1 - OPP_HAND)) // 2)
             self._draw_activation(spot, p, step.label, red, f.card, cw, ch)
         elif spot is not None and step.kind == "beschworen":
             self._shield(spot[0] + cw // 2, max(int(12 * s), spot[1] - int(10 * s)), step.label, SUMMON_BLUE,
@@ -1277,7 +1292,8 @@ class DuelView:
                                              outline=rs.blend(ADD_BLUE, FIELD, a), width=int(2 * s))
                 self._shield(cx, cy + bh // 2 + int(14 * s), "ZUR HAND HINZUGEFÜGT", ADD_BLUE, a)
         for team, delta in step.lp.items():  # LP-Änderung schwebt neben der Anzeige
-            y = rows["my_hand" if team == self.replay.my_id else "opp_hand"] + ch // 2 + int(10 * s)
+            mine = team == self.replay.my_id
+            y = rows["my_hand" if mine else "opp_hand"] + (ch if mine else int(ch * OPP_HAND)) // 2 + int(10 * s)
             self.canvas.create_text(cols[0] + int(95 * s), y - int(24 * s) * rs.ease(p),
                                     text=f"{'−' if delta < 0 else '+'}{abs(delta)}", anchor="w",
                                     fill=rs.blend(LP_DOWN if delta < 0 else LP_UP, FIELD, min(1.0, (1 - p) * 3)),
@@ -1292,6 +1308,7 @@ class DuelView:
         grow = 1 + 0.35 * round(lift * 4) / 4  # nur 5 feste Stufen: die vergrößerten Bilder bleiben im Cache
         bw, bh = int(cw * grow), int(ch * grow)
         cx, cy = spot[0] + cw // 2, spot[1] + ch // 2 - int(ch * 0.12 * lift)
+        cy = max(cy, bh // 2 + int(30 * s))  # Karte aus der flachen Gegnerhand + Beschriftung bleiben im Bild
         r = int(cw * (0.6 + 1.4 * p))
         c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=rs.blend(color, FIELD, 0.63 * (1 - p)),
                       width=max(2, int(6 * s * (1 - p)) + 1))
@@ -1380,7 +1397,7 @@ class DuelView:
         lp = frame.get("lp", {})
         me, opp = replay.my_id, 1 - replay.my_id
         for team, row, color in ((opp, "opp_hand", "#dc96a0"), (me, "my_hand", "#96beff")):
-            x, y = cols[0], rows[row] + ch // 2
+            x, y = cols[0], rows[row] + (ch if row == "my_hand" else int(ch * OPP_HAND)) // 2
             c.create_text(x, y - int(10 * s), text=names[team] if team < len(names) else "", fill=color,
                           font=self.font_small_bold, anchor="w")
             c.create_text(x, y + int(10 * s), text=f"LP {lp.get(str(team), '–')}", fill=TEXT, font=self.font_head,
