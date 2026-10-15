@@ -7,8 +7,10 @@ Gibt es zum Match einen Replay-Mitschnitt (replay_recorder: einmal das Replay in
 die Ansicht mit replay=True geöffnet ("▶ Replay" in der Match-Zeile), zeigt das Feld das Duell Schritt für Schritt:
 Karten in ihren Zonen (Gegner gedreht, Verteidigung quer, verdeckt als Rückseite), Hände, oberste Karten von
 Friedhof/Deck/Extra Deck/Verbannt mit Anzahl, Lebenspunkte und Zug/Phase. Bedienung:
-Anfang, Schritt zurück/vor, Abspielen, Ende; "Decks" schaltet auf die Deck-Ansicht; "Als HTML" exportiert das
-Replay als eine Datei zum Verschicken (replay_export, Gegnername standardmäßig ausgeblendet).
+Anfang, Schritt zurück/vor, Abspielen, Ende; Mitschnitte mit Duell-Protokoll (frame["log"]) zeigen echte Ketten,
+Kosten, Ziele, Negationen, Zerstörungen und Angriffe (replay_steps), ältere die Vermutung des Trackers;
+"Decks" schaltet auf die Deck-Ansicht; "Als HTML" exportiert das Replay als eine Datei zum Verschicken
+(replay_export, Gegnername standardmäßig ausgeblendet).
 
 Ohne Mitschnitt stehen auf jeder Hälfte das Deck des Spielers (jede Karte einmal, mit Anzahl; das Gegner-Deck kommt
 aus der Match History), an den Seiten Deck- und Extra-Deck-Stapel mit Kartenzahl. Mit ◀/▶ blättert man durch die
@@ -52,6 +54,7 @@ SHIELD_BG = "#101018"    # Schilder über den Karten ("AKTIVIERT", "gesetzt" …
 ACT_GOLD, ACT_RED = "#ffd66e", "#ff5a5a"     # Aktivierung; rot: Gegner antwortet in eine Kette
 SUMMON_BLUE, LIGHT_BLUE, ADD_BLUE = "#aadcff", "#a0e6ff", "#96e1ff"   # Beschwörung, gesetzt, zur Hand hinzugefügt
 PLAQUE = "#f0c450"       # Kettenglied-Nummer auf der Karte
+RESOLVING = "#ff7a7a"    # Kettenglied, das gerade auflöst ("KETTE LÖST AUF"), Rahmen von Ziel/Negation/Zerstörung
 LP_DOWN, LP_UP = "#ff6464", "#78e68c"
 FRAME_MS = 33            # Animation: ein Bild alle 33 ms
 SPEEDS = (0.5, 1.0, 2.0, 4.0)   # Wiedergabe-Tempo, der Knopf schaltet der Reihe nach weiter
@@ -1165,8 +1168,11 @@ class DuelView:
             text += f"  ·  {frame.get('turn')}"
         if frame.get("phase"):
             text += f"  ·  {frame.get('phase')}"
-        if state["activating"] is not None:
-            act_card = state["activating"]
+        step = self.steps[n] if n < len(self.steps) else None
+        act_card = state["activating"]
+        if step is not None and step.chain is not None:   # echtes Protokoll: keine Vermutung des Trackers
+            act_card = {"card": step.focus.card} if step.kind == "aktiviert" and step.focus is not None else None
+        if act_card is not None:
             text += f"  ·  ⚡ {self.names.get(self.passcode(act_card['card'])) or 'Karte #' + str(act_card['card'])}"
         self.step_label.config(text=text)
 
@@ -1227,7 +1233,10 @@ class DuelView:
             draw(uid)
         if bind:
             self._bind_piles(state)
-        self._draw_chain(state, items, where, cw, cols, rows)
+        now = self.steps[n] if n < len(self.steps) else None
+        chain, resolving = (now.chain["links"], now.chain["res"]) if now is not None and now.chain is not None \
+            else (state.get("chain") or [], 0)
+        self._draw_chain(chain, resolving, items, where, cw, cols, rows)
         self._lp_and_phase(frame, cols, rows, cw, ch)
         if n < len(self.steps):
             self._draw_step_box(self.steps[n], cols, rows, ch)
@@ -1266,8 +1275,8 @@ class DuelView:
             ((old[f.uid].x, old[f.uid].y) if f is not None and f.uid in old else None)
         if spot is not None and step.kind == "aktiviert":
             # rot: eine Gegner-Karte antwortet in eine offene Kette des anderen
-            red = f.team != self.replay.my_id and any(
-                x["team"] != f.team and x["uid"] != f.uid for x in state.get("chain", []))
+            links = step.chain["links"] if step.chain is not None else state.get("chain", [])
+            red = f.team != self.replay.my_id and any(x["team"] != f.team and x["uid"] != f.uid for x in links)
             fi = items.get(f.uid) or old.get(f.uid)
             if fi is not None and fi.group == "hand" and not fi.mine:  # kleine Gegnerhand-Karte: Mitte behalten
                 spot = (spot[0] - int(cw * (1 - OPP_HAND)) // 2, spot[1] - int(ch * (1 - OPP_HAND)) // 2)
@@ -1275,6 +1284,11 @@ class DuelView:
         elif spot is not None and step.kind == "beschworen":
             self._shield(spot[0] + cw // 2, max(int(12 * s), spot[1] - int(10 * s)), step.label, SUMMON_BLUE,
                          min(1.0, p * 4))
+        elif spot is not None and step.kind == "kette":   # das Glied löst auf (rot, wie "KETTE LÖST AUF" der Factory)
+            a = min(1.0, p * 4)
+            self.canvas.create_rectangle(spot[0], spot[1], spot[0] + cw, spot[1] + ch, width=max(2, int(3 * s)),
+                                         outline=rs.blend(RESOLVING, FIELD, a))
+            self._shield(spot[0] + cw // 2, max(int(12 * s), spot[1] - int(10 * s)), step.label, RESOLVING, a)
         elif f is not None and step.kind == "hand" and frame.get("phase") != "Draw" and f.card and \
                 self.passcode(f.card) in self.names:
             a = math.sin(math.pi * p)
@@ -1291,6 +1305,7 @@ class DuelView:
                 self.canvas.create_rectangle(cx - bw // 2, cy - bh // 2, cx + bw // 2, cy + bh // 2,
                                              outline=rs.blend(ADD_BLUE, FIELD, a), width=int(2 * s))
                 self._shield(cx, cy + bh // 2 + int(14 * s), "ZUR HAND HINZUGEFÜGT", ADD_BLUE, a)
+        self._draw_marks(step, p, items, old, where, cw, ch)
         for team, delta in step.lp.items():  # LP-Änderung schwebt neben der Anzeige
             mine = team == self.replay.my_id
             y = rows["my_hand" if mine else "opp_hand"] + (ch if mine else int(ch * OPP_HAND)) // 2 + int(10 * s)
@@ -1298,6 +1313,47 @@ class DuelView:
                                     text=f"{'−' if delta < 0 else '+'}{abs(delta)}", anchor="w",
                                     fill=rs.blend(LP_DOWN if delta < 0 else LP_UP, FIELD, min(1.0, (1 - p) * 3)),
                                     font=self.font_head)
+
+    @staticmethod
+    def _spot(move: Optional[rs.Move], items: dict, old: dict, where) -> Optional[Tuple[int, int]]:
+        """Oben links die Karte eines Ereignisses, jetzt oder im Schritt davor; None = nicht im Bild (nur Text)."""
+        if move is None:
+            return None
+        if move.uid in items:
+            return where(move.uid)
+        return (old[move.uid].x, old[move.uid].y) if move.uid in old else None
+
+    def _draw_marks(self, step: rs.Step, p: float, items: dict, old: dict, where, cw: int, ch: int) -> None:
+        """Ereignisse aus dem Protokoll auf den Karten: KOSTEN (gold), ZIEL (Fadenkreuz), NEGIERT, ZERSTÖRT, ANGRIFF."""
+        c, s = self.canvas, self.s
+        a = min(1.0, p * 4)
+        for mark in step.marks:
+            spot = self._spot(mark.focus, items, old, where)
+            if spot is None:
+                continue
+            x, y = spot
+            cx, cy = x + cw // 2, y + ch // 2
+            color = ACT_GOLD if mark.kind == "kosten" else ACT_RED
+            tone, width = rs.blend(color, FIELD, a), max(2, int(3 * s))
+            if mark.kind in ("ziel", "negiert", "zerstoert"):
+                c.create_rectangle(x, y, x + cw, y + ch, outline=tone, width=width)
+            if mark.kind == "ziel":   # Fadenkreuz
+                r, g = int(cw * 0.38), int(cw * 0.12)
+                c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=tone, width=2)
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    c.create_line(cx + dx * (r - g), cy + dy * (r - g), cx + dx * (r + g), cy + dy * (r + g),
+                                  fill=tone, width=2)
+            elif mark.kind == "negiert":   # durchgestrichen
+                c.create_line(x, y + ch, x + cw, y, fill=tone, width=width)
+            elif mark.kind == "angriff":
+                target = self._spot(mark.other, items, old, where)
+                if target is not None:   # Pfeil vom Angreifer zum Ziel, wächst mit dem Fortschritt
+                    q = rs.ease(min(1.0, p * 1.5))
+                    tx, ty = target[0] + cw // 2, target[1] + ch // 2
+                    c.create_line(cx, cy, round(cx + (tx - cx) * q), round(cy + (ty - cy) * q), fill=tone,
+                                  width=max(3, int(4 * s)), arrow=tk.LAST, arrowshape=(16, 20, 6))
+                    c.create_rectangle(target[0], target[1], target[0] + cw, target[1] + ch, outline=tone, width=width)
+            self._shield(cx, max(int(12 * s), y - int(10 * s)), rs.LOG_LABELS[mark.kind], color, a)
 
     def _draw_activation(self, spot: Tuple[int, int], p: float, label: str, red: bool, card_id: int, cw: int,
                          ch: int) -> None:
@@ -1346,9 +1402,9 @@ class DuelView:
         c.tag_lower(c.create_rectangle(x, y0 - pad, max(x1 + pad, x + width // 2), y1 + pad, fill="#10121e",
                                        outline="#a03c3c" if opp else "#78643c"), label)
 
-    def _draw_chain(self, state: dict, items: dict, where, cw: int, cols, rows) -> None:
-        """Kette wie in Master Duel: Nummer auf jeder Kettenkarte, links die Ketten-Leiste (oberstes Glied oben)."""
-        chain = state.get("chain") or []
+    def _draw_chain(self, chain: List[dict], resolving: int, items: dict, where, cw: int, cols, rows) -> None:
+        """Kette wie in Master Duel: Nummer auf jeder Kettenkarte, links die Ketten-Leiste (oberstes Glied oben).
+        Das auflösende Glied (resolving) leuchtet rot."""
         if not chain:
             return
         c, s = self.canvas, self.s
@@ -1361,7 +1417,8 @@ class DuelView:
                 continue
             x, y = where(uid)
             cx, cy = x + r // 2 + 4, y + r // 2 + 4
-            c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=PLAQUE, outline="#28140a", width=2)
+            c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=RESOLVING if link["cl"] == resolving else PLAQUE,
+                          outline="#28140a", width=2)
             c.create_text(cx, cy, text=str(link["cl"]), fill="#140e06", font=self.font_small_bold)
         x, width = self._side_box(cols)
         top, row = rows["emz"], int(22 * s)
@@ -1370,9 +1427,11 @@ class DuelView:
                       font=self.font_small_bold, anchor="nw")
         for k, link in enumerate(reversed(chain)):
             y = top + int(22 * s) + k * row
-            c.create_rectangle(x + int(4 * s), y, x + width - int(4 * s), y + row - 2, fill="#20243a", outline="")
-            c.create_text(x + int(14 * s), y + row // 2 - 1, text=str(link["cl"]), fill="#ffc85a",
-                          font=self.font_small_bold)
+            hot = link["cl"] == resolving
+            c.create_rectangle(x + int(4 * s), y, x + width - int(4 * s), y + row - 2,
+                               fill="#5a2020" if hot else "#20243a", outline=RESOLVING if hot else "")
+            c.create_text(x + int(14 * s), y + row // 2 - 1, text=str(link["cl"]),
+                          fill=RESOLVING if hot else "#ffc85a", font=self.font_small_bold)
             name = self.names.get(self.passcode(link["card"])) or "Karte"
             room = int((width - int(36 * s)) / (5.5 * s))
             c.create_text(x + int(26 * s), y + row // 2 - 1, anchor="w", font=self.font_small, fill=TEXT,

@@ -213,6 +213,14 @@ def frame(*cards, lp=None, phase="Main1"):
     return {"cards": list(cards), "lp": lp or {"0": 8000, "1": 8000}, "turn": "Turn 1", "phase": phase, "t": 0}
 
 
+def act(code, card, team=0, zone=13, cost=0, **more):
+    return dict({"k": "act", "a": code, "c": card, "t": team, "f": zone, "z": 0, "cost": cost}, **more)
+
+
+def chain(n, card, team=0, res=0):
+    return {"k": "chain", "c": card, "n": n, "t": team, "res": res}
+
+
 # Hand (0), nichts (1), Beschwörung (2), nur LP (3), zweite Karte auf den Friedhof (4)
 FRAMES = [frame(row(1, rr.HAND), row(2, rr.HAND, 101, index=1)),
           frame(row(1, rr.HAND), row(2, rr.HAND, 101, index=1)),
@@ -479,6 +487,67 @@ class AnimationTest(unittest.TestCase):
         self.assertEqual(spot(1), spot(2))
         self.assertNotEqual(spot(0), spot(1))
         self.assertEqual([s.kind for s in view.steps], ["still", "beschworen", "still"])
+
+
+    # ── echtes Duell-Protokoll (frame["log"]) ──
+    def logged(self, *logs, cards=None):
+        """Mitschnitt mit Protokoll: immer derselbe Feldzustand, je Frame nach dem ersten die Protokollzeilen."""
+        cards = cards or (row(1, 9, 5), row(2, 0, 1, team=1))
+        return [frame(*cards)] + [dict(frame(*cards), log=list(log)) for log in logs] + [frame(*cards)]
+
+    def test_real_chain_numbers_and_the_resolving_link(self):
+        frames = self.logged([act(11, 5, 0, 9)], [chain(2, 1, 1), act(11, 1, 1, 0)], [chain(2, 1, 1, 1)],
+                             [chain(1, 5, 0, 1)])
+        view = self.view(frames, passcodes={5: "5", 1: "1"})
+        ovals = lambda color: [i for i in view.canvas.find_all() if view.canvas.type(i) == "oval"  # noqa: E731
+                               and view.canvas.itemcget(i, "fill") == color]
+        view.manual(1, False)
+        self.assertIn("KETTE (1)", self.texts(view))
+        view.manual(2, False)
+        texts = self.texts(view)
+        self.assertIn("KETTE (2)", texts)
+        self.assertIn("Gegner aktiviert Elfnote Lucina (Kette 2)", texts)
+        self.assertEqual(ovals(dv.RESOLVING), [])
+        self.assertIn("KETTE 2 LÖST AUF", self.animate(view, 3, 0.5))        # Schild während der Animation …
+        self.assertNotIn("KETTE 2 LÖST AUF", self.finish(view))
+        self.assertIn("KETTE (2)", self.texts(view))                         # … das Glied bleibt, rot, bis zum Schluss
+        self.assertEqual(len(ovals(dv.RESOLVING)), 1)
+        view.manual(4, False)
+        self.assertIn("KETTE (1)", self.texts(view))                         # Glied 2 ist weg
+        self.assertEqual(len(ovals(dv.RESOLVING)), 1)
+        view.manual(5, False)
+        self.assertFalse([t for t in self.texts(view) if t.startswith("KETTE (")])        # Kette zu Ende
+
+    def test_event_shields_only_while_the_step_runs(self):
+        for entry_, shield in ((act(49, 5, 0, 0, cost=1), "KOSTEN"), (act(23, 5, 0, 0), "ZIEL"),
+                               (act(12, 5, 0, 0), "NEGIERT"), (act(20, 5, 0, 0), "ZERSTÖRT"),
+                               (act(10, 5, 0, 0, rc=1, zt=1), "ANGRIFF")):
+            with self.subTest(shield):
+                view = self.view(self.logged([entry_], cards=(row(1, 0, 5), row(2, 0, 1, team=1))),
+                                 passcodes={5: "5", 1: "1"})
+                self.assertIn(shield, self.animate(view, 1, 0.5))
+                self.assertNotIn(shield, self.finish(view))
+
+    def test_attack_draws_an_arrow_to_the_target(self):
+        view = self.view(self.logged([act(10, 5, 0, 0, rc=1, zt=1)], cards=(row(1, 0, 5), row(2, 0, 1, team=1))),
+                         passcodes={5: "5", 1: "1"})
+        self.assertEqual(view.steps[1].text, "Ash Blossom greift Elfnote Lucina an")
+        self.animate(view, 1, 0.9)
+        arrows = [i for i in view.canvas.find_all() if view.canvas.type(i) == "line"
+                  and view.canvas.itemcget(i, "arrow") == "last"]
+        self.assertEqual(len(arrows), 1)
+        self.finish(view)
+        self.assertFalse([i for i in view.canvas.find_all() if view.canvas.type(i) == "line"])
+
+    def test_card_not_in_the_picture_gives_only_text(self):
+        view = self.view(self.logged([act(23, 999, 1, 0)]))
+        self.assertEqual(view.steps[1].text, "eine Karte wird zum Ziel")
+        self.assertNotIn("ZIEL", self.animate(view, 1, 0.5))
+        self.assertIn("eine Karte wird zum Ziel", self.finish(view))
+
+    def test_old_replay_keeps_the_trackers_chain_and_has_no_marks(self):
+        view = self.view()
+        self.assertTrue(all(s.chain is None and s.marks == () for s in view.steps))
 
 
 def mock_db():
