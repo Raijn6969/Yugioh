@@ -6,8 +6,8 @@ bzw. verlorenem Münzwurf, aktuelle Serie). In der Liste: der Verlauf (Winrate d
 Bilanz gegen die Gegner-Decks, die eigenen Decks (nach Archetypen benannt, dazu der Name in Master Duel) und die
 letzten Matches mit dem Deck des Gegners (sobald bekannt). Filter: Ranked/alle Modi und Zeitraum (heute, 7 Tage,
 Saison, alle). Klick auf ein Deck: nur dieses Deck (noch ein Klick: wieder alle); „Anzeigen“ zeigt das Deck im
-Deck-Fenster. Erfasst werden die Duelle von match_history im Speicher-Modus. Abschnitt „Starthände“: welche Karten in
-deiner Starthand waren und die Winrate damit (aus den Replay-Mitschnitten, hand_stats), dazu die Brick-Quote.
+Deck-Fenster. Erfasst werden die Duelle von match_history im Speicher-Modus. Die Abschnitte (Münzwurf, Verlauf,
+Gegner-Decks, eigene Decks, letzte Matches) lassen sich ein- und ausklappen.
 Knopf „Rückblick“: die Bilanz eines Monats (review_panel).
 """
 
@@ -16,7 +16,6 @@ import time
 import tkinter as tk
 from typing import Callable, List, Optional
 
-import hand_stats
 from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, WinStats
 from dark_scrollbar import DarkScrollbar
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
@@ -29,10 +28,10 @@ from window_style import apply_frame, no_activate
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
+COLLAPSED_KEY = "WINRATE_COLLAPSED"  # Einstellung: {section_key: bool}
 PERIODS = (("today", "Heute"), ("week", "7 Tage"), ("season", "Saison"), ("all", "Alle"))
 MATCH_LIMIT = 50
 OPPONENT_LIMIT = 12
-HAND_CARD_LIMIT = 12   # Starthände: so viele Karten (die häufigsten) werden aufgelistet
 TREND_WINDOW = 10   # Verlauf: Winrate der jeweils letzten 10 Matches
 TREND_MIN = 3       # so viele Matches braucht der Verlauf mindestens
 UNKNOWN_DECK = "Unbekanntes Deck"
@@ -135,6 +134,8 @@ class WinratePanel:
         self.font_small_bold = ("Helvetica", int(8 * s), "bold")
         self.font_head = ("Helvetica", int(12 * s), "bold")
         self.font_big = ("Consolas", int(18 * s), "bold")
+        self._section_headers = {}   # key -> (header_frame, arrow_label)
+        self._section_items = {}     # key -> [(widget, pack_kwargs), ...]
 
         if anchor is not None:
             # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
@@ -150,6 +151,52 @@ class WinratePanel:
         no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
         self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
+
+    def is_collapsed(self, key: str) -> bool:
+        collapsed = self.settings.get(COLLAPSED_KEY)
+        if isinstance(collapsed, dict):
+            return bool(collapsed.get(key, False))
+        return False
+
+    def set_collapsed(self, key: str, value: bool) -> None:
+        collapsed = self.settings.setdefault(COLLAPSED_KEY, {})
+        if not isinstance(collapsed, dict):
+            collapsed = self.settings[COLLAPSED_KEY] = {}
+        collapsed[key] = value
+        self.save_settings()
+
+    def _hover_header(self, arrow: tk.Label, title: tk.Label, hover: bool) -> None:
+        fg = HIGHLIGHT if hover else GOLD
+        arrow.config(fg=fg)
+        title.config(fg=fg)
+
+    def toggle_section(self, key: str) -> None:
+        collapsed = not self.is_collapsed(key)
+        self.set_collapsed(key, collapsed)
+        if key == "coin":
+            if collapsed:
+                self.coin_arrow.config(text="▶")
+                self.coin_body.pack_forget()
+            else:
+                self.coin_arrow.config(text="▼")
+                self.coin_body.pack(fill=tk.X, pady=(0, int(4 * self.s)), before=self.filter_label)
+            return
+
+        header_info = self._section_headers.get(key)
+        if not header_info:
+            return
+        header, arrow = header_info
+        items = self._section_items.get(key, [])
+        if collapsed:
+            arrow.config(text="▶")
+            for item, _ in items:
+                item.pack_forget()
+        else:
+            arrow.config(text="▼")
+            last = header
+            for item, pack_opts in items:
+                item.pack(**pack_opts, after=last)
+                last = item
 
     @property
     def mode(self) -> Optional[int]:
@@ -196,18 +243,37 @@ class WinratePanel:
         self.info_label.pack(fill=tk.X)
 
         self.tiles = {}
-        for heading, captions in ((None, (("all", "GESAMT"), ("first", "ALS ERSTER"), ("second", "ALS ZWEITER"))),
-                                  ("MÜNZWURF", (("coin", "GEWONNEN"), ("coin_won", "SIEGE WENN GEWONNEN"),
-                                                ("coin_lost", "SIEGE WENN VERLOREN")))):
-            if heading:
-                tk.Label(body, text=heading, fg=GOLD, bg=BG, font=self.font_small_bold, anchor="w").pack(
-                    fill=tk.X, pady=(int(2 * s), int(2 * s)))
-            tiles = tk.Frame(body, bg=BG)
-            tiles.pack(fill=tk.X, pady=(0 if heading else int(6 * s), int(4 * s)))
-            self._tile_row(tiles, captions)
-        self.coin_label = tk.Label(body, text="", fg=TEXT, bg=BG, font=self.font_small, anchor="w",
+        # Oberste Kacheln: Gesamt, Als Erster, Als Zweiter
+        top_tiles = tk.Frame(body, bg=BG)
+        top_tiles.pack(fill=tk.X, pady=(0, int(6 * s)))
+        self._tile_row(top_tiles, (("all", "GESAMT"), ("first", "ALS ERSTER"), ("second", "ALS ZWEITER")))
+
+        # Münzwurf (einklappbar)
+        self.coin_header = tk.Frame(body, bg=BG, cursor="hand2")
+        self.coin_header.pack(fill=tk.X, pady=(int(2 * s), int(2 * s)))
+        self.coin_arrow = tk.Label(self.coin_header, text="▼" if not self.is_collapsed("coin") else "▶",
+                                   fg=GOLD, bg=BG, font=self.font_small_bold, cursor="hand2")
+        self.coin_arrow.pack(side=tk.LEFT, padx=(0, int(4 * s)))
+        self.coin_title = tk.Label(self.coin_header, text="MÜNZWURF", fg=GOLD, bg=BG,
+                                   font=self.font_small_bold, anchor="w", cursor="hand2")
+        self.coin_title.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        for w in (self.coin_header, self.coin_arrow, self.coin_title):
+            w.bind("<Button-1>", lambda e: self.toggle_section("coin"))
+            w.bind("<Enter>", lambda e: self._hover_header(self.coin_arrow, self.coin_title, True))
+            w.bind("<Leave>", lambda e: self._hover_header(self.coin_arrow, self.coin_title, False))
+
+        self.coin_body = tk.Frame(body, bg=BG)
+        if not self.is_collapsed("coin"):
+            self.coin_body.pack(fill=tk.X, pady=(0, int(4 * s)))
+        coin_tiles = tk.Frame(self.coin_body, bg=BG)
+        coin_tiles.pack(fill=tk.X)
+        self._tile_row(coin_tiles, (("coin", "GEWONNEN"), ("coin_won", "SIEGE WENN GEWONNEN"),
+                                    ("coin_lost", "SIEGE WENN VERLOREN")))
+        self.coin_label = tk.Label(self.coin_body, text="", fg=TEXT, bg=BG, font=self.font_small, anchor="w",
                                    justify=tk.LEFT, wraplength=int(500 * s))
-        self.coin_label.pack(fill=tk.X, pady=(0, int(2 * s)))
+        self.coin_label.pack(fill=tk.X, pady=(int(2 * s), 0))
+
         self.filter_label = tk.Label(body, text="", fg=NEON, bg=BG, font=self.font_small, anchor="w")
         self.filter_label.pack(fill=tk.X)
 
@@ -297,35 +363,45 @@ class WinratePanel:
         note = coin_note(stats, coin_streak(matches))
         self.coin_label.config(text=note)
         if note:
-            self.coin_label.pack(fill=tk.X, pady=(0, int(2 * self.s)), before=self.filter_label)
+            self.coin_label.pack(fill=tk.X, pady=(int(2 * self.s), 0))
         else:
             self.coin_label.pack_forget()
+        if self.is_collapsed("coin"):
+            self.coin_body.pack_forget()
+            self.coin_arrow.config(text="▶")
+        else:
+            self.coin_body.pack(fill=tk.X, pady=(0, int(4 * self.s)), before=self.filter_label)
+            self.coin_arrow.config(text="▼")
         mode = "Ranked" if self.mode == RANKED else "alle Modi"
         if self.period != "all":
             mode += f" · {dict(PERIODS)[self.period]}"
         self.filter_label.config(text=f"Nur „{self.selected}“ · {mode} – Klick aufs Deck zeigt wieder alle"
                                  if self.selected else f"Alle Decks · {mode}")
+        self._section_headers.clear()
+        self._section_items.clear()
         for child in self.inner.winfo_children():
             child.destroy()
         if len(matches) >= TREND_MIN:
-            self._section(f"VERLAUF · Winrate der jeweils letzten {TREND_WINDOW} Matches")
-            self._trend_chart(trend(matches))
+            self._section("trend", f"VERLAUF · Winrate der jeweils letzten {TREND_WINDOW} Matches")
+            chart = self._trend_chart(trend(matches))
+            self._register_item("trend", chart, {"anchor": "w", "pady": (0, int(4 * self.s))})
         if opponents:
             shown = opponents[:OPPONENT_LIMIT]
             more = f", {len(shown)} häufigste" if len(opponents) > len(shown) else ""
-            self._section(f"GEGEN GEGNER-DECKS ({len(opponents)}{more})")
+            self._section("opponents", f"GEGEN GEGNER-DECKS ({len(opponents)}{more})")
             for i, opponent in enumerate(shown):
-                self._opponent_row(opponent, ROW_ALT if i % 2 else BG)
+                row = self._opponent_row(opponent, ROW_ALT if i % 2 else BG)
+                self._register_item("opponents", row, {"fill": tk.X})
         if decks:
-            self._section(f"DECKS ({len(decks)})")
+            self._section("decks", f"DECKS ({len(decks)})")
             for i, deck in enumerate(decks):
-                self._deck_row(deck, ROW_ALT if i % 2 else BG)
-        if stats.matches:
-            self._hands_section(since)
+                row = self._deck_row(deck, ROW_ALT if i % 2 else BG)
+                self._register_item("decks", row, {"fill": tk.X})
         if matches:
-            self._section("LETZTE MATCHES")
+            self._section("matches", "LETZTE MATCHES")
             for i, match in enumerate(matches):
-                self._match_row(match, ROW_ALT if i % 2 else BG, i)
+                row = self._match_row(match, ROW_ALT if i % 2 else BG, i)
+                self._register_item("matches", row, {"fill": tk.X})
         self.canvas.yview_moveto(0)
 
     def _show_info(self, stats: WinStats) -> None:
@@ -356,24 +432,50 @@ class WinratePanel:
         coin.config(text=rate_text(stats.coin_won, stats.coin_known), fg=TEXT)
         coin_record.config(text=f"{stats.coin_won} von {stats.coin_known}" if stats.coin_known else "keine Daten")
         for key, wins, matches in (("all", stats.wins, stats.matches), ("first", stats.first_wins, stats.first),
-                                   ("second", stats.second_wins, stats.second),
-                                   ("coin_won", stats.coin_won_wins, stats.coin_won),
-                                   ("coin_lost", stats.coin_lost_wins, stats.coin_lost)):
+                                    ("second", stats.second_wins, stats.second),
+                                    ("coin_won", stats.coin_won_wins, stats.coin_won),
+                                    ("coin_lost", stats.coin_lost_wins, stats.coin_lost)):
             value, record = self.tiles[key]
             rate = wins / matches if matches else None
             color = TEXT if rate is None else GREEN if rate >= 0.5 else AMBER
             value.config(text=rate_text(wins, matches), fg=color)
             record.config(text=f"{wins}–{matches - wins} · {matches} Match(es)" if matches else "keine Matches")
 
-    def _section(self, title: str) -> None:
-        tk.Label(self.inner, text=title, fg=GOLD, bg=BG, font=self.font_small_bold, anchor="w").pack(
-            fill=tk.X, pady=(int(8 * self.s), int(2 * self.s)))
+    def _section(self, key_or_title: str, title: Optional[str] = None) -> None:
+        s = self.s
+        if title is None:
+            key = key_or_title.split()[0].lower()
+            title = key_or_title
+        else:
+            key = key_or_title
+        collapsed = self.is_collapsed(key)
+        header = tk.Frame(self.inner, bg=BG, cursor="hand2")
+        header.pack(fill=tk.X, pady=(int(8 * s), int(2 * s)))
+        arrow = tk.Label(header, text="▼" if not collapsed else "▶", fg=GOLD, bg=BG,
+                         font=self.font_small_bold, cursor="hand2")
+        arrow.pack(side=tk.LEFT, padx=(0, int(4 * s)))
+        title_lbl = tk.Label(header, text=title, fg=GOLD, bg=BG, font=self.font_small_bold,
+                             anchor="w", cursor="hand2")
+        title_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-    def _deck_row(self, deck: DeckWinStats, bg: str) -> None:
+        for w in (header, arrow, title_lbl):
+            w.bind("<Button-1>", lambda e, k=key: self.toggle_section(k))
+            w.bind("<Enter>", lambda e, a=arrow, t=title_lbl: self._hover_header(a, t, True))
+            w.bind("<Leave>", lambda e, a=arrow, t=title_lbl: self._hover_header(a, t, False))
+
+        self._section_headers[key] = (header, arrow)
+        self._section_items[key] = []
+
+    def _register_item(self, key: str, widget: tk.Widget, pack_opts: dict) -> None:
+        if key in self._section_items:
+            self._section_items[key].append((widget, pack_opts))
+            if not self.is_collapsed(key):
+                widget.pack(**pack_opts)
+
+    def _deck_row(self, deck: DeckWinStats, bg: str) -> tk.Frame:
         s = self.s
         bg = HIGHLIGHT if deck.deck_name == self.selected else bg
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(4 * s))
-        row.pack(fill=tk.X)
         if deck.deck_code:
             RoundedButton(row, text="Anzeigen", command=lambda: self._open(deck), bg="#00796b",
                           font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s)).pack(side=tk.RIGHT)
@@ -388,71 +490,22 @@ class WinratePanel:
         for widget in (row, text, *text.winfo_children()):
             widget.config(cursor="hand2")
             widget.bind("<Button-1>", lambda e: self.select(deck.deck_name))
+        return row
 
-    def _opponent_row(self, opponent: OpponentStats, bg: str) -> None:
+    def _opponent_row(self, opponent: OpponentStats, bg: str) -> tk.Frame:
         s = self.s
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
-        row.pack(fill=tk.X)
         tk.Label(row, text=summary(opponent.stats), fg=MUTED, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
         tk.Label(row, text=f"vs {opponent.opp_name}", fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
             side=tk.LEFT, fill=tk.X, expand=True)
+        return row
 
-    def _hands_section(self, since: Optional[float]) -> None:
-        """Starthände aus den Replay-Mitschnitten: Karten in der Starthand mit Winrate, dazu die Brick-Quote."""
-        s = self.s
-        try:
-            hands = hand_stats.analyse(self.db, self.selected, self.mode, since)
-        except Exception as e:  # ältere Datenbank, gesperrt … – nur Zusatz
-            self._section("STARTHÄNDE")
-            self._note(f"Nicht lesbar: {e}")
-            return
-        self._section("STARTHÄNDE" + (f" · {hands.deck or UNKNOWN_DECK}" if hands.deck is not None else ""))
-        if hands.needs_deck:
-            self._note(f"Starthände aus {len(hands.decks)} Decks – Deck anklicken, dann wird dieses ausgewertet.")
-            return
-        if hands.duels < hand_stats.MIN_DUELS:
-            self._note(f"Noch zu wenige Replays: {hands.duels} von {hand_stats.MIN_DUELS} nötigen Starthänden. Replays "
-                       f"aus der Match History in Master Duel ansehen – der Importer nimmt sie auf.")
-            return
-        self._note(f"{hands.duels} Starthände aus {hands.replays} Replay(s) · die 5 Karten vor dem ersten eigenen Zug")
-        brick = hands.brick
-        if brick is not None and brick.hands >= hand_stats.MIN_DUELS:
-            row = tk.Frame(self.inner, bg=ROW_ALT, padx=int(8 * s), pady=int(3 * s))
-            row.pack(fill=tk.X)
-            tk.Label(row, text=f"Brick-Quote {rate_text(brick.bricks, brick.hands)}", fg=AMBER if brick.bricks else TEXT,
-                     bg=ROW_ALT, font=self.font_small_bold, anchor="w").pack(side=tk.LEFT)
-            text = f"{brick.bricks} von {brick.hands} Händen ohne Starter"
-            if brick.brick.matches:
-                text += (f" · Win {rate_text(brick.brick.wins, brick.brick.matches)} bei Brick, "
-                         f"sonst {rate_text(brick.playable.wins, brick.playable.matches)}")
-            tk.Label(row, text=text, fg=MUTED, bg=ROW_ALT, font=self.font_small).pack(side=tk.RIGHT)
-        if not hands.cards:
-            self._note(f"Noch zu wenige Replays: keine Karte war in {hand_stats.MIN_DUELS} Starthänden.")
-            return
-        for i, card in enumerate(hands.cards[:HAND_CARD_LIMIT]):
-            bg = BG if i % 2 == 0 else ROW_ALT
-            row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
-            row.pack(fill=tk.X)
-            with_rate = card.with_card.wins / card.with_card.matches
-            without = card.without_card
-            color = TEXT if not without.matches else GREEN if with_rate >= without.wins / without.matches else AMBER
-            text = (f"{card.hands} von {hands.duels} Händen · Win {rate_text(card.with_card.wins, card.with_card.matches)}"
-                    + (f" (ohne {rate_text(without.wins, without.matches)})" if without.matches else ""))
-            tk.Label(row, text=text, fg=color, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
-            tk.Label(row, text=card.name, fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
-                side=tk.LEFT, fill=tk.X, expand=True)
-
-    def _note(self, text: str) -> None:
-        tk.Label(self.inner, text=text, fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
-                 wraplength=int(480 * self.s)).pack(fill=tk.X, padx=int(8 * self.s))
-
-    def _trend_chart(self, points: List[tuple]) -> None:
+    def _trend_chart(self, points: List[tuple]) -> tk.Canvas:
         """Linie: Winrate der jeweils letzten TREND_WINDOW Matches (älteste links); Hover zeigt das Match."""
         s = self.s
         w, h = int(470 * s), int(96 * s)
         left, right, top, bottom = int(44 * s), int(12 * s), int(10 * s), int(18 * s)
         chart = tk.Canvas(self.inner, width=w, height=h, bg=BG, highlightthickness=0, bd=0)
-        chart.pack(anchor="w", pady=(0, int(4 * s)))
         plot_w, plot_h = w - left - right, h - top - bottom
         x_of = lambda i: left + plot_w * i / max(1, len(points) - 1)  # noqa: E731
         y_of = lambda rate: top + plot_h * (1 - rate)  # noqa: E731
@@ -492,11 +545,11 @@ class WinratePanel:
 
         chart.bind("<Motion>", hover)
         chart.bind("<Leave>", lambda e: chart.delete("hover"))
+        return chart
 
-    def _match_row(self, match: MatchEntry, bg: str, index: int = 0) -> None:
+    def _match_row(self, match: MatchEntry, bg: str, index: int = 0) -> tk.Frame:
         s = self.s
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s), cursor="hand2")
-        row.pack(fill=tk.X)
         result, color = (("SIEG", GREEN) if match.result == WIN else ("REMIS", AMBER) if match.result == DRAW
                          else ("NIEDERLAGE", RED))
         tk.Label(row, text=result, fg=color, bg=bg, font=self.font_small_bold, width=11, anchor="w").pack(
@@ -506,8 +559,8 @@ class WinratePanel:
         replay_btn = None
         if self._has_replay(match):  # vor dem Textbereich packen, sonst wird er bei schmaler Breite abgeschnitten
             replay_btn = RoundedButton(row, text="▶ Replay", command=lambda i=index: self.view_duel(i, replay=True),
-                                       bg="#00796b", font=self.font_small, padx=int(8 * s), pady=int(3 * s),
-                                       radius=int(6 * s))
+                                        bg="#00796b", font=self.font_small, padx=int(8 * s), pady=int(3 * s),
+                                        radius=int(6 * s))
             replay_btn.pack(side=tk.RIGHT)
         text = tk.Frame(row, bg=bg)
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -529,6 +582,7 @@ class WinratePanel:
                 continue
             widget.config(cursor="hand2")
             widget.bind("<Button-1>", lambda e, i=index: self.view_duel(i))
+        return row
 
     def _has_replay(self, match: MatchEntry) -> bool:
         """Gibt es einen Mitschnitt? (genaue Zuordnung: jeder Mitschnitt gehört zu genau einem Match)"""

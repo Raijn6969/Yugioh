@@ -19,24 +19,64 @@ from card_stats import MatchEntry, Replay
 from deck_export import downloads_dir
 
 
-def _passcodes(replay: Replay, kid_to_passcode: Dict[int, str]) -> List[str]:
-    kids = {c[4] for f in replay.frames for c in f["cards"] if c[4]}
+BLUE_EYES_PASSCODES = {
+    "89631139", "89631140", "89631141", "89631142",
+    "89631143", "89631144", "89631145", "89631146",
+}
+
+
+def _passcodes(replay: Replay, kid_to_passcode: Dict[int, str], match: Optional[MatchEntry] = None) -> List[str]:
+    revealed_kids = {c[4] for f in replay.frames for c in f["cards"]
+                     if c[4] and (c[5] == 1 or c[2] in (13, 16, 17) or c[2] <= 11)}
+    kids = set()
+    for f in replay.frames:
+        for c in f["cards"]:
+            if c[4]:
+                kids.add(c[4])
     for deck in replay.decks:
-        kids.update(deck.get("main", []) + deck.get("extra", []))
-    return sorted({kid_to_passcode[k] for k in kids if k in kid_to_passcode})
+        for part in ("main", "extra"):
+            for k in deck.get(part, []):
+                if k:
+                    if k == 4007 and kid_to_passcode.get(k) in BLUE_EYES_PASSCODES and 4007 not in revealed_kids:
+                        continue
+                    kids.add(k)
+    p_codes = {kid_to_passcode[k] for k in kids if k in kid_to_passcode}
+    if match and getattr(match, "deck_code", None):
+        from duel_view import ydk_parts
+        p_main, p_extra = ydk_parts(match.deck_code)
+        p_codes.update(p_main)
+        p_codes.update(p_extra)
+    return sorted(p_codes)
+
+
+_card_back_cache: Dict[str, str] = {}
 
 
 def build_data(replay: Replay, match: Optional[MatchEntry], db, hide_opponent: bool = True,
                folder: str = card_images.FOLDER, download: bool = True) -> dict:
     """Alles, was die HTML-Seite braucht (Karten mit Namen und eingebettetem Bild)."""
     kid_to_passcode = db.konami_passcodes()
-    passcodes = _passcodes(replay, kid_to_passcode)
+    passcodes = _passcodes(replay, kid_to_passcode, match)
     if download:
         try:
             card_images.download(passcodes, folder=folder)
         except Exception:
             pass  # offline: Karten ohne Bild (Name auf der Fläche)
     infos = db.infos(passcodes)
+
+    card_back_b64 = ""
+    try:
+        back_path = card_images.ensure_card_back(folder)
+        if back_path and os.path.exists(back_path):
+            if back_path in _card_back_cache:
+                card_back_b64 = _card_back_cache[back_path]
+            else:
+                with open(back_path, "rb") as bf:
+                    card_back_b64 = "data:image/jpeg;base64," + base64.b64encode(bf.read()).decode()
+                _card_back_cache[back_path] = card_back_b64
+    except Exception:
+        pass
+
     cards = {}
     for p in passcodes:
         entry = {"name": infos[p].name if p in infos else p}
@@ -46,14 +86,47 @@ def build_data(replay: Replay, match: Optional[MatchEntry], db, hide_opponent: b
         except OSError:
             pass
         cards[p] = entry
+
+    cards["unknown"] = {
+        "name": "Unbekannte Karte",
+        "img": card_back_b64,
+        "unknown": True,
+    }
+
     names = list(replay.names) + [""] * (2 - len(replay.names))
     opp = 1 - replay.my_id
     if hide_opponent:
         names[opp] = "Gegner"
+
+    revealed_kids = {c[4] for f in replay.frames for c in f["cards"]
+                     if c[4] and (c[5] == 1 or c[2] in (13, 16, 17) or c[2] <= 11)}
+    revealed_passcodes = {kid_to_passcode[k] for k in revealed_kids if k in kid_to_passcode}
+
+    player_ydk_main, player_ydk_extra = [], []
+    if match and getattr(match, "deck_code", None):
+        from duel_view import ydk_parts
+        player_ydk_main, player_ydk_extra = ydk_parts(match.deck_code)
+
+    def resolve_card(k: int) -> str:
+        p = kid_to_passcode.get(k)
+        if p in BLUE_EYES_PASSCODES and p not in revealed_passcodes:
+            return "unknown"
+        return p or "unknown"
+
     decks = []
-    for deck in replay.decks:
-        decks.append({part: [kid_to_passcode[k] for k in deck.get(part, []) if k in kid_to_passcode]
-                      for part in ("main", "extra")})
+    for team, deck in enumerate(replay.decks):
+        if team == replay.my_id and player_ydk_main:
+            decks.append({"main": list(player_ydk_main), "extra": list(player_ydk_extra)})
+            continue
+
+        resolved_main = [resolve_card(k) for k in deck.get("main", []) if k]
+        resolved_extra = [resolve_card(k) for k in deck.get("extra", []) if k]
+
+        # Bekannte Karten zuerst sortieren, Unbekannte (Kartenrückseite) am Ende
+        sorted_main = [p for p in resolved_main if p != "unknown"] + [p for p in resolved_main if p == "unknown"]
+        sorted_extra = [p for p in resolved_extra if p != "unknown"] + [p for p in resolved_extra if p == "unknown"]
+        decks.append({"main": sorted_main, "extra": sorted_extra})
+
     used_kids = {c[4] for f in replay.frames for c in f["cards"] if c[4]}
     title = "Replay"
     if match is not None:
@@ -262,13 +335,69 @@ document.addEventListener("keydown", e => { if (e.key === "ArrowRight") go(i + 1
 window.addEventListener("resize", draw);
 const decks = document.getElementById("decks");
 D.decks.forEach((deck, team) => {
-  const h = document.createElement("h2"); h.textContent = (team === D.my ? "DEIN DECK" : "DECK " + (D.names[team] || "GEGNER").toUpperCase())
-    + ` (${deck.main.length} + ${deck.extra.length})`; decks.appendChild(h);
-  const box = document.createElement("div"); box.className = "deck"; decks.appendChild(box);
-  for (const p of deck.main.concat(deck.extra)) { const c = document.createElement("div"), info = D.cards[p] || {name: p};
-    if (info.img) c.style.backgroundImage = `url(${info.img})`; else c.textContent = info.name;
-    c.onmousemove = ev => showTip(ev, info.name); c.onmouseleave = () => tip.style.display = "none";
-    c.onclick = ev => showTip(ev, info.name); box.appendChild(c); }
+  const isMine = team === D.my;
+  const knownMain = deck.main.filter(p => p !== "unknown").length;
+  const knownExtra = deck.extra.filter(p => p !== "unknown").length;
+  const totalMain = deck.main.length;
+  const totalExtra = deck.extra.length;
+  const hasUnknown = deck.main.includes("unknown") || deck.extra.includes("unknown");
+
+  const headerDiv = document.createElement("div");
+  headerDiv.style.display = "flex";
+  headerDiv.style.alignItems = "center";
+  headerDiv.style.justifyContent = "space-between";
+  headerDiv.style.margin = "14px 0 6px";
+
+  const h = document.createElement("h2");
+  h.style.margin = "0";
+  const nameStr = isMine ? "DEIN DECK" : "DECK " + (D.names[team] || "GEGNER").toUpperCase();
+  if (hasUnknown) {
+    h.textContent = `${nameStr} (${knownMain + knownExtra} bekannt · ${totalMain} + ${totalExtra})`;
+  } else {
+    h.textContent = `${nameStr} (${totalMain} + ${totalExtra})`;
+  }
+  headerDiv.appendChild(h);
+
+  const box = document.createElement("div");
+  box.className = "deck";
+
+  if (hasUnknown) {
+    const btn = document.createElement("button");
+    btn.textContent = "Nur bekannte anzeigen";
+    btn.style.background = "#2a2d40";
+    btn.style.color = "var(--text)";
+    btn.style.border = "1px solid var(--gold)";
+    btn.style.borderRadius = "4px";
+    btn.style.padding = "3px 8px";
+    btn.style.fontSize = "11px";
+    btn.style.cursor = "pointer";
+    headerDiv.appendChild(btn);
+
+    btn.onclick = () => {
+      const isHiding = btn.dataset.hiding === "true";
+      btn.dataset.hiding = isHiding ? "false" : "true";
+      btn.textContent = isHiding ? "Nur bekannte anzeigen" : "Alle Karten anzeigen";
+      box.querySelectorAll(".card-unknown").forEach(el => {
+        el.style.display = isHiding ? "block" : "none";
+      });
+    };
+  }
+
+  decks.appendChild(headerDiv);
+  decks.appendChild(box);
+
+  for (const p of deck.main.concat(deck.extra)) {
+    const c = document.createElement("div");
+    const isUnknown = p === "unknown";
+    if (isUnknown) c.className = "card-unknown";
+    const info = D.cards[p] || (isUnknown ? {name: "Unbekannte Karte"} : {name: p});
+    if (info.img) c.style.backgroundImage = `url(${info.img})`;
+    else c.textContent = info.name;
+    c.onmousemove = ev => showTip(ev, info.name);
+    c.onmouseleave = () => tip.style.display = "none";
+    c.onclick = ev => showTip(ev, info.name);
+    box.appendChild(c);
+  }
 });
 draw();
 </script>

@@ -24,7 +24,7 @@ from PIL import Image, ImageTk
 
 import card_images
 import replay_recorder as rr
-from card_stats import MatchEntry, Replay
+from card_stats import CardInfo, MatchEntry, Replay
 from dark_dialog import _make_draggable
 from dark_scrollbar import DarkScrollbar
 from extras_panel import BG, GOLD, MUTED, PANEL, TEXT
@@ -113,6 +113,37 @@ def details(match: MatchEntry) -> str:
     return "  ·  ".join(parts)
 
 
+def is_discard_cost(info: Optional[CardInfo]) -> bool:
+    """Prüft, ob die Aktivierungskosten einer Karte ein Abwerfen/Senden auf den Friedhof verlangen."""
+    if info is None:
+        return False
+    card_type = (info.card_type or "").lower()
+    # Zauber und Fallen werden auf das Spielfeld gelegt, nicht als Kosten abgeworfen!
+    if any(t in card_type for t in ("spell", "trap")):
+        return False
+    text = (info.desc or "").lower()
+    # Kosten stehen im PSCT vor dem ersten Semikolon
+    cost = text.partition(";")[0] if ";" in text else ""
+    return any(k in cost for k in ("discard", "send this card", "to the gy", "to the graveyard", "tribute", "banish"))
+
+
+def must_leave_field_on_resolution(zone: int, info: Optional[CardInfo]) -> bool:
+    """Normale Zauber, Schnellzauber, Ritualzauber, normale Fallen und Konterfallen gehen nach der
+    Auflösung in den Friedhof. Permanente Zauber/Fallen, Spielfeldzauber, Ausrüstungszauber und
+    Monster bleiben auf dem Spielfeld liegen."""
+    if zone == rr.FIELD_ZONE:
+        return False
+    if info is None:
+        return zone in (*rr.SPELL_ZONES, rr.MOVING)
+    card_type = (info.card_type or "").lower()
+    race = (info.race or "").lower()
+    if any(t in card_type for t in ("fusion", "synchro", "xyz", "link", "monster")):
+        return False
+    if any(r in race for r in ("continuous", "field", "equip")):
+        return False
+    return True
+
+
 class ReplayStateTracker:
     """
     Verfolgt den kumulativen Zustand eines Replays über alle Frames:
@@ -120,31 +151,84 @@ class ReplayStateTracker:
     - Verbannung (banished): Welche Karten liegen in der Verbannungszone.
     - Aktivierungen (activating): Welche Karte führt im aktuellen Schritt einen Effekt aus.
     - Ketten-Sequenzen (chain): Verfolgt Kettenglieder (CL1, CL2 ...) wie in Master Duel.
+    - Feld-Zonen (field_zones): Merkt sich die Position von Zauber-/Fallenkarten auf dem Spielfeld.
     """
-    def __init__(self, frames: List[dict]):
+    def __init__(self, frames: List[dict], db=None, passcode_func=None):
         self.frames = frames or []
+        self.db = db
+        self.passcode_func = passcode_func
+        self._info_cache: Dict[int, Optional[CardInfo]] = {}
         self.frame_states: List[dict] = []
         self._compute()
 
+    def _card_info(self, kid: int) -> Optional[CardInfo]:
+        if not self.db or not self.passcode_func or not kid:
+            return None
+        if kid in self._info_cache:
+            return self._info_cache[kid]
+        passcode = self.passcode_func(kid)
+        if not passcode:
+            self._info_cache[kid] = None
+            return None
+        info = self.db.info(passcode)
+        self._info_cache[kid] = info
+        return info
+
     def _compute(self) -> None:
+        # Vorausschau: Für jedes uid die Liste aller (frame_index, zone) mit zone != rr.MOVING
+        non_moving_appearances: Dict[int, List[Tuple[int, int]]] = {}
+        for idx, f in enumerate(self.frames):
+            for row in f.get("cards", []):
+                uid, zone = row[0], row[2]
+                if zone != rr.MOVING:
+                    non_moving_appearances.setdefault(uid, []).append((idx, zone))
+
+        def get_next_zone(uid: int, f_idx: int) -> Optional[int]:
+            for fut_idx, fut_zone in non_moving_appearances.get(uid, []):
+                if fut_idx > f_idx:
+                    return fut_zone
+            return None
+
         gy = {0: [], 1: []}
         ban = {0: [], 1: []}
         gy_uids = {0: set(), 1: set()}
         ban_uids = {0: set(), 1: set()}
         prev_cards: Dict[int, dict] = {}
+        last_zones: Dict[int, int] = {}
+        last_field_zones: Dict[int, int] = {}
         current_chain: List[dict] = []
 
-        for f in self.frames:
-            cards = [dict(zip(("uid", "team", "zone", "index", "card", "face", "attack", "atk", "def"), row))
-                     for row in f.get("cards", [])]
+        for f_idx, f in enumerate(self.frames):
+            cards = [dict(zip(CARD_KEYS, row)) for row in f.get("cards", [])]
             current_uids = {c["uid"] for c in cards}
+            dest_zones: Dict[int, Optional[int]] = {}
 
             # 1. Zonen-Updates
             for c in cards:
                 uid, team, zone = c["uid"], c["team"], c["zone"]
                 if team not in gy:
                     continue
-                if zone == rr.GRAVE:
+                if zone != rr.MOVING:
+                    last_zones[uid] = zone
+                else:
+                    prev_z = last_zones.get(uid)
+                    next_z = get_next_zone(uid, f_idx)
+                    if next_z is None:
+                        dest_z = rr.GRAVE if prev_z in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES,
+                                                         *rr.SPELL_ZONES, rr.FIELD_ZONE, rr.HAND) else None
+                    else:
+                        dest_z = next_z
+                    dest_zones[uid] = dest_z
+
+                if zone in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES, *rr.SPELL_ZONES, rr.FIELD_ZONE):
+                    last_field_zones[uid] = zone
+                    if uid in gy_uids[team]:
+                        gy_uids[team].remove(uid)
+                        gy[team] = [x for x in gy[team] if x["uid"] != uid]
+                    if uid in ban_uids[team]:
+                        ban_uids[team].remove(uid)
+                        ban[team] = [x for x in ban[team] if x["uid"] != uid]
+                elif zone == rr.GRAVE:
                     if uid in ban_uids[team]:
                         ban_uids[team].remove(uid)
                         ban[team] = [x for x in ban[team] if x["uid"] != uid]
@@ -158,16 +242,32 @@ class ReplayStateTracker:
                     if uid not in ban_uids[team]:
                         ban_uids[team].add(uid)
                         ban[team].append(c)
-                elif zone in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES, *rr.SPELL_ZONES,
-                              rr.FIELD_ZONE, rr.HAND, rr.EXTRA_DECK, rr.DECK):
+                elif zone in (rr.HAND, rr.EXTRA_DECK, rr.DECK):
                     if uid in gy_uids[team]:
                         gy_uids[team].remove(uid)
                         gy[team] = [x for x in gy[team] if x["uid"] != uid]
                     if uid in ban_uids[team]:
                         ban_uids[team].remove(uid)
                         ban[team] = [x for x in ban[team] if x["uid"] != uid]
+                elif zone == rr.MOVING and c["card"] > 0:
+                    dest = dest_zones.get(uid)
+                    info = self._card_info(c["card"])
+                    card_type = (info.card_type or "").lower() if info else ""
+                    is_spell_trap = any(t in card_type for t in ("spell", "trap")) or (prev_z in (*rr.SPELL_ZONES, rr.FIELD_ZONE))
+                    if dest == rr.BANISHED:
+                        if uid not in ban_uids[team]:
+                            if uid in gy_uids[team]:
+                                gy_uids[team].remove(uid)
+                                gy[team] = [x for x in gy[team] if x["uid"] != uid]
+                            ban_uids[team].add(uid)
+                            ban[team].append(dict(c, zone=rr.BANISHED))
+                    elif is_discard_cost(info) or (dest == rr.GRAVE and not is_spell_trap):
+                        if uid not in gy_uids[team] and uid not in ban_uids[team]:
+                            entry = dict(c, zone=rr.GRAVE)
+                            gy_uids[team].add(uid)
+                            gy[team].append(entry)
 
-            # 2. Despawnte Karten (MOVING / Spielfeld ins Grab)
+            # 2. Despawnte Karten (MOVING / Spielfeld ins Grab nach Auflösung)
             for uid, last_c in prev_cards.items():
                 if uid not in current_uids:
                     last_zone = last_c["zone"]
@@ -180,18 +280,50 @@ class ReplayStateTracker:
                                 gy_uids[team].add(uid)
                                 gy[team].append(entry)
 
-            prev_cards = {c["uid"]: c for c in cards}
-
             # 3. Aktivierungserkennung
             activating = None
-            moving = [c for c in cards if c["zone"] == rr.MOVING and c["card"] > 0]
-            if moving:
-                activating = moving[0]
-            else:
+            # 3a. Zauber/Falle auf dem Spielfeld aktiviert (neu aufs Feld gelegt oder aufgedeckt)
+            for c in cards:
+                if c["zone"] in (*rr.SPELL_ZONES, rr.FIELD_ZONE) and c["face"] == 1 and c["card"] > 0:
+                    prev = prev_cards.get(c["uid"])
+                    if prev is None or prev["zone"] != c["zone"] or prev["face"] == 0:
+                        activating = c
+                        break
+
+            # 3b. Monster auf dem Spielfeld aktiviert (neu aufgedeckt/Flip)
+            if activating is None:
+                for c in cards:
+                    if c["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) and c["face"] == 1 and c["card"] > 0:
+                        prev = prev_cards.get(c["uid"])
+                        if prev is not None and prev["zone"] == c["zone"] and prev["face"] == 0:
+                            activating = c
+                            break
+
+            # 3c. Moving cards (Handtraps, Trigger-Effekte etc.)
+            if activating is None:
+                moving = [c for c in cards if c["zone"] == rr.MOVING and c["card"] > 0]
+                if len(moving) == 1:
+                    m = moving[0]
+                    prev_z = last_zones.get(m["uid"])
+                    dest_z = dest_zones.get(m["uid"])
+                    # Keine Aktivierung bei Beschwörungs-Animationen, Extra-Deck-Karten oder
+                    # Monstern/Karten, die das Spielfeld in den Friedhof / Verbannt verlassen (Zerstörung / Material)!
+                    is_summon = (dest_z in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES))
+                    from_extra = (prev_z == rr.EXTRA_DECK)
+                    destroyed_from_field = (prev_z in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES,
+                                                       *rr.SPELL_ZONES, rr.FIELD_ZONE)
+                                           and dest_z in (rr.GRAVE, rr.BANISHED, None))
+                    if not (is_summon or from_extra or destroyed_from_field):
+                        activating = m
+
+            # 3d. Hand reveal (z. B. Vorzeigen in der Hand)
+            if activating is None:
                 revealed = [c for c in cards if c["zone"] == rr.HAND and c["face"] == 1
                             and c["team"] == 1 and c["card"] > 0]
                 if revealed:
-                    activating = revealed[0]
+                    prev = prev_cards.get(revealed[0]["uid"])
+                    if prev is None or prev["face"] == 0:
+                        activating = revealed[0]
 
             # 4. Ketten-Tracking (Master Duel Chain Links)
             if activating is not None:
@@ -200,25 +332,55 @@ class ReplayStateTracker:
                 act_team = activating["team"]
                 if not any(x["uid"] == act_uid for x in current_chain):
                     cl_num = len(current_chain) + 1
-                    current_chain.append({"cl": cl_num, "uid": act_uid, "card": act_cid, "team": act_team})
+                    current_chain.append({
+                        "cl": cl_num,
+                        "uid": act_uid,
+                        "card": act_cid,
+                        "team": act_team,
+                        "start_frame": f_idx,
+                    })
             else:
-                if current_chain and not moving:
-                    last_uid = current_chain[-1]["uid"]
-                    c_now = next((c for c in cards if c["uid"] == last_uid), None)
-                    if c_now is None or c_now["zone"] != rr.MOVING:
-                        current_chain = []
+                cards_by_uid = {c["uid"]: c for c in cards}
+
+                def is_item_resolved(x: dict) -> bool:
+                    uid = x["uid"]
+                    if uid not in current_uids:
+                        return True
+                    card_obj = cards_by_uid[uid]
+                    zone = card_obj.get("zone", 0)
+                    info = self._card_info(x.get("card", 0))
+                    if must_leave_field_on_resolution(zone, info):
+                        if zone not in (*rr.SPELL_ZONES, rr.FIELD_ZONE, rr.MOVING):
+                            return True
+                        return f_idx > x.get("start_frame", 0) + 15
+                    return f_idx > x.get("start_frame", 0)
+
+                if all(is_item_resolved(x) for x in current_chain):
+                    current_chain = []
 
             self.frame_states.append({
                 "gy": {0: list(gy[0]), 1: list(gy[1])},
                 "banished": {0: list(ban[0]), 1: list(ban[1])},
                 "activating": activating,
                 "chain": list(current_chain),
+                "field_zones": dict(last_field_zones),
+                "last_zones": dict(last_zones),
+                "dest_zones": dict(dest_zones),
             })
+            prev_cards = {c["uid"]: c for c in cards}
 
     def get(self, frame_no: int) -> dict:
         if 0 <= frame_no < len(self.frame_states):
             return self.frame_states[frame_no]
-        return {"gy": {0: [], 1: []}, "banished": {0: [], 1: []}, "activating": None, "chain": []}
+        return {
+            "gy": {0: [], 1: []},
+            "banished": {0: [], 1: []},
+            "activating": None,
+            "chain": [],
+            "field_zones": {},
+            "last_zones": {},
+            "dest_zones": {},
+        }
 
 
 class DuelView:
@@ -254,6 +416,7 @@ class DuelView:
         self._passcodes: Optional[Dict[int, str]] = None   # Konami-ID → Passcode (fürs Bild)
         self._art: Dict[tuple, object] = {}                # gedrehte Kartenbilder
         self._tip_key: Optional[tuple] = None              # Karte, für die der Hinweis gerade steht
+        self._info_cache: Dict[int, Optional[CardInfo]] = {}
 
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
@@ -336,7 +499,7 @@ class DuelView:
         self._close_inspector()
         self.mode, self.frame_no = ("replay" if self.replay else "decks"), 0
         if self.replay:
-            self.tracker = ReplayStateTracker(self.replay.frames)
+            self.tracker = ReplayStateTracker(self.replay.frames, db=self.db, passcode_func=self.passcode)
             self.controls.pack(fill=tk.X, before=self.canvas)
         else:
             self.tracker = None
@@ -386,6 +549,38 @@ class DuelView:
             except Exception:
                 self._passcodes = {}
         return self._passcodes.get(kid)
+
+    def _card_info(self, kid: int) -> Optional[CardInfo]:
+        if not self.db or not kid:
+            return None
+        if kid in self._info_cache:
+            return self._info_cache[kid]
+        p = self.passcode(kid)
+        info = self.db.info(p) if (self.db and p) else None
+        self._info_cache[kid] = info
+        return info
+
+    def _is_activating(self, card: dict, state: dict, field_uids: set) -> bool:
+        act = state.get("activating")
+        if not act:
+            return False
+        if card["uid"] == act.get("uid"):
+            return True
+        if act.get("uid") not in field_uids:
+            if card.get("card", 0) > 0 and card["card"] == act.get("card") and card.get("team") == act.get("team"):
+                return True
+        return False
+
+    def _chain_link(self, card: dict, state: dict, field_uids: set) -> Optional[int]:
+        chain = state.get("chain", [])
+        for x in chain:
+            if x.get("uid") == card["uid"]:
+                return x.get("cl")
+        for x in chain:
+            if x.get("uid") not in field_uids:
+                if card.get("card", 0) > 0 and card["card"] == x.get("card") and card.get("team") == x.get("team"):
+                    return x.get("cl")
+        return None
 
     def goto(self, frame_no: int) -> None:
         if self.replay and 0 <= frame_no < len(self.replay.frames):
@@ -678,12 +873,45 @@ class DuelView:
                 c.tag_bind(pile_tag, "<Button-1>", lambda e, t=pile_team: self._open_pile_inspector("Verbannt", state["banished"][t], t))
 
         cards = [dict(zip(CARD_KEYS, row)) for row in frame["cards"]]
+        field_uids = {c["uid"] for c in cards if c["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES, *rr.SPELL_ZONES, rr.FIELD_ZONE)}
         piles: Dict[Tuple[str, int], List[dict]] = {}
         hands: Dict[bool, List[dict]] = {True: [], False: []}
+        field_zones = state.get("field_zones", {})
         for card in cards:
             mine = card["team"] == replay.my_id
             if card["zone"] == rr.HAND:
                 hands[mine].append(card)
+                continue
+            if card["zone"] == rr.MOVING:
+                info = self._card_info(card["card"]) if card.get("card") else None
+                card_type = (info.card_type or "").lower() if info else ""
+                is_extra = any(t in card_type for t in ("fusion", "synchro", "xyz", "link"))
+                prev_z = state.get("last_zones", {}).get(card["uid"], field_zones.get(card["uid"]))
+                dest_z = state.get("dest_zones", {}).get(card["uid"])
+
+                # Extra-Deck-Karten und Karten vom Spielfeld dürfen NIEMALS auf der Hand landen!
+                if is_discard_cost(info) or dest_z == rr.GRAVE or prev_z in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES):
+                    continue
+                if dest_z == rr.BANISHED or (prev_z == rr.EXTRA_DECK and is_extra):
+                    continue
+
+                if any(t in card_type for t in ("spell", "trap")) or (prev_z in (*rr.SPELL_ZONES, rr.FIELD_ZONE)):
+                    # Normale Zauber und Fallen liegen auf dem Spielfeld, bis der Effekt resolved ist!
+                    if prev_z in (*rr.SPELL_ZONES, rr.FIELD_ZONE):
+                        spot_zone = prev_z
+                    elif "field" in card_type:
+                        spot_zone = rr.FIELD_ZONE
+                    else:
+                        idx = card.get("index", 0)
+                        spot_zone = (7 + idx) if 0 <= idx < 5 else 9
+                    spot = self.place(spot_zone, mine)
+                    if spot is not None:
+                        piles.setdefault(spot, []).append(card)
+                    continue
+
+                # Nur Monster, die tatsächlich aus der Hand kommen und nicht abgeworfen/zerstört werden, bleiben in der Hand
+                if prev_z == rr.HAND and not is_extra:
+                    hands[mine].append(card)
                 continue
             spot = self.place(card["zone"], mine)
             if spot is None:
@@ -692,8 +920,8 @@ class DuelView:
                 piles.setdefault(spot, []).append(card)
                 continue
             row, col = spot
-            act = (state["activating"] is not None and card["uid"] == state["activating"]["uid"])
-            cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == card["uid"]), None)
+            act = self._is_activating(card, state, field_uids)
+            cl_info = self._chain_link(card, state, field_uids)
             self._board_card(cols[col], rows[row], cw, ch, card, mine, stats=True, activation=act, chain_link=cl_info)
 
         # Stapel (Deck, Extra Deck, Feldzauber)
@@ -701,7 +929,9 @@ class DuelView:
             top = max(stack, key=lambda k: k["index"])
             if top["zone"] in (rr.GRAVE, rr.BANISHED):
                 continue  # Friedhof und Verbannt werden kumulativ gezeichnet
-            self._board_card(cols[col], rows[row], cw, ch, top, top["team"] == replay.my_id)
+            act = self._is_activating(top, state, field_uids)
+            cl_info = self._chain_link(top, state, field_uids)
+            self._board_card(cols[col], rows[row], cw, ch, top, top["team"] == replay.my_id, activation=act, chain_link=cl_info)
             if top["zone"] == rr.EXTRA_DECK:
                 self._badge(cols[col] + cw, rows[row] + ch, str(top["index"] + 1))
 
@@ -717,7 +947,9 @@ class DuelView:
                 gy_tag = f"gy_card_{team}"
                 if gy_stack:
                     top_gy = gy_stack[-1]
-                    self._board_card(gx, gy_y, cw, ch, top_gy, mine, pile_tag=gy_tag)
+                    act = (state["activating"] is not None and top_gy["uid"] == state["activating"]["uid"])
+                    cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == top_gy["uid"]), None)
+                    self._board_card(gx, gy_y, cw, ch, top_gy, mine, pile_tag=gy_tag, activation=act, chain_link=cl_info)
                     self._badge(gx + cw, gy_y + ch, str(len(gy_stack)))
                 c.tag_bind(gy_tag, "<Button-1>", lambda e, t=team, s_list=list(gy_stack): self._open_pile_inspector("Friedhof", s_list, t))
                 c.tag_bind(gy_tag, "<Enter>", lambda e, n=len(gy_stack), m=mine: self._tip_text(f"{'Dein' if m else 'Gegner-'}Friedhof: {n} Karte(n) – Klick für Details"))
@@ -732,7 +964,9 @@ class DuelView:
                 ban_tag = f"ban_card_{team}"
                 if ban_stack:
                     top_ban = ban_stack[-1]
-                    self._board_card(bx, by_y, cw, ch, top_ban, mine, pile_tag=ban_tag)
+                    act = (state["activating"] is not None and top_ban["uid"] == state["activating"]["uid"])
+                    cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == top_ban["uid"]), None)
+                    self._board_card(bx, by_y, cw, ch, top_ban, mine, pile_tag=ban_tag, activation=act, chain_link=cl_info)
                     self._badge(bx + cw, by_y + ch, str(len(ban_stack)))
                 c.tag_bind(ban_tag, "<Button-1>", lambda e, t=team, s_list=list(ban_stack): self._open_pile_inspector("Verbannt", s_list, t))
                 c.tag_bind(ban_tag, "<Enter>", lambda e, n=len(ban_stack), m=mine: self._tip_text(f"{'Deine' if m else 'Gegner-'}Verbannten: {n} Karte(n) – Klick für Details"))
@@ -748,15 +982,6 @@ class DuelView:
                 act = (state["activating"] is not None and card["uid"] == state["activating"]["uid"])
                 cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == card["uid"]), None)
                 self._board_card(left + i * step, row, cw, ch, card, mine, hand=True, activation=act, chain_link=cl_info)
-
-        # Aktivierte Karte in Bewegung (zone 18: z. B. Handtrap, Zauber/Falle, Trigger)
-        act_card = state["activating"]
-        if act_card is not None and act_card["zone"] == rr.MOVING:
-            fx = cols[3]
-            fy = rows["emz"]
-            cl_info = next((x["cl"] for x in state["chain"] if x["uid"] == act_card["uid"]), 1)
-            self._board_card(fx, fy, cw, ch, act_card, act_card["team"] == replay.my_id,
-                             activation=True, chain_link=cl_info)
 
         # Master Duel Ketten-Leiste (Chain Sequence)
         chain = state["chain"]
@@ -778,6 +1003,7 @@ class DuelView:
             c.create_text(bx + bw // 2, by + bh // 2, text=f"⛓ KETTE:  {chain_str}", fill=GOLD, font=self.font_small_bold)
 
         self._lp_and_phase(frame, cols, rows, cw, ch)
+        act_card = state["activating"]
         step_text = f"Schritt {self.frame_no + 1} / {len(replay.frames)}"
         if frame.get("turn"):
             step_text += f"  ·  {frame.get('turn')}"
@@ -816,7 +1042,7 @@ class DuelView:
         defense = not hand and card["zone"] in (*rr.MONSTER_ZONES, *rr.EXTRA_MONSTER_ZONES) and not card["attack"]
         angle = (0 if mine else 180) + (90 if defense else 0)
         passcode = self.passcode(card["card"]) if card["card"] else None
-        shown = passcode if card["face"] or (mine and hand) else None
+        shown = passcode if card["face"] or (mine and hand) or activation or pile_tag else None
         image = self._card_image(shown, w, h, angle) if shown else None
         cx, cy = x + w // 2, y + h // 2
         if image is not None:

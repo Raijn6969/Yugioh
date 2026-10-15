@@ -28,6 +28,35 @@ def image_path(passcode: str, folder: str = FOLDER) -> str:
     return os.path.join(folder, f"{passcode}.jpg")
 
 
+def card_back_path(folder: str = FOLDER) -> str:
+    return os.path.join(folder, "back.jpg")
+
+
+def ensure_card_back(folder: str = FOLDER) -> Optional[str]:
+    path = card_back_path(folder)
+    if os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    try:
+        os.makedirs(folder, exist_ok=True)
+        resp = requests.get("https://images.ygoprodeck.com/images/cards/back.jpg", timeout=10)
+        if resp.status_code == 200 and resp.content[:2] == JPEG_START:
+            tmp = path + f".{threading.get_ident()}.part"
+            try:
+                with open(tmp, "wb") as f:
+                    f.write(resp.content)
+                os.replace(tmp, path)
+                return path
+            finally:
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+    except Exception:
+        pass
+    return None
+
+
 def download(passcodes: Iterable[str], session=None, folder: str = FOLDER) -> int:
     """Fehlende Bilder laden (unbekannte/offline werden übersprungen). Returns: Anzahl neu geladener Bilder."""
     todo = [p for p in dict.fromkeys(str(p) for p in passcodes if p)

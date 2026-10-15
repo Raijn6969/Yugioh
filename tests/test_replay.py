@@ -245,6 +245,46 @@ class ExportTest(unittest.TestCase):
                                     image_folder=self.images)
         self.assertNotEqual(path, second)
 
+    def test_export_unknown_cards_as_card_backs_not_blue_eyes(self):
+        # Wenn im Gegnerdeck unaufgedeckte 4007 (Blue-Eyes) liegen und im Duell kein Blue-Eyes vorkam:
+        # Sie müssen als "unknown" markiert sein (Kartenrückseite), NIEMALS als Blue-Eyes!
+        db = make_db()
+        with db._connect() as con:
+            con.execute("INSERT INTO konami VALUES ('1001', 22116, 'Elfnote Regina')")
+            con.execute("INSERT INTO konami VALUES ('89631139', 4007, 'Blue-Eyes White Dragon')")
+
+        # Replay mit unaufgedeckten Dummy-Karten
+        replay_info = rr.replay_info(dict(DUEL, time=1791699999, Deck=[
+            {"Main": {"CardIds": [22116, 4007, 4007]}, "Extra": {}},
+            {"Main": {"CardIds": [4007, 22116, 4007]}, "Extra": {"CardIds": [4007]}}
+        ]))
+        # In frames kommt nur 22116 vor, 4007 wird NIE aufgedeckt
+        frames = [{"cards": [[1, 0, rr.HAND, 0, 22116, 1, 1, 0, 0]]}]
+        db.save_replay(replay_info, frames)
+        replay = db.replay_at(1791699999)
+
+        # Match mit eigenem vollständigen YDK Deck-Code
+        match = MatchEntry("8385", 1791623727, 3, 1, True, 3, 1, "Elfnote",
+                           "#main\n1001\n1001\n#extra\n!side\n", "Opponent", "", "Zwölfnote", True)
+
+        data = self.re.build_data(replay, match, db, folder=self.images, download=False)
+
+        # 1. Eigenes Deck nutzt den realen match.deck_code
+        self.assertEqual(data["decks"][0], {"main": ["1001", "1001"], "extra": []})
+
+        # 2. Gegnerdeck hat die bekannten Karten zuerst, Unbekannte als "unknown"
+        # 22116 (Passcode 1001) ist bekannt, 4007 unaufgedeckt -> "unknown"
+        opp_main = data["decks"][1]["main"]
+        opp_extra = data["decks"][1]["extra"]
+        self.assertEqual(opp_main, ["1001", "unknown", "unknown"])
+        self.assertEqual(opp_extra, ["unknown"])
+
+        # 3. cards["unknown"] ist definiert für die Kartenrückseite
+        self.assertIn("unknown", data["cards"])
+        self.assertEqual(data["cards"]["unknown"]["name"], "Unbekannte Karte")
+        # 89631139 (Blue-Eyes) darf NICHT in cards sein!
+        self.assertNotIn("89631139", data["cards"])
+
     @unittest.skipUnless(HAS_TK, "kein Tk")
     def test_export_button_in_duel_view(self):
         import duel_view as dv

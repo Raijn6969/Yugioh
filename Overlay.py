@@ -216,6 +216,12 @@ class MasterDuelImporter:
         """Laden, entpacken, Hilfsskript starten, beenden (im Hintergrund; Fortschritt in der Statuszeile)."""
         self._update_running = True
         self._set_buttons(tk.DISABLED)
+        if hasattr(self.root, "wm_attributes"):
+            try:
+                self.root.wm_attributes("-alpha", 0.95)
+            except tk.TclError:
+                pass
+        self.is_visible = True
         self.update_status("Update wird geladen … 0 %", "cyan")
         threading.Thread(target=self._update_install_worker, args=(release,), daemon=True,
                          name="update-install").start()
@@ -225,7 +231,8 @@ class MasterDuelImporter:
 
         def progress(done, total):
             percent = done * 100 // total
-            if percent >= last[0] + 5 or done == total:
+            step = 1 if total > 10 * 1024 * 1024 else 5
+            if percent >= last[0] + step or done == total:
                 last[0] = percent
                 text = "Update wird entpackt …" if done == total else f"Update wird geladen … {percent} %"
                 self._run_on_ui(self.update_status, text, "cyan")
@@ -838,7 +845,13 @@ class MasterDuelImporter:
         self.root.destroy()
 
     def update_status(self, text, color="white"):
+        if getattr(self, "_update_running", False) and not str(text).startswith("Update"):
+            return
         self.status_label.config(text=text, fg=color)
+        try:
+            self.status_label.update_idletasks()
+        except (tk.TclError, AttributeError):
+            pass
 
     def _set_buttons(self, state):
         for button in (self.start_btn, self.export_btn, self.extras_btn, self.calib_btn, self.speed_btn):

@@ -82,7 +82,7 @@ class UserInterrupt(Exception):
 class WindowAutomator:
     def __init__(self, config):
         self.config = config
-        self.last_bot_pos = (0, 0)
+        self.last_bot_pos: Optional[Tuple[int, int]] = None
         # Linke obere Ecke des Spielbereichs: (0, 0) im Vollbild, sonst Fensterposition
         self.origin = (0, 0)
         self.scale_x, self.scale_y = self.get_md_scale()
@@ -103,6 +103,9 @@ class WindowAutomator:
         return screen_w / 1920, screen_h / 1080
 
     def check_user_interruption(self):
+        if self.last_bot_pos is None:
+            self.last_bot_pos = win_api.get_cursor_pos()
+            return
         x, y = win_api.get_cursor_pos()
         if abs(x - self.last_bot_pos[0]) > 20 or abs(y - self.last_bot_pos[1]) > 20:
             raise UserInterrupt("Manuelle Mausbewegung erkannt! Abbruch.")

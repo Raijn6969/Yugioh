@@ -625,6 +625,83 @@ class WinratePanelTest(unittest.TestCase):
         self.panel.refresh()
         self.assertIn("Speicher lesen", self.panel.info_label.cget("text"))
 
+    def test_collapsible_coin_section(self):
+        self.assertEqual(self.panel.coin_arrow.cget("text"), "▼")
+        self.assertEqual(self.panel.coin_body.winfo_manager(), "pack")
+        self.assertFalse(self.panel.is_collapsed("coin"))
+
+        # Münzwurf einklappen
+        self.panel.win.update()
+        self.panel.coin_header.event_generate("<Button-1>", x=0, y=0)
+        self.assertTrue(self.panel.is_collapsed("coin"))
+        self.assertEqual(self.panel.coin_arrow.cget("text"), "▶")
+        self.assertEqual(self.panel.coin_body.winfo_manager(), "")
+        self.assertTrue(self.settings.get("WINRATE_COLLAPSED", {}).get("coin"))
+
+        # Refresh behält eingeklappten Zustand
+        self.panel.refresh()
+        self.assertEqual(self.panel.coin_arrow.cget("text"), "▶")
+        self.assertEqual(self.panel.coin_body.winfo_manager(), "")
+
+        # Münzwurf wieder ausklappen
+        self.panel.coin_arrow.event_generate("<Button-1>", x=0, y=0)
+        self.assertFalse(self.panel.is_collapsed("coin"))
+        self.assertEqual(self.panel.coin_arrow.cget("text"), "▼")
+        self.assertEqual(self.panel.coin_body.winfo_manager(), "pack")
+
+    def test_collapsible_inner_sections(self):
+        self.panel.mode_buttons["all"].invoke()
+        self.panel.refresh()
+        self.panel.win.update()
+
+        # Letzte Matches
+        matches_hdr, matches_arrow = self.panel._section_headers["matches"]
+        self.assertEqual(matches_arrow.cget("text"), "▼")
+        items = [w for w, _ in self.panel._section_items["matches"]]
+        self.assertTrue(items)
+        self.assertTrue(all(w.winfo_manager() == "pack" for w in items))
+
+        # Einklappen
+        matches_hdr.event_generate("<Button-1>", x=0, y=0)
+        self.assertEqual(matches_arrow.cget("text"), "▶")
+        self.assertTrue(self.panel.is_collapsed("matches"))
+        self.assertTrue(all(w.winfo_manager() == "" for w in items))
+
+        # Refresh behält eingeklappten Zustand
+        self.panel.refresh()
+        self.panel.win.update()
+        _, matches_arrow = self.panel._section_headers["matches"]
+        self.assertEqual(matches_arrow.cget("text"), "▶")
+        new_items = [w for w, _ in self.panel._section_items["matches"]]
+        self.assertTrue(all(w.winfo_manager() == "" for w in new_items))
+
+        # Wieder ausklappen
+        self.panel.toggle_section("matches")
+        _, matches_arrow = self.panel._section_headers["matches"]
+        self.assertEqual(matches_arrow.cget("text"), "▼")
+        self.assertFalse(self.panel.is_collapsed("matches"))
+        self.assertTrue(all(w.winfo_manager() == "pack" for w in new_items))
+
+        # Auch Verlauf und Gegner-Decks lassen sich einklappen
+        self.panel.win.update()
+        for key in ("trend", "opponents", "decks"):
+            if key in self.panel._section_headers:
+                hdr, arrow = self.panel._section_headers[key]
+                self.assertEqual(arrow.cget("text"), "▼")
+                hdr.event_generate("<Button-1>", x=0, y=0)
+                self.assertEqual(arrow.cget("text"), "▶")
+                self.assertTrue(self.panel.is_collapsed(key))
+
+    def test_hover_header_changes_color(self):
+        from extras_panel import GOLD, HIGHLIGHT
+        arrow = self.panel.coin_arrow
+        title = self.panel.coin_title
+        self.assertEqual(arrow.cget("fg"), GOLD)
+        self.panel._hover_header(arrow, title, True)
+        self.assertEqual(arrow.cget("fg"), HIGHLIGHT)
+        self.panel._hover_header(arrow, title, False)
+        self.assertEqual(arrow.cget("fg"), GOLD)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -292,53 +292,13 @@ class SectionTest(unittest.TestCase):
             result += self.texts(child)
         return result
 
-    def test_hint_while_there_are_too_few_replays(self):
-        self.duels.add([1, 2, 3, 4, 5], True, replay=False)
-        panel = self.open()
-        texts = self.texts(panel.inner)
-        self.assertTrue(any(t.startswith("STARTHÄNDE") for t in texts))
-        self.assertTrue(any("Noch zu wenige Replays: 0 von 3" in t for t in texts), texts)
-        self.duels.add([1, 2, 3, 4, 5], True)
-        self.duels.add([1, 2, 3, 4, 5], False)
-        panel.refresh()
-        self.assertTrue(any("Noch zu wenige Replays: 2 von 3" in t for t in self.texts(panel.inner)))
-
-    def test_cards_and_brick_quote_are_listed(self):
+    def test_starthand_section_removed_from_winrate(self):
         for hand, win in (([1, 2, 3, 4, 4], True), ([1, 3, 4, 4, 5], True), ([1, 4, 4, 5, 6], False),
                           ([4, 4, 4, 4, 4], False)):
             self.duels.add(hand, win)
         panel = self.open()
         texts = self.texts(panel.inner)
-        self.assertIn("STARTHÄNDE · Ryzeal", texts)
-        self.assertTrue(any(t.startswith("4 Starthände aus 4 Replay(s)") for t in texts), texts)
-        self.assertIn("Brick-Quote 25 %", texts)
-        self.assertIn("1 von 4 Händen ohne Starter · Win 0 % bei Brick, sonst 67 %", texts)
-        self.assertIn("Starter A", texts)
-        self.assertIn("3 von 4 Händen · Win 67 % (ohne 0 %)", texts)
-        self.assertIn("Brickcard", texts)
-        self.assertNotIn("Starter B", texts)       # nur in einer Hand
-
-    def test_several_decks_ask_for_a_choice_and_clicking_a_deck_evaluates_it(self):
-        for deck in ("Ryzeal", "Snake-Eye"):
-            for _ in range(3):
-                self.duels.add([1, 2, 3, 4, 5], True, deck=deck)
-        panel = self.open()
-        texts = self.texts(panel.inner)
-        self.assertTrue(any("Starthände aus 2 Decks" in t for t in texts), texts)
-        panel.select("Snake-Eye")
-        texts = self.texts(panel.inner)
-        self.assertIn("STARTHÄNDE · Snake-Eye", texts)
-        self.assertTrue(any(t.startswith("3 Starthände aus 3 Replay(s)") for t in texts))
-
-    def test_no_section_without_matches_and_errors_do_not_break_the_window(self):
-        panel = self.open()
-        self.assertFalse(any(t.startswith("STARTHÄNDE") for t in self.texts(panel.inner)))
-        self.duels.add([1, 2, 3, 4, 5], True)
-        with mock.patch("hand_stats.analyse", side_effect=Exception("database is locked")):
-            panel.refresh()
-        texts = self.texts(panel.inner)
-        self.assertTrue(any("Nicht lesbar" in t for t in texts))
-        self.assertIn("LETZTE MATCHES", texts)
+        self.assertFalse(any("STARTHÄNDE" in t for t in texts))
 
 
 if __name__ == "__main__":
