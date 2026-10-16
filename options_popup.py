@@ -5,7 +5,7 @@ in Abschnitte gegliedert. Je Abschnitt eine Reihe Buttons nebeneinander:
   - Schalter (add_toggles): an/aus, an = grün mit ✓
   - Aktionen (add_buttons): führen etwas aus und schließen das Fenster
 Auswahl und Schalter lassen das Fenster offen, damit man die Änderung sieht. invoke(Beschriftung) wie ein Klick.
-visible=Funktion: Zeile nur anzeigen, wenn sie True liefert (z.B. Tempo nur bei "Speicher lesen"); rebuild()
+visible=Funktion: Zeile nur anzeigen, wenn sie True liefert (z.B. Tempo nur bei Texterkennung); rebuild()
 baut ein offenes Fenster danach neu auf.
 """
 

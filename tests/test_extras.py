@@ -1190,7 +1190,8 @@ class ExtrasPanelTest(unittest.TestCase):
         self.root.update()
         menu = self.panel.options_menu
         self.assertTrue(menu.is_open)
-        self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Hover-Scan",
+        self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Schnell", "Normal", "Langsam",
+                                             "Hover-Scan",
                                              "Spalte „2. Zug“", "Animation",
                                              "Starter online laden", "Automatisch",
                                              "Von Hand"})
@@ -1220,22 +1221,30 @@ class ExtrasPanelTest(unittest.TestCase):
         manual.assert_called_once_with()
         self.assertFalse(menu.is_open)
 
-    def test_speed_option_only_when_reading_memory(self):
+    def test_speed_option_only_with_text_recognition(self):
         import options_popup
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
+        self.panel.settings["SPEED_PROFILE"] = "fast"
         self.panel._open_options()
         self.root.update()
         menu = self.panel.options_menu
-        self.assertNotIn("Langsam", menu.buttons)  # Texterkennung: Tempo sitzt im Overlay
-        menu.invoke("Speicher lesen")
-        self.assertTrue(menu.is_open)
-        self.assertIn("Langsam", menu.buttons)
+        self.assertIn("Langsam", menu.buttons)  # Texterkennung ist Standard: Tempo sichtbar
+        self.assertEqual(menu.buttons["Schnell"]._opts["fill"], options_popup.CHOSEN)
         menu.invoke("Langsam")
         self.assertEqual(saved[-1]["SPEED_PROFILE"], "slow")
         self.assertEqual(menu.buttons["Langsam"]._opts["fill"], options_popup.CHOSEN)
-        menu.invoke("Texterkennung")
+        menu.invoke("Speicher lesen")
+        self.assertTrue(menu.is_open)
         self.assertNotIn("Langsam", menu.buttons)
+        self.assertEqual(self.panel.settings["SPEED_PROFILE"], "slow")  # Wert bleibt erhalten
+        menu.invoke("Texterkennung")
+        self.assertIn("Langsam", menu.buttons)
+        menu.close()
+        self.panel.settings["SPEED_PROFILE"] = "normal"  # Overlay-Knopf ändert denselben Wert
+        self.panel._open_options()
+        self.root.update()
+        self.assertEqual(menu.buttons["Normal"]._opts["fill"], options_popup.CHOSEN)
         menu.close()
 
     def test_animation_can_be_switched_off(self):

@@ -204,12 +204,12 @@ class ExtrasPanel:
             self.matchup_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
         menu = self.options_menu
-        memory = lambda: self.read_method.get() == "memory"  # noqa: E731
-        menu.add_section("Lesen & Tempo", "für Import, Scan und Export · Tempo nur beim Speicher lesen")
+        ocr = lambda: self.read_method.get() == "ocr"  # noqa: E731
+        menu.add_section("Lesen & Tempo", "für Import, Scan und Export · Tempo nur bei Texterkennung")
         menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
                         command=self._on_read_method_changed)
         menu.add_choice([(label, key) for key, label in SPEEDS.items()], self.speed,
-                        command=self._on_speed_changed, visible=memory)
+                        command=self._on_speed_changed, visible=ocr)
         menu.add_section("Deck-Fenster")
         menu.add_toggles([("Hover-Scan", self.hover_scan_enabled), ("Animation", self.animation),
                           ("Spalte „2. Zug“", self.show_second)], command=self._on_option_changed)
@@ -386,6 +386,7 @@ class ExtrasPanel:
             callback()
 
     def _open_options(self) -> None:
+        self.speed.set(self.settings.get(SPEED_KEY, "normal"))  # Overlay-Knopf kann es inzwischen geändert haben
         self.options_menu.popup_below(self.options_btn)
 
     def _on_option_changed(self) -> None:
@@ -407,7 +408,7 @@ class ExtrasPanel:
         """Lesemethode für Import, Deck-Scan und Export (gilt ab dem nächsten Lesen)."""
         self.settings[READ_METHOD_KEY] = self.read_method.get()
         self.save_settings()
-        self.options_menu.rebuild()  # Tempo nur bei "Speicher lesen" (sonst im Overlay)
+        self.options_menu.rebuild()  # Tempo nur bei Texterkennung
         self.set_status(f"Karten lesen: {READ_METHODS[self.read_method.get()]} – gilt ab dem nächsten Scan/Import",
                         INFO)
 
