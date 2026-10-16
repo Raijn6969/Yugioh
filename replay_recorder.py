@@ -96,7 +96,15 @@ class ReplayRecorder:
         threading.Thread(target=self._run, daemon=True, name="replay").start()
 
     def stop(self) -> None:
+        """Beenden (auch Neustart): ein laufender Mitschnitt wird noch gespeichert (zu kurze verwirft finish)."""
         self._stop.set()
+        if self.recording:
+            # shortcut: läuft im aufrufenden Thread, evtl. parallel zu einem Durchgang des Rekorder-Threads – im
+            # schlimmsten Fall wird derselbe Mitschnitt zweimal gespeichert (INSERT OR REPLACE), ausbauen mit Sperre
+            try:
+                self.finish()
+            except Exception as e:  # Beenden darf daran nie scheitern
+                dlog(f"[REPLAY] Mitschnitt beim Beenden nicht gespeichert: {e}")
 
     def _run(self) -> None:
         while not self._stop.wait(POLL if self.recording else IDLE):

@@ -129,6 +129,26 @@ class RecorderTest(unittest.TestCase):
         self.assertEqual(replay.frames[1]["cards"], [[1, 0, 2, 0, 22116, 1, 1, 2500, 1800]])
         self.assertEqual((replay.frames[2]["lp"], replay.frames[3]["turn"]), ({"0": 8000, "1": 5500}, "Turn 2"))
 
+    def test_stop_saves_the_recording_so_far(self):
+        self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
+        self.step(REPLAY, [card(1, 0, 2, kid=22116)])
+        self.step(REPLAY, lp={0: 8000, 1: 5500})
+        self.rec.stop()                                  # Programm wird beendet, Replay läuft noch
+        self.assertFalse(self.rec.recording)
+        (info, steps), = self.saved
+        self.assertEqual(steps, 3)
+        self.assertEqual(len(self.db.replay_at(info.start).frames), 3)
+
+    def test_stop_discards_a_too_short_recording_and_survives_errors(self):
+        self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
+        self.rec.stop()
+        self.assertEqual(self.saved, [])                 # nur 1 Schritt (< MIN_STEPS)
+        self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
+        self.step(REPLAY, [card(1, 0, 2, kid=22116)])
+        self.step(REPLAY, lp={0: 8000, 1: 5500})
+        self.rec.get_db = lambda: (_ for _ in ()).throw(OSError("gesperrt"))
+        self.rec.stop()                                  # Fehler beim Speichern bricht das Beenden nicht ab
+
     def test_protocol_entries_land_in_the_frame_they_were_read_in(self):
         act = {"k": "act", "a": 11, "c": 22116, "t": 0, "f": 13, "z": 0, "cost": 0}
         res = {"k": "chain", "c": 22116, "n": 1, "t": 0, "res": 1}
