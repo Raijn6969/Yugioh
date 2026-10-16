@@ -8,8 +8,9 @@ import os
 from typing import Optional
 
 import numpy as np
+from numpy.lib.stride_tricks import sliding_window_view
 import pytesseract
-from PIL import Image, ImageFilter
+from PIL import Image
 
 from debug_log import clear_changed, dlog_changed
 
@@ -48,28 +49,41 @@ def _kubisch(a: np.ndarray, faktor: float) -> np.ndarray:
         pos = (np.arange(n_neu) + 0.5) * a.shape[achse] / n_neu - 0.5
         i0 = np.floor(pos).astype(int)
         t = pos - i0
-        gewichte = [((k * (t + 1) - 5 * k) * (t + 1) + 8 * k) * (t + 1) - 4 * k, ((k + 2) * t - (k + 3)) * t * t + 1,
-                    ((k + 2) * (1 - t) - (k + 3)) * (1 - t) * (1 - t) + 1,
-                    ((k * (2 - t) - 5 * k) * (2 - t) + 8 * k) * (2 - t) - 4 * k]
-        form = (-1, 1) if achse == 0 else (1, -1)
-        a = sum(np.take(a, np.clip(i0 + d - 1, 0, a.shape[achse] - 1), axis=achse).astype(np.float32)
-                * w.astype(np.float32).reshape(form) for d, w in enumerate(gewichte))
+        gewichte = np.stack([((k * (t + 1) - 5 * k) * (t + 1) + 8 * k) * (t + 1) - 4 * k,
+                             ((k + 2) * t - (k + 3)) * t * t + 1,
+                             ((k + 2) * (1 - t) - (k + 3)) * (1 - t) * (1 - t) + 1,
+                             ((k * (2 - t) - 5 * k) * (2 - t) + 8 * k) * (2 - t) - 4 * k], axis=1).astype(np.float32)
+        index = np.clip(i0[:, None] + np.arange(-1, 3), 0, a.shape[achse] - 1)
+        a = a.astype(np.float32)
+        a = (np.einsum("ik,ikj->ij", gewichte, a[index]) if achse == 0
+             else np.einsum("jk,ijk->ij", gewichte, a[:, index]))
     return a.clip(0, 255).round().astype(np.uint8)
+
+
+def _median3(a: np.ndarray) -> np.ndarray:
+    """Median 3x3 (Rand wiederholt) per Sortiernetz aus min/max: schneller als Pillows MedianFilter."""
+    h, w = a.shape
+    p = np.pad(a, 1, mode="edge")
+    v = [p[y:y + h, x:x + w] for y in range(3) for x in range(3)]
+    for i, j in ((1, 2), (4, 5), (7, 8), (0, 1), (3, 4), (6, 7), (1, 2), (4, 5), (7, 8), (0, 3), (5, 8), (4, 7),
+                 (3, 6), (1, 4), (2, 5), (4, 7), (4, 2), (6, 4), (4, 2)):
+        v[i], v[j] = np.minimum(v[i], v[j]), np.maximum(v[i], v[j])
+    return v[4]
 
 
 def _vorverarbeiten(image: Image.Image) -> Image.Image:
     """Graustufen, 250 % vergrößern (Kanten weich), Median 3x3 gegen Holo-Glitzern, adaptive Binarisierung
     (gaußgewichteter Mittelwert 31x31 minus 2; passt sich der lokalen Helligkeit an, wichtig für Synchro/Link)."""
     gray = image.convert("L")
-    gray = Image.fromarray(_kubisch(np.asarray(gray), 2.5)).filter(ImageFilter.MedianFilter(3))
+    gray = _median3(_kubisch(np.asarray(gray), 2.5))
     # Gauß-Kern wie OpenCV (Fenster 31, sigma = 0,3*((31-1)*0,5-1)+0,8 = 5), Rand wird wiederholt
     x = np.arange(-15, 16)
     kern = np.exp(-x * x / (2 * 5.0 ** 2))
-    kern /= kern.sum()
-    a = np.pad(np.asarray(gray, dtype=np.float32), 15, mode="edge")
-    a = sum(kern[i] * a[:, i:i + a.shape[1] - 30] for i in range(31))
-    mean = sum(kern[i] * a[i:i + a.shape[0] - 30] for i in range(31))
-    return Image.fromarray(np.where(np.asarray(gray) > np.round(mean) - 2, 255, 0).astype(np.uint8))
+    kern = (kern / kern.sum()).astype(np.float32)
+    a = np.pad(gray.astype(np.float32), 15, mode="edge")
+    a = sliding_window_view(a, 31, axis=1) @ kern
+    mean = sliding_window_view(a, 31, axis=0) @ kern
+    return Image.fromarray(np.where(gray > np.round(mean) - 2, 255, 0).astype(np.uint8))
 
 
 def do_ocr(image: Image.Image, tesseract_cmd: str, lang: str = "eng", whitelist: Optional[str] = None) -> str:
