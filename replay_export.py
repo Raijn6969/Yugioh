@@ -8,6 +8,7 @@ sind eingebettet (offline lesbar, ~1–2 MB). Der Name des Gegners wird auf Wuns
 """
 
 import base64
+import contextlib
 import json
 import os
 import re
@@ -164,8 +165,14 @@ def export(replay: Replay, match: Optional[MatchEntry], db, hide_opponent: bool 
     path, n = os.path.join(folder, base + ".html"), 2
     while os.path.exists(path):
         path, n = os.path.join(folder, f"{base}_{n}.html"), n + 1
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(render(data))
+    page = render(data)   # vor dem Öffnen: ein Fehler hier hinterlässt keine leere Datei im Downloads-Ordner
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(page)
+    except Exception:   # Platte voll, nicht kodierbares Zeichen …: keine halbe Datei zum Verschicken liegen lassen
+        with contextlib.suppress(OSError):
+            os.remove(path)
+        raise
     return path
 
 

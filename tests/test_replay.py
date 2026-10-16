@@ -381,6 +381,19 @@ class ExportTest(unittest.TestCase):
                                     image_folder=self.images)
         self.assertNotEqual(path, second)
 
+    def test_export_leaves_no_half_file_and_handles_umlauts(self):
+        match = MatchEntry("8385", 1791623727, 3, 1, True, 3, 1, "Zwölfnote", "", "Größe", "", "Zwölfnote", True)
+        folder = os.path.join(tempfile.mkdtemp(), "Müller Ünter")      # Pfad mit Umlaut und Leerzeichen
+        with mock.patch.object(self.re.card_images, "download", return_value=0):
+            path = self.re.export(self.replay, match, self.db, folder=folder, image_folder=self.images)
+            with open(path, encoding="utf-8") as f:
+                self.assertIn("Zwölfnote", f.read())
+            for render in (mock.Mock(side_effect=ValueError("kaputt")),       # scheitert vor dem Öffnen
+                           mock.Mock(return_value="\ud800")):                  # Schreiben scheitert nach dem Öffnen
+                with mock.patch.object(self.re, "render", render), self.assertRaises(ValueError):
+                    self.re.export(self.replay, match, self.db, folder=folder, image_folder=self.images)
+        self.assertEqual(len(os.listdir(folder)), 1)                    # nur die erste, vollständige Datei
+
     def test_export_unknown_cards_as_card_backs_not_blue_eyes(self):
         # Wenn im Gegnerdeck unaufgedeckte 4007 (Blue-Eyes) liegen und im Duell kein Blue-Eyes vorkam:
         # Sie müssen als "unknown" markiert sein (Kartenrückseite), NIEMALS als Blue-Eyes!
