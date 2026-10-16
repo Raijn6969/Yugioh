@@ -736,11 +736,6 @@ class CardStatsDB:
             return None
         return Replay(row[0], row[1], row[2], row[3], json.loads(row[4]), json.loads(row[5]), frames)
 
-    def replay_starts(self) -> List[int]:
-        """Startzeiten aller Mitschnitte (fürs Kennzeichnen in der Match-Liste)."""
-        with self._connect() as con:
-            return [row[0] for row in con.execute("SELECT start FROM replays ORDER BY start")]
-
     def _replay_assignment(self) -> list:
         """
         [(Start des Mitschnitts, my_id, decks-JSON, Duell-ID des Matches)]. Ein Mitschnitt gehört zum ersten noch freien

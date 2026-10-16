@@ -205,7 +205,6 @@ class StorageTest(unittest.TestCase):
         self.assertFalse(db.save_replay(info, frames[:3]))  # kürzerer Mitschnitt ersetzt nicht
         self.assertEqual(len(db.replay_at(1791623726).frames), 5)
         self.assertIsNone(db.replay_at(1791623727))                      # nur genau diese Startzeit
-        self.assertEqual(db.replay_starts(), [1791623726])
 
     def test_recording_with_log_replaces_old_one_without(self):
         info = rr.replay_info(DUEL)

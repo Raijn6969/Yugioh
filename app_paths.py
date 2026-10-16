@@ -61,4 +61,3 @@ RESUME_FILE = os.path.join(DATA_DIR, "md_resume.json")
 
 TESSERACT_DIR = os.path.join(BUNDLE_DIR, "Tesseract-OCR")
 TESSERACT_CMD = os.path.join(TESSERACT_DIR, "tesseract.exe")
-TESSDATA_DIR = os.path.join(TESSERACT_DIR, "tessdata")
