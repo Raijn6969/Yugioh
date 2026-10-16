@@ -775,19 +775,24 @@ class CardStatsDB:
     def save_replay(self, info, frames: List[dict]) -> bool:
         """
         Mitschnitt speichern. Gibt es zu diesem Duell schon einen längeren, bleibt der – außer die neue Aufnahme hat
-        Duell-Protokoll ("log"), die alte keins und die neue erreicht mindestens 80 % der alten Schritte.
+        Duell-Protokoll ("log"), die alte keins und die neue erreicht mindestens 80 % der alten Schritte. Ein gleich
+        langer ersetzt den alten, außer der alte hat ein Protokoll und der neue nicht.
         Returns: gespeichert?
         """
         import zlib
         with self._connect() as con:
             old = con.execute("SELECT steps, frames FROM replays WHERE start = ?", (info.start,)).fetchone()
-            if old is not None and old[0] > len(frames):
+            if old is not None and old[0] >= len(frames):
                 has_log = lambda fs: any("log" in f for f in fs)  # noqa: E731
                 try:
                     old_log = has_log(json.loads(zlib.decompress(old[1]).decode()))
                 except (zlib.error, ValueError):
                     old_log = False
-                if old_log or not has_log(frames) or len(frames) < 0.8 * old[0]:
+                if old[0] == len(frames):
+                    keep = old_log and not has_log(frames)
+                else:
+                    keep = old_log or not has_log(frames) or len(frames) < 0.8 * old[0]
+                if keep:
                     return False
             con.execute("INSERT OR REPLACE INTO replays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (info.start, info.replay_did, info.my_id, info.first_player, json.dumps(info.names),

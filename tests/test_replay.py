@@ -217,6 +217,18 @@ class StorageTest(unittest.TestCase):
             self.assertEqual(db.save_replay(info, new), saved)
             self.assertEqual(len(db.replay_at(info.start).frames), len(new if saved else old))
 
+    def test_equal_length_never_drops_the_log(self):
+        info = rr.replay_info(DUEL)
+        plain = [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": i} for i in range(10)]
+        logged = [dict(f, log=[{"k": "phase", "p": 1}]) for f in plain]
+        for old, new, saved in ((logged, plain, False), (plain, plain, True), (logged, logged, True),
+                                (plain, logged, True)):
+            db = make_db()
+            db.save_replay(info, old)
+            self.assertEqual(db.save_replay(info, new), saved)
+            kept = db.replay_at(info.start).frames
+            self.assertEqual(any("log" in f for f in kept), (new if saved else old) is logged)
+
     def test_each_replay_belongs_to_one_match(self):
         db = make_db()
         add_match(db, "1")
