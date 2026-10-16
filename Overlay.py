@@ -130,6 +130,7 @@ class MasterDuelImporter:
         self.is_visible = True  # Status für den Smart Visibility Tracker
         self._hidden_by_x = False  # ✕ hat das Overlay im Tray versteckt (bis der Deck-Editor wieder auftaucht)
         self._import_t0 = None  # Startzeit des laufenden Imports (für den Timer)
+        self._status_base = "Bereit für Import"  # Statustext ohne Laufzeit
         self._moved = False  # Wurde das Fenster seit dem letzten Klick verschoben?
         self._position_warning = False  # Zeigt der Status gerade die Warnung "verdeckt …"?
         self._drag_offset = None  # Mausposition im Fenster beim Start des Verschiebens
@@ -536,11 +537,6 @@ class MasterDuelImporter:
         close_button(self.root, self._on_close_clicked, scale, font_x).place(
             relx=1.0, x=-int(5 * scale), y=int(5 * scale), anchor="ne")
 
-        # Import-Dauer, dezent oben links (leer bis zum ersten Import)
-        self.timer_label = tk.Label(self.root, text="", fg=MUTED, bg=BG,
-                                    font=font(SIZE_SMALL, scale))
-        self.timer_label.place(x=int(10 * scale), y=int(6 * scale), anchor="nw")
-
         # Fenstergröße nach Inhalt: mindestens wie bisher, breiter falls die Buttons mehr brauchen
         self.root.update_idletasks()
         win_w = self._content_width()
@@ -600,7 +596,6 @@ class MasterDuelImporter:
                                             or (md_active and self._own_window_over_header()))
                 self.match_watch.enabled = self._use_memory()
                 self.replay_watch.enabled = self._use_memory()
-                self._clear_timer_after_editor()
                 if md_active and self._use_memory():
                     self._preload_memory()
                 if self._should_show(fg_pid == my_pid, md_active):
@@ -644,13 +639,6 @@ class MasterDuelImporter:
         except tk.TclError:
             pass
         return False
-
-    def _clear_timer_after_editor(self) -> None:
-        """Die Endzeit des letzten Imports/Exports bleibt stehen, bis man den Deck-Editor verlässt – beim nächsten
-        Öffnen des Editors gehört sie zu nichts mehr."""
-        if self.editor_watch.visible is False and not self.is_running and self._import_t0 is None:
-            if self.timer_label.cget("text"):
-                self.timer_label.config(text="")
 
     def _should_show(self, own_window_in_front: bool, md_in_front: bool) -> bool:
         """
@@ -904,7 +892,7 @@ class MasterDuelImporter:
     def _tick_timer(self):
         if self._import_t0 is None:
             return
-        self.timer_label.config(text=f"⏱ {self._format_duration(time.perf_counter() - self._import_t0)}")
+        self.status_label.config(text=self._status_text())
         if self.is_running:
             self._after_ids["timer"] = self.root.after(250, self._tick_timer)
 
@@ -950,10 +938,17 @@ class MasterDuelImporter:
         self._after_ids.clear()
         self.root.destroy()
 
+    def _status_text(self):
+        """Statuszeile; während Import/Export/Scan steht rechts dahinter die Laufzeit ("Importiere … · 0:42")."""
+        if self._import_t0 is None or not self.is_running:
+            return self._status_base
+        return f"{self._status_base} · {self._format_duration(time.perf_counter() - self._import_t0)}"
+
     def update_status(self, text, color=TEXT):
         if getattr(self, "_update_running", False) and not str(text).startswith("Update"):
             return
-        self.status_label.config(text=text, fg=color)
+        self._status_base = text
+        self.status_label.config(text=self._status_text(), fg=color)
         try:
             self.status_label.update_idletasks()
         except (tk.TclError, AttributeError):
@@ -1064,7 +1059,6 @@ class MasterDuelImporter:
             self._last_scan = None  # Import verändert das Deck
             self._set_buttons(tk.DISABLED)
 
-            self.timer_label.config(text="")
             self._import_t0 = None
 
             # Tkinter ist nicht thread-sicher: Alle UI-Änderungen aus dem Import-Thread
@@ -1090,10 +1084,7 @@ class MasterDuelImporter:
         if scan is not None:
             self._last_scan = scan  # Die Kontrolle am Ende hat das Deck gelesen → gilt als gescannt
         self._set_buttons(tk.NORMAL)
-        # Timer anhalten und Endzeit stehen lassen
-        if self._import_t0 is not None:
-            self.timer_label.config(text=f"⏱ {self._format_duration(time.perf_counter() - self._import_t0)}")
-            self._import_t0 = None
+        self._import_t0 = None  # Timer aus: die Dauer steht nur während des Laufs in der Statuszeile
         # Die Engine kann Einstellungen ergänzt haben (z.B. gemerkte Fenstergröße)
         self._save_config_safely()
         swap, self._swap_label = self._swap_label, None
@@ -1148,7 +1139,6 @@ class MasterDuelImporter:
         self._close_extras()
         scan = self._last_scan if self._last_scan and not flagged and not current_changes(self._last_scan) else None
         self._set_buttons(tk.DISABLED)
-        self.timer_label.config(text="")
         self._import_t0 = None
         if scan:
             self.update_status("Deck unverändert – letzter Scan wird exportiert", INFO)
@@ -1171,9 +1161,7 @@ class MasterDuelImporter:
     def _on_export_finished(self, result, error=""):
         self.is_running = False
         self._set_buttons(tk.NORMAL)
-        if self._import_t0 is not None:
-            self.timer_label.config(text=f"⏱ {self._format_duration(time.perf_counter() - self._import_t0)}")
-            self._import_t0 = None
+        self._import_t0 = None
         if result is None:
             self.update_status("Export abgebrochen", BAD)
             show_message(self.root, "Export abgebrochen", error, kind="error")

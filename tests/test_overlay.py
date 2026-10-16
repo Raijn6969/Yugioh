@@ -263,22 +263,23 @@ class OverlayTest(unittest.TestCase):
         threading.Thread(target=worker, daemon=True).start()
         self.pump(root, 1.6)
         self.assertEqual(app.status_label.cget("text"), "Import Erfolgreich!")
-        self.assertEqual(app.timer_label.cget("text"), "⏱ 0:01")
         self.assertEqual(str(app.speed_btn.cget("state")), "normal")
 
-    def test_end_time_is_cleared_after_leaving_the_editor(self):
+    def test_timer_is_part_of_the_status_line_only_while_running(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
+        app.update_status("Bereit für Import")
+        self.assertEqual(app.status_label.cget("text"), "Bereit für Import")  # Leerlauf: keine Zeit
         app.is_running = True
-        app._on_import_started()
-        app._on_import_finished(True, False, [])
-        self.assertTrue(app.timer_label.cget("text").startswith("⏱"))
-        app.editor_watch.detector = mock.Mock(visible=True)   # noch im Editor: Endzeit bleibt
-        app._clear_timer_after_editor()
-        self.assertTrue(app.timer_label.cget("text").startswith("⏱"))
-        app.editor_watch.detector.visible = False  # Editor verlassen
-        app._clear_timer_after_editor()
-        self.assertEqual(app.timer_label.cget("text"), "")
+        with mock.patch.object(Overlay.time, "perf_counter", return_value=100.0):
+            app._on_import_started()
+        with mock.patch.object(Overlay.time, "perf_counter", return_value=142.0):
+            app.update_status("Importiere …")
+            self.assertEqual(app.status_label.cget("text"), "Importiere … · 0:42")
+        app.is_running = False
+        app._import_t0 = None
+        app.update_status("Import Erfolgreich!")
+        self.assertEqual(app.status_label.cget("text"), "Import Erfolgreich!")
 
     def test_own_window_over_header_pauses_the_editor_check(self):
         import md_layout
