@@ -1243,12 +1243,13 @@ class DuelView:
             if it.group == "board" and it.mine and not it.card["face"] and face is None:
                 self._shield(x + cw // 2, y + ch - int(10 * s), "gesetzt", LIGHT_BLUE, small=True)
 
+        focus = {m.focus.uid for m in step.marks} | {step.focus.uid} if step is not None and step.focus else set()
         for stack in stacks.values():  # Stapel: oberste Karte, die nicht gerade unterwegs ist, mit Anzahl
             rest = [u for u in stack if u not in moved]
             if not rest:
                 continue
             top = items[rest[-1]]
-            draw(rest[-1])
+            draw(next((u for u in reversed(rest) if u in focus), rest[-1]))  # Ziel/Kosten im Stapel liegt obenauf
             if top.group == "pile" and top.card["zone"] == rr.EXTRA_DECK:
                 self._badge(top.x + cw, top.y + ch, str(top.card["index"] + 1))
             elif top.group in ("grave", "banished"):

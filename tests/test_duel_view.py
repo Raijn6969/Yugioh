@@ -454,6 +454,21 @@ class AnimationTest(unittest.TestCase):
                 big = [c.args for c in image.call_args_list if c.args[1] > view._geometry()[0]]  # vergrößert
                 self.assertTrue(big and all(a[3] == angle for a in big), image.call_args_list)
 
+    def test_target_in_the_graveyard_is_shown_on_top_only_during_its_step(self):
+        from unittest import mock
+        old, new = row(1, rr.GRAVE, 100), row(2, rr.GRAVE, 101, index=1)
+        frames = [frame(old), frame(old, new), dict(frame(old, new), log=[act(23, 100, zone=rr.GRAVE)])]
+        view = self.view(frames, {100: "123", 101: "456"})
+        self.assertEqual(view.steps[2].kind, "ziel")
+        with mock.patch.object(view, "_card_image", return_value=None) as image:
+            self.animate(view, 2, 0.5)
+            image.reset_mock()
+            view.draw()                                                  # Animation läuft noch: dasselbe Bild
+            during = {c.args[0] for c in image.call_args_list}
+            image.reset_mock()
+            self.finish(view)
+        self.assertEqual((during, {c.args[0] for c in image.call_args_list}), ({"123"}, {"456"}))
+
     def test_lp_change_floats_next_to_the_display(self):
         view = self.view()
         self.assertIn("−1000", self.animate(view, 3, 0.5))
