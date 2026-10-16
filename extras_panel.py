@@ -59,7 +59,7 @@ GUIDE_MIN_COPIES = 3   # … mit mindestens so vielen Karten
 POLL_MS = 50          # Wie oft die Maus geprüft wird
 SHOW_DELAY = 0.12     # So lange muss die Maus auf einer Karte liegen, bevor das Info-Fenster kommt/wechselt
 HIDE_DELAY = 0.3      # Lücken zwischen Karten überbrücken: erst nach so langer Zeit ohne Karte ausblenden
-MIN_WIDTH = 560       # Mindestbreite des Fensters bei 1080p (der Inhalt braucht sie)
+MIN_WIDTH = 550       # Mindestbreite des Fensters bei 1080p (der Inhalt braucht sie)
 FRAME_REFRESH = 0.5   # Sekunden, bis die Fensterposition von Master Duel neu abgefragt wird
 
 SPELL_KINDS = {"Normal": "Normal", "Quick-Play": "Schnell", "Field": "Feld", "Continuous": "Permanent",
@@ -841,8 +841,8 @@ class ExtrasPanel:
         s = self.s
         frame = md_layout.md_frame()
         if frame is not None:
-            # Kartenliste (bis 990) plus die halbe Reihe darunter und die Scrollleiste (x 1856–1867) von Master Duel
-            area = frame.region(1320, 180, 1880, 1070)
+            # Box der Kartenliste von Master Duel (innen x 1316–1869, y 172–1000, gemessen), 2–3 px Rand
+            area = frame.region(1318, 180, 1868, 998)
             x, y, w, h = area["left"], area["top"], area["width"], area["height"]
             bar = self.master  # Hauptleiste: bleibt frei, wenn sie unter dem Fenster liegt
             if (bar.winfo_viewable() and bar.winfo_rootx() < x + w and bar.winfo_rootx() + bar.winfo_width() > x

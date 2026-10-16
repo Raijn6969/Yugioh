@@ -709,8 +709,8 @@ class ExtrasPanelTest(unittest.TestCase):
         with mock.patch.object(extras_panel.md_layout, "md_frame", return_value=small),                 mock.patch.object(extras_panel.win_api, "monitor_work_area", return_value=(0, 0, 1920, 1040)):
             self.panel._place_over_card_list()
         self.root.update()
-        area = small.region(1320, 180, 1880, 1070)
-        self.assertEqual((self.panel.win.winfo_x(), self.panel.win.winfo_width()), (area["left"], 560))
+        area = small.region(1318, 180, 1868, 998)
+        self.assertEqual((self.panel.win.winfo_x(), self.panel.win.winfo_width()), (area["left"], 550))
         with mock.patch.object(extras_panel.md_layout, "md_frame", return_value=md_layout.Frame(312, 140, 1600, 900)),                 mock.patch.object(extras_panel.win_api, "monitor_work_area", return_value=(0, 0, 1920, 1040)):
             self.panel._place_over_card_list()  # am rechten Rand: bleibt im Arbeitsbereich
         self.root.update()
@@ -719,10 +719,11 @@ class ExtrasPanelTest(unittest.TestCase):
     def test_opens_over_card_list_and_shows_deck(self):
         self.panel.set_scan(self.scan)
         self.root.update()
-        area = FRAME.region(1320, 180, 1880, 1070)  # deckt Kartenliste und Scrollleiste von Master Duel
+        area = FRAME.region(1318, 180, 1868, 998)  # innerhalb der Kartenlisten-Box von Master Duel
         self.assertEqual((self.panel.win.winfo_x(), self.panel.win.winfo_y()), (area["left"], area["top"]))
         self.assertEqual((self.panel.win.winfo_width(), self.panel.win.winfo_height()),
                          (area["width"], area["height"]))
+        self.assertLessEqual(self.panel.win.winfo_reqwidth(), 550)  # Inhalt passt in die Box
         self.assertEqual(len(self.panel._rows), 1 + 1 + 35 + 1)  # Lukias, Ash, 35 andere, Arthalion
         self.assertEqual(self.panel.tiles["main"].cget("text"), "40")
         self.assertEqual(self.panel.tiles["starter"].cget("text"), "3")
