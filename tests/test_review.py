@@ -288,7 +288,7 @@ class PanelTest(unittest.TestCase):
     def test_current_month_is_the_default_and_empty_months_say_so(self):
         panel = self.open(now=at(11, 10))
         self.assertEqual(panel.month_label.cget("text"), "November 2026")
-        self.assertTrue(any("keine erfassten Duelle" in t for t in self.texts(panel.inner)))
+        self.assertTrue(any("keine erfassten Matches" in t for t in self.texts(panel.inner)))
 
     def test_first_days_of_a_month_show_the_previous_one(self):
         panel = self.open(now=at(10, 2))
@@ -298,12 +298,13 @@ class PanelTest(unittest.TestCase):
         panel = self.open(now=at(10, 2))
         texts = self.texts(panel.inner)
         self.assertIn("56 %", texts)                              # 5 Siege aus 9
-        self.assertIn("5–4 · 9 Duell(e)", texts)
-        for expected in ("MÜNZWURF", "Ryzeal", "7 Duelle · 4–3 · 57 %", "Bestes Matchup: Snake-Eye",
-                         "Schlechtestes: Sky Striker", "4 in Folge", "3 in Folge", "Di 01.09. · 4 Duelle (4–0)",
-                         "Duelle im Monat"):
+        self.assertIn("5–4 · 9 Matches", texts)
+        for expected in ("MÜNZWURF", "Ryzeal", "57 % · 4–3 · 7 Matches", "Bestes Matchup: Snake-Eye",
+                         "Schlechtestes: Sky Striker", "4 in Folge", "3 in Folge", "Di 01.09. · 4–0 · 4 Matches",
+                         "Matches im Monat"):
             self.assertTrue(any(expected in t for t in texts), (expected, texts))
         self.assertEqual(panel.mode_label_widget.cget("text"), "Ranked")
+        self.assertEqual(panel.status_label.winfo_manager(), "")  # keine leere Statuszeile
         self.settings["WINRATE_MODE"] = "all"
         panel.refresh()
         self.assertEqual(panel.mode_label_widget.cget("text"), "alle Modi")

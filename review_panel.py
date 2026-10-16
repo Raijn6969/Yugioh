@@ -18,6 +18,7 @@ import season_review as sr
 from bug_report import reveal
 from dark_scrollbar import DarkScrollbar
 from match_history import RANKED
+from winrate_panel import matches_text
 from rounded_button import RoundedButton
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
                           BAD, ROW_ALT, NEUTRAL)
@@ -84,10 +85,9 @@ class ReviewPanel:
         self.mode_label_widget = tk.Label(nav, text="", fg=MUTED, bg=BG, font=self.font_small)
         self.mode_label_widget.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.status_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
-                                     justify=tk.LEFT, wraplength=int(490 * s))
-        self.status_label.pack(fill=tk.X, pady=(int(4 * s), 0))
+                                     justify=tk.LEFT, wraplength=int(490 * s))  # nur beim Export gepackt
 
-        list_frame = tk.Frame(body, bg=BG)
+        self.list_frame = list_frame = tk.Frame(body, bg=BG)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(int(4 * s), 0))
         self.canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
         bar = DarkScrollbar(list_frame, command=self.canvas.yview, bg=BG, scale=self.s)
@@ -147,7 +147,7 @@ class ReviewPanel:
         review = self.review
         total = review.total
         if not total.matches:
-            self._note(f"In diesem Monat gibt es keine erfassten Duelle ({self.mode_label}).")
+            self._note(f"In diesem Monat gibt es keine erfassten Matches ({self.mode_label}).")
             self.canvas.yview_moveto(0)
             return
         self._tiles([("GESAMT", total.wins, total.matches), ("ALS ERSTER", total.first_wins, total.first),
@@ -164,25 +164,25 @@ class ReviewPanel:
         for i, deck in enumerate(review.decks):
             stats = deck.stats
             self._row(deck.deck_name or "Unbekanntes Deck",
-                      f"{stats.matches} Duelle · {sr.record_text(stats)} · {sr.rate_text(stats.wins, stats.matches)}",
+                      f"{sr.rate_text(stats.wins, stats.matches)} · {sr.record_text(stats)} · {matches_text(stats.matches)}",
                       ROW_ALT if i % 2 else BG, color=rate_color(stats.wins, stats.matches))
-        self._section(f"GEGNER-DECKS (mindestens {sr.MIN_MATCHUP} Duelle)")
+        self._section(f"GEGNER-DECKS (mindestens {sr.MIN_MATCHUP} Matches)")
         if review.best is None:
-            self._note("Noch zu wenige Duelle: ein Gegner-Deck braucht mindestens 3.")
+            self._note("Noch zu wenige Matches: ein Gegner-Deck braucht mindestens 3.")
         for i, (label, opponent) in enumerate((("Bestes Matchup", review.best), ("Schlechtestes", review.worst))):
             if opponent is not None:
                 stats = opponent.stats
                 self._row(f"{label}: {opponent.opp_name}",
-                          f"{sr.rate_text(stats.wins, stats.matches)} ({sr.record_text(stats)}) "
-                          f"· {stats.matches} Duelle",
+                          f"{sr.rate_text(stats.wins, stats.matches)} · {sr.record_text(stats)} "
+                          f"· {matches_text(stats.matches)}",
                           ROW_ALT if i % 2 else BG, color=GOOD if i == 0 else BAD)
         self._section("SERIEN UND AKTIVSTER TAG")
         facts: List[Tuple[str, str]] = [("Längste Siegserie", f"{review.win_streak} in Folge"),
                                         ("Längste Niederlagenserie", f"{review.loss_streak} in Folge"),
-                                        ("Duelle im Monat", str(total.matches))]
+                                        ("Matches im Monat", str(total.matches))]
         if review.busiest:
             day = review.busiest
-            facts.append(("Aktivster Tag", f"{sr.day_text(day)} · {day.duels} Duelle ({sr.record_text(day)})"))
+            facts.append(("Aktivster Tag", f"{sr.day_text(day)} · {sr.record_text(day)} · {matches_text(day.duels)}"))
         for i, (name, value) in enumerate(facts):
             self._row(name, value, ROW_ALT if i % 2 else BG)
         self.canvas.yview_moveto(0)
@@ -214,7 +214,7 @@ class ReviewPanel:
             tile.grid(row=0, column=column, sticky="ew", padx=(0, int(6 * s)))
             color = rate_color(wins, matches) if colored[column] else TEXT
             tk.Label(tile, text=sr.rate_text(wins, matches), fg=color, bg=PANEL, font=self.font_big).pack()
-            tk.Label(tile, text=f"{wins}–{matches - wins} · {matches} Duell(e)" if matches else "keine Duelle",
+            tk.Label(tile, text=f"{wins}–{matches - wins} · {matches_text(matches)}" if matches else "keine Matches",
                      fg=MUTED, bg=PANEL, font=self.font_small).pack()
             tk.Label(tile, text=caption, fg=MUTED, bg=PANEL, font=self.font_small).pack()
 
@@ -224,7 +224,7 @@ class ReviewPanel:
         if self.review is None or self._exporting:
             return
         self._exporting = True
-        self.status_label.config(text="Exportiere als HTML …", fg=MUTED)
+        self._status("Exportiere als HTML …", MUTED)
         review, mode_label = self.review, self.mode_label
         self._export_result = None
 
@@ -238,6 +238,10 @@ class ReviewPanel:
         threading.Thread(target=work, daemon=True, name="review-export").start()
         self._wait_export()
 
+    def _status(self, text: str, color: str) -> None:
+        self.status_label.config(text=text, fg=color)
+        self.status_label.pack(fill=tk.X, pady=(int(4 * self.s), 0), before=self.list_frame)
+
     def _wait_export(self) -> None:
         if self.closed:
             return
@@ -247,10 +251,10 @@ class ReviewPanel:
         kind, value = self._export_result
         self._exporting = False
         if kind == "ok":
-            self.status_label.config(text=f"Gespeichert: {os.path.basename(value)} (Downloads)", fg=GOOD)
+            self._status(f"Gespeichert: {os.path.basename(value)} (Downloads)", GOOD)
             self.reveal_file(value)
         else:
-            self.status_label.config(text=f"Export fehlgeschlagen: {value}", fg=BAD)
+            self._status(f"Export fehlgeschlagen: {value}", BAD)
 
     def _on_wheel(self, event) -> None:
         self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
