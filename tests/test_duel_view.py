@@ -352,6 +352,28 @@ class AnimationTest(unittest.TestCase):
         view.set_visible(True)
         self.assertEqual((view.playing, view._job), (False, None))
 
+    def test_field_fits_every_screen_and_leaves_room_for_sideways_cards(self):
+        from unittest import mock
+        for screen_w, screen_h in ((1920, 1080), (1366, 768), (1080, 1920)):
+            width = mock.patch.object(self.root, "winfo_screenwidth", return_value=screen_w)
+            height = mock.patch.object(self.root, "winfo_screenheight", return_value=screen_h)
+            with self.subTest(screen=(screen_w, screen_h)), width, height:
+                view = self.view()
+                w, h = view.size
+                cw, ch, cols, rows = view._geometry()
+                self.assertLessEqual(w + view.side_w, screen_w - 40)
+                self.assertLessEqual(h + int(76 * view.s), screen_h - 80)
+                self.assertGreaterEqual(cols[0], 0)
+                self.assertLessEqual(cols[6] + cw, w)
+                self.assertLessEqual(rows["my_hand"] + ch, h)
+                self.assertGreaterEqual(rows["opp_hand"], 0)
+                # eine quer liegende Karte (ch breit) ragt nicht in die Nachbarzone
+                self.assertGreaterEqual(cols[1] - cols[0] - cw, ch - cw + int(4 * view.s))
+                view.manual(2, False)                     # Standbild zeichnen (Hand, Beschwörung, Plaketten …)
+                if (screen_w, screen_h) == (1920, 1080):
+                    self.assertGreater(cols[0], int(200 * view.s))      # links bleibt Platz für Text und Ketten-Leiste
+                    self.assertLess(w - (cols[6] + cw), int(40 * view.s))   # rechts nur ein kleiner Rand
+
     def animate(self, view, step, frac):
         """Schritt vor und die Animation auf frac (0…1) des Weges stellen; Uhr ist gesteuert."""
         from unittest import mock

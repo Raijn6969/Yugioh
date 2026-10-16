@@ -57,6 +57,7 @@ PLAQUE = "#f0c450"       # Kettenglied-Nummer auf der Karte
 RESOLVING = "#ff7a7a"    # Kettenglied, das gerade auflöst ("KETTE LÖST AUF"), Rahmen von Ziel/Negation/Zerstörung
 LP_DOWN, LP_UP = "#ff6464", "#78e68c"
 FRAME_MS = 33            # Animation: ein Bild alle 33 ms
+LEFT_ROOM = 220          # Platz links vom Feld für Schritt-Text und Ketten-Leiste (bei 1080p)
 SPEEDS = (0.5, 1.0, 1.5, 2.0, 4.0)   # Wiedergabe-Tempo, der Knopf schaltet der Reihe nach weiter
 STEP_ROW = "#463a18"     # aktuelle Zeile der Schrittliste
 
@@ -526,8 +527,13 @@ class DuelView:
     def _place(self) -> None:
         s = self.s
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        w, h = min(int(1000 * s) + self.side_w, screen_w - 40), min(int(860 * s), screen_h - 80)
-        self.size = (w - self.side_w, h - int(76 * s))  # Zeichenfläche ohne Kopfzeile, Replay-Bedienung, Schrittliste
+        h = screen_h - 80
+        # Zeichenfläche ohne Kopfzeile, Replay-Bedienung und Schrittliste
+        h_canvas, w_max = h - int(76 * s), screen_w - 40 - self.side_w
+        left = self._field_fit(w_max, h_canvas)[4]
+        w = min(w_max, int(LEFT_ROOM * s) + w_max - left)   # links Platz für Text, das Feld nutzt den Rest
+        self.size = (w, h_canvas)
+        w += self.side_w
         self.canvas.config(width=self.size[0], height=self.size[1])
         self.win.geometry(f"{w}x{h}+{(screen_w - w) // 2}+{max(0, (screen_h - h) // 2 - int(20 * s))}")
 
@@ -1008,19 +1014,30 @@ class DuelView:
         """7 Spalten × 7 Reihen (Hand Gegner – nur OPP_HAND so hoch –, Z/F, Monster, Extra-Monsterzonen, Monster, Z/F,
         deine Hand)."""
         w, h = self.size
-        gap = max(3, int(4 * self.s))
-        card_h = int((h - 2 * gap - 8 * gap) / (6 + OPP_HAND))
-        card_w = int(card_h * CARD[0] / CARD[1])
-        if 7 * card_w + 8 * gap > w - 2 * gap:  # schmales Fenster: nach der Breite
-            card_w = (w - 2 * gap - 8 * gap) // 7
-            card_h = int(card_w * CARD[1] / CARD[0])
-        left = (w - (7 * card_w + 6 * gap)) // 2
+        card_w, card_h, gap_x, gap, left = self._field_fit(w, h)
         top = (h - (int(card_h * OPP_HAND) + 6 * card_h + 6 * gap)) // 2
-        cols = [left + i * (card_w + gap) for i in range(7)]
+        cols = [left + i * (card_w + gap_x) for i in range(7)]
         rows = {name: top + int(card_h * OPP_HAND) + gap + i * (card_h + gap) for i, name in
                 enumerate(("opp_s", "opp_m", "emz", "my_m", "my_s", "my_hand"))}
         rows["opp_hand"] = top
         return card_w, card_h, cols, rows
+
+    def _field_fit(self, w: int, h: int) -> Tuple[int, int, int, int, int]:
+        """Kartengröße für eine Zeichenfläche w × h (das Kleinere aus Höhe und Breite gewinnt):
+        (Breite, Höhe, Spaltenabstand, Reihenabstand, linker Rand des Feldes). Der Spaltenabstand lässt einer
+        quer liegenden Karte (ch breit) Platz; links bleibt Raum für Text und Ketten-Leiste, rechts nur ein Rand."""
+        s = self.s
+        gap, pad, k = max(3, int(6 * s)), int(24 * s), CARD[1] / CARD[0]
+        card_h = int((h - 10 * gap) / (6 + OPP_HAND))
+        card_w = int(card_h * CARD[0] / CARD[1])
+        room = w - min(int(LEFT_ROOM * s), w // 5) - pad
+        span = lambda cw, ch: 7 * cw + 6 * (ch - cw + int(4 * s))  # noqa: E731
+        if span(card_w, card_h) > room:  # schmales Fenster: nach der Breite
+            card_w = min(card_w, int((room - 24 * s) / (6 * k + 1)) + 1)
+            while card_w > 1 and span(card_w, int(card_w * k)) > room:
+                card_w -= 1
+            card_h = int(card_w * k)
+        return card_w, card_h, card_h - card_w + int(4 * s), gap, w - pad - span(card_w, card_h)
 
     @staticmethod
     def place(zone: int, mine: bool) -> Optional[Tuple[str, int]]:
@@ -1136,12 +1153,12 @@ class DuelView:
         for stack in stacks.values():  # Deck, Extra Deck, Feldzauber: die Karte mit dem höchsten Platz liegt oben
             if items[stack[0]].group == "pile":
                 stack.sort(key=lambda uid: items[uid].card["index"])
-        w = self.size[0]
+        mid = cols[3] + cw // 2
         for mine, hand in hands.items():
             hand.sort(key=lambda k: k["index"])
             hw = cw if mine else int(cw * OPP_HAND)
             step = min(hw + int(4 * s), (cols[6] - cols[0]) // max(1, len(hand)))
-            left = (w - (step * (len(hand) - 1) + hw)) // 2
+            left = mid - (step * (len(hand) - 1) + hw) // 2
             for i, card in enumerate(hand):
                 items[card["uid"]] = Item(card, left + i * step, rows["my_hand" if mine else "opp_hand"], mine, "hand")
         self._scenes[n] = (items, stacks)
@@ -1296,7 +1313,7 @@ class DuelView:
             if a > 0.12:  # zur Hand hinzugefügt: Karte groß in der Feldmitte
                 bw = int(cw * 1.7)
                 bh = int(bw * ch / cw)
-                cx, cy = self.size[0] // 2, rows["emz"] + ch // 2
+                cx, cy = cols[3] + cw // 2, rows["emz"] + ch // 2
                 image = self._card_image(self.passcode(f.card), bw, bh, 0)
                 if image is not None:
                     self.canvas.create_image(cx, cy, image=image)
@@ -1366,6 +1383,8 @@ class DuelView:
         bw, bh = int(cw * grow), int(ch * grow)
         cx, cy = spot[0] + cw // 2, spot[1] + ch // 2 - int(ch * 0.12 * lift)
         cy = max(cy, bh // 2 + int(30 * s))  # Karte aus der flachen Gegnerhand + Beschriftung bleiben im Bild
+        cy = min(cy, self.size[1] - bh // 2 - int(17 * s))  # unten: der äußerste Ring bleibt im Bild
+        cx = max(bw // 2 + int(17 * s), min(cx, self.size[0] - bw // 2 - int(17 * s)))  # seitlich ebenso
         r = int(cw * (0.6 + 1.4 * p))
         c.create_oval(cx - r, cy - r, cx + r, cy + r, outline=rs.blend(color, FIELD, 0.63 * (1 - p)),
                       width=max(2, int(6 * s * (1 - p)) + 1))
