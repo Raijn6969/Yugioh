@@ -49,7 +49,7 @@ from dark_menu import DarkMenu
 from debug_log import append, dlog, dlog_changed, start_run
 from editor_watch import EditorWatcher
 from hang_watch import HangWatch
-from window_style import (BAD, BG, GOOD, INFO, MUTED, NEUTRAL, PRIMARY, SIZE_SMALL, SIZE_TEXT, TEXT, WARN,
+from window_style import (BAD, BG, GOOD, INFO, NEUTRAL, PRIMARY, SIZE_SMALL, SIZE_TEXT, TEXT, WARN,
                           apply_frame, font, no_activate)
 from rounded_button import RoundedButton, close_button
 from tray import TrayIcon

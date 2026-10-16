@@ -31,9 +31,10 @@ DANGER = "#cc0000"
 DECK = "#5e35b1"        # Deck-Knopf der Hauptleiste (weiß darauf 8:1)
 # Knopfrollen für RoundedButton(role=…): (Füllung, Schrift, Rand). "ruhig + Akzent": Navigation neutral, der aktive
 # Knopf gold, Farbe nur für Hauptaktion (primary/success) und Gefahr.
-ROLES = {"primary": (PRIMARY, "white", LINE), "neutral": (NEUTRAL, "white", LINE),
-         "success": (SUCCESS, "white", LINE), "danger": (DANGER, "white", BAD),
-         "active": (GOLD_HOVER, TEXT, GOLD), "deck": (DECK, "white", LINE)}
+# Der Rand ist heller als die Füllung und hat gegen PANEL und BG mindestens 3:1 (WCAG für Bedienelemente).
+ROLES = {"primary": (PRIMARY, "white", "#5aa9e6"), "neutral": (NEUTRAL, "white", "#8a8a8a"),
+         "success": (SUCCESS, "white", "#6fbf73"), "danger": (DANGER, "white", BAD),
+         "active": (GOLD_HOVER, TEXT, GOLD), "deck": (DECK, "white", "#a58be0")}
 
 # Schrift: eine Familie, Kennzahlen Consolas; Größen in pt bei 1080p (mit font() × Maßstab s)
 FONT = "Segoe UI"

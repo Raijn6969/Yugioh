@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageTk
 from window_style import LINE, MUTED, NEUTRAL, ROLES, SIZE_SMALL, font as window_font
 
 SUPERSAMPLE = 4  # Zeichen-Vergrößerung für glatte Rundungen
+BORDER_PX = 1.5  # Randstärke in Pixel (bei Maßstab 1)
 SHARED_MAX = 300  # so viele verschiedene Körper (Größe/Farbe) hält der gemeinsame Zwischenspeicher je Fenster-Wurzel
 
 
@@ -29,12 +30,14 @@ def _shade(hex_color: str, factor: float) -> str:
 
 
 def render_body(width: int, height: int, radius: int, fill: str, border: str, background: str) -> Image.Image:
-    """Button-Körper: abgerundetes Rechteck mit 1-px-Rand, geglättet, auf dem Hintergrund des Fensters."""
+    """Button-Körper: abgerundetes Rechteck mit Rand (BORDER_PX), geglättet, auf dem Hintergrund des Fensters."""
     s = SUPERSAMPLE
+    edge = round(BORDER_PX * s)
     image = Image.new("RGB", (width * s, height * s), background)
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle([0, 0, width * s - 1, height * s - 1], radius=radius * s, fill=border)
-    draw.rounded_rectangle([s, s, width * s - 1 - s, height * s - 1 - s], radius=max(0, (radius - 1) * s), fill=fill)
+    draw.rounded_rectangle([edge, edge, width * s - 1 - edge, height * s - 1 - edge],
+                           radius=max(0, radius * s - edge), fill=fill)
     return image.resize((width, height), Image.LANCZOS)
 
 
