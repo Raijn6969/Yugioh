@@ -102,6 +102,16 @@ class OverlayTest(unittest.TestCase):
         self.assertTrue(os.path.exists(self.config_file + ".defekt.bak"))
         self.assertEqual(len(self.warnings), 1)
 
+    def test_calibration_remembers_window_origin(self):
+        root, app = self.open_app()
+        frame = Overlay.md_layout.Frame(300, 40, 1920, 1080)
+        with mock.patch.object(Overlay, "get_md_window_size", return_value=(1920, 1080)), \
+                mock.patch.object(Overlay.md_layout, "md_frame", return_value=frame):
+            app.on_calibration_done({"FIRST_CARD": [1, 2]})
+        with open(self.config_file, encoding="utf-8") as f:
+            saved = json.load(f)
+        self.assertEqual((saved["CALIBRATED_SIZE"], saved["CALIBRATED_ORIGIN"]), ([1920, 1080], [300, 40]))
+
     def test_speed_selection_is_saved(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()

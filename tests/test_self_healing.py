@@ -17,10 +17,12 @@ GOOD_CONFIG = {"SEARCH_BAR": [1404, 245], "FIRST_CARD": [1390, 400], "TRASH_BTN"
 
 
 class PreflightTest(unittest.TestCase):
-    def preflight(self, config=None, tesseract=None, size=(1920, 1080), screen=(0, 0, 1920, 1080)):
+    def preflight(self, config=None, tesseract=None, size=(1920, 1080), screen=(0, 0, 1920, 1080), origin=None):
         core = make_core()
         core.config = dict(GOOD_CONFIG if config is None else config)
+        frame = ie.md_layout.Frame(*origin, *size) if origin and size else None
         with mock.patch.object(ie.vision_engine, "check_tesseract", return_value=tesseract), \
+                mock.patch.object(ie.md_layout, "md_frame", return_value=frame), \
                 mock.patch.object(ie, "get_md_window_size", return_value=size), \
                 mock.patch.object(ie.win_api, "virtual_screen_rect", return_value=screen):
             return core._preflight(), core
@@ -46,6 +48,28 @@ class PreflightTest(unittest.TestCase):
         problem, core = self.preflight(config=config, size=(1280, 720))
         self.assertIsNone(problem)
         self.assertEqual(core.config["CALIBRATED_SIZE"], [1280, 720])
+
+    def test_moved_window_moves_the_points_for_this_run_only(self):
+        config = dict(GOOD_CONFIG, DECK_COUNT=[741, 192], CALIBRATED_ORIGIN=[0, 0])
+        saved = dict(config)
+        problem, core = self.preflight(config=config, origin=(300, 40), screen=(0, 0, 3840, 1080))
+        self.assertIsNone(problem)
+        self.assertEqual(core.config["SEARCH_BAR"], [1704, 285])
+        self.assertEqual(core.config["FIRST_CARD"], [1690, 440])
+        self.assertEqual(core.config["DECK_COUNT"], [1041, 232])
+        self.assertEqual(config, saved)  # die übergebene (gespeicherte) Config bleibt unverändert
+
+    def test_same_origin_or_old_config_keeps_the_points(self):
+        for config, origin in ((dict(GOOD_CONFIG, CALIBRATED_ORIGIN=[300, 40]), (300, 40)),
+                               (dict(GOOD_CONFIG), (300, 40))):  # alte Config: kein CALIBRATED_ORIGIN
+            problem, core = self.preflight(config=config, origin=origin, screen=(0, 0, 3840, 1080))
+            self.assertIsNone(problem)
+            self.assertEqual(core.config["SEARCH_BAR"], GOOD_CONFIG["SEARCH_BAR"])
+
+    def test_moved_window_off_screen_is_refused(self):
+        config = dict(GOOD_CONFIG, CALIBRATED_ORIGIN=[0, 0])
+        problem, _ = self.preflight(config=config, origin=(1000, 0))  # Punkte wären rechts vom Bildschirm
+        self.assertIn("außerhalb des Bildschirms", problem)
 
     def test_calibration_point_off_screen(self):
         config = dict(GOOD_CONFIG, SEARCH_BAR=[3000, 245])  # zweiter Monitor abgesteckt

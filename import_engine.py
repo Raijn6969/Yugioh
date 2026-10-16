@@ -887,10 +887,26 @@ class DeckImporterCore:
         if calibrated and (abs(calibrated[0] - size[0]) > 4 or abs(calibrated[1] - size[1]) > 4):
             return (f"Die Fenstergröße von Master Duel hat sich seit der Kalibrierung geändert "
                     f"({calibrated[0]}×{calibrated[1]} → {size[0]}×{size[1]}). Bitte neu kalibrieren.")
+        frame = md_layout.md_frame()
+        origin = [frame.left, frame.top] if frame else None
         if not calibrated:
             # Ältere Kalibrierung ohne gespeicherte Größe: aktuellen Stand als Referenz merken
             self.config["CALIBRATED_SIZE"] = list(size)
+            if origin:
+                self.config["CALIBRATED_ORIGIN"] = origin
             dlog(f"[CHECK] Fenstergröße {size[0]}×{size[1]} als Kalibrierungs-Referenz gemerkt.")
+        saved = self.config.get("CALIBRATED_ORIGIN")
+        if saved and origin and list(saved) != origin:
+            # Fenster verschoben (Fenstermodus, anderer Monitor): Punkte nur für diesen Lauf mitverschieben,
+            # die gespeicherte Kalibrierung bleibt (Overlay.config ist dasselbe Dict, deshalb eine Kopie)
+            dx, dy = origin[0] - saved[0], origin[1] - saved[1]
+            self.config = dict(self.config)
+            for key in (*CALIBRATION_KEYS, "DECK_COUNT"):
+                point = self.config.get(key)
+                if isinstance(point, (list, tuple)) and len(point) == 2:
+                    self.config[key] = [point[0] + dx, point[1] + dy]
+            dlog(f"[CHECK] Fenster ist um ({dx:+d}, {dy:+d}) gegenüber der Kalibrierung verschoben "
+                 f"→ Kalibrierpunkte für diesen Lauf mitverschoben.")
 
         vx, vy, vw, vh = win_api.virtual_screen_rect()
         for key in CALIBRATION_KEYS:

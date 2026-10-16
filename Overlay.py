@@ -969,6 +969,9 @@ class MasterDuelImporter:
         size = get_md_window_size()
         if size:
             self.config["CALIBRATED_SIZE"] = list(size)
+        frame = md_layout.md_frame()  # Ursprung: Wird das Fenster verschoben, verschiebt der Import die Punkte mit
+        if frame:
+            self.config["CALIBRATED_ORIGIN"] = [frame.left, frame.top]
         self._save_config_safely()
         self.update_status("Kalibrierung aktiv!", "#00ff00")
         self._set_buttons(tk.NORMAL)
