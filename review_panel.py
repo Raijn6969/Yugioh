@@ -18,9 +18,9 @@ import season_review as sr
 from bug_report import reveal
 from dark_scrollbar import DarkScrollbar
 from match_history import RANKED
-from rounded_button import RoundedButton, close_button
+from rounded_button import RoundedButton
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
-                          BAD, ROW_ALT, NEUTRAL, apply_frame, no_activate)
+                          BAD, ROW_ALT, NEUTRAL)
 
 MODE_KEY = "WINRATE_MODE"  # wie im Winrate-Fenster: "ranked" oder "all"
 POLL_MS = 100
@@ -52,14 +52,8 @@ class ReviewPanel:
         self.font_head = font(SIZE_TITLE, s, bold=True)
         self.font_big = font(SIZE_NUM, s, bold=True, mono=True)
 
-        self.win = tk.Toplevel(master, bg=BG)
-        self.win.overrideredirect(True)
-        self.win.wm_attributes("-topmost", True)
+        self.win = tk.Frame(master, bg=BG)  # deckt die Winrate-Ansicht (winrate_panel platziert es)
         self._build()
-        self._place()
-        apply_frame(self.win)
-        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
-        self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
 
     @property
@@ -73,16 +67,7 @@ class ReviewPanel:
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
-        header = tk.Frame(self.win, bg=PANEL)
-        header.pack(fill=tk.X)
-        tk.Label(header, text="◆ RÜCKBLICK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="Season = ein Kalendermonat", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
-        self.export_btn = RoundedButton(header, text="Als HTML", command=self.export_html, **small)
-        self.export_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
         nav = tk.Frame(body, bg=BG)
@@ -93,8 +78,11 @@ class ReviewPanel:
         self.month_label.pack(side=tk.LEFT, padx=int(6 * s))
         self.next_btn = RoundedButton(nav, text="▶", command=lambda: self.step(1), **small)
         self.next_btn.pack(side=tk.LEFT)
+        RoundedButton(nav, text="Zurück", command=self.close, role="neutral", **small).pack(side=tk.RIGHT)
+        self.export_btn = RoundedButton(nav, text="Als HTML", command=self.export_html, **small)
+        self.export_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.mode_label_widget = tk.Label(nav, text="", fg=MUTED, bg=BG, font=self.font_small)
-        self.mode_label_widget.pack(side=tk.RIGHT)
+        self.mode_label_widget.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.status_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
                                      justify=tk.LEFT, wraplength=int(490 * s))
         self.status_label.pack(fill=tk.X, pady=(int(4 * s), 0))
@@ -112,19 +100,6 @@ class ReviewPanel:
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
         self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
         self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
-
-    def _place(self) -> None:
-        """Genau über dem Winrate-Fenster (dem Master); ohne sichtbaren Master unten rechts wie das Winrate-Fenster."""
-        s = self.s
-        self.master.update_idletasks()
-        w, h = self.master.winfo_width(), self.master.winfo_height()
-        if w < 100 or h < 100:
-            w, h = int(520 * s), int(660 * s)
-            x = self.master.winfo_screenwidth() - w - int(60 * s)
-            y = self.master.winfo_screenheight() - h - int(120 * s)
-        else:
-            x, y = self.master.winfo_x(), self.master.winfo_y()
-        self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Inhalt ──
     def _today(self) -> float:
@@ -279,11 +254,6 @@ class ReviewPanel:
 
     def _on_wheel(self, event) -> None:
         self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
-
-    # ── Zustand von außen ──
-    def set_visible(self, visible: bool) -> None:
-        if not self.closed:
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:
         if self.closed:

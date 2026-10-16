@@ -714,8 +714,7 @@ class WinratePanelTest(unittest.TestCase):
         self.assertFalse(self.panel.is_collapsed("coin"))
 
         # Münzwurf einklappen
-        self.panel.win.update()
-        self.panel.coin_header.event_generate("<Button-1>", x=0, y=0)
+        self.panel.toggle_section("coin")  # Klick auf die Kopfzeile (die Ansicht ist ohne Deck-Fenster nicht sichtbar)
         self.assertTrue(self.panel.is_collapsed("coin"))
         self.assertEqual(self.panel.coin_arrow.cget("text"), "▶")
         self.assertEqual(self.panel.coin_body.winfo_manager(), "")
@@ -727,7 +726,7 @@ class WinratePanelTest(unittest.TestCase):
         self.assertEqual(self.panel.coin_body.winfo_manager(), "")
 
         # Münzwurf wieder ausklappen
-        self.panel.coin_arrow.event_generate("<Button-1>", x=0, y=0)
+        self.panel.toggle_section("coin")
         self.assertFalse(self.panel.is_collapsed("coin"))
         self.assertEqual(self.panel.coin_arrow.cget("text"), "▼")
         self.assertEqual(self.panel.coin_body.winfo_manager(), "pack")

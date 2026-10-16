@@ -12,7 +12,7 @@ import tkinter.font as tkfont
 
 from PIL import Image, ImageDraw, ImageTk
 
-from window_style import GOLD, MUTED, NEUTRAL, ROLES, SIZE_SMALL, font as window_font
+from window_style import LINE, MUTED, NEUTRAL, ROLES, SIZE_SMALL, font as window_font
 
 SUPERSAMPLE = 4  # Zeichen-Vergrößerung für glatte Rundungen
 SHARED_MAX = 300  # so viele verschiedene Körper (Größe/Farbe) hält der gemeinsame Zwischenspeicher je Fenster-Wurzel
@@ -40,7 +40,7 @@ def render_body(width: int, height: int, radius: int, fill: str, border: str, ba
 
 class RoundedButton(tk.Label):
     def __init__(self, master, text: str = "", command=None, bg: str = NEUTRAL, fg: str = "white",
-                 font=None, border: str = GOLD, padx: int = 12, pady: int = 4, radius: int = 7,
+                 font=None, border: str = LINE, padx: int = 12, pady: int = 4, radius: int = 7,
                  menu=None, min_width: int = 0, role: str = "", **_ignored):
         if role:
             bg, fg, border = ROLES[role]

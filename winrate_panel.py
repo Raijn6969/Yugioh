@@ -20,11 +20,10 @@ from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, Win
 from dark_scrollbar import DarkScrollbar
 from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
-from rounded_button import RoundedButton, close_button
+from rounded_button import RoundedButton
 from season_review import DAY_START_HOUR  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im Tag
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
-                          WARN, BAD, ROW_ALT, HIGHLIGHT, apply_frame, no_activate,
-                          place_in_work_area)
+                          WARN, BAD, ROW_ALT, HIGHLIGHT)
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
@@ -113,8 +112,7 @@ def coin_note(stats: WinStats, streak: Optional[tuple]) -> str:
 
 class WinratePanel:
     def __init__(self, master: tk.Misc, db: CardStatsDB, settings: dict, save_settings: Callable[[], None],
-                 on_open: Callable[[str, str], None], on_close: Callable[[], None], tracking: bool,
-                 anchor: Optional[tk.Misc] = None):
+                 on_open: Callable[[str, str], None], on_close: Callable[[], None], tracking: bool):
         self.master = master
         self.db = db
         self.settings = settings
@@ -137,19 +135,8 @@ class WinratePanel:
         self._section_headers = {}   # key -> (header_frame, arrow_label)
         self._section_items = {}     # key -> [(widget, pack_kwargs), ...]
 
-        if anchor is not None:
-            # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
-            # zeigen, bevor es platziert ist – kurz oben links in der Ecke, und Windows blendet im Vollbild die
-            # Taskleiste ein.
-            anchor.update_idletasks()
-        self.win = tk.Toplevel(master, bg=BG)
-        self.win.overrideredirect(True)
-        self.win.wm_attributes("-topmost", True)
+        self.win = tk.Frame(master, bg=BG)  # Ansicht im Deck-Fenster (extras_panel packt sie)
         self._build()
-        self._place(anchor)
-        apply_frame(self.win)
-        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
-        self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
 
     def is_collapsed(self, key: str) -> bool:
@@ -210,23 +197,18 @@ class WinratePanel:
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
-        header = tk.Frame(self.win, bg=PANEL)
-        header.pack(fill=tk.X)
-        tk.Label(header, text="◆ WINRATE", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="deine Duelle", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
-        small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
-        self.review_btn = RoundedButton(header, text="Rückblick", command=self.toggle_review, **small)
-        self.review_btn.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
-        self.mode_buttons = {}
-        for key, label in (("all", "Alle Modi"), ("ranked", "Ranked")):  # rechts nach links
-            button = RoundedButton(header, text=label, command=lambda k=key: self._set_mode(k), **small)
-            button.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
-            self.mode_buttons[key] = button
-
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
+        small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
+        filters = tk.Frame(body, bg=BG)
+        filters.pack(fill=tk.X, pady=(0, int(6 * s)))
+        self.mode_buttons = {}
+        for key, label in (("ranked", "Ranked"), ("all", "Alle Modi")):
+            button = RoundedButton(filters, text=label, command=lambda k=key: self._set_mode(k), **small)
+            button.pack(side=tk.LEFT, padx=(0, int(4 * s)))
+            self.mode_buttons[key] = button
+        self.review_btn = RoundedButton(filters, text="Rückblick", command=self.toggle_review, **small)
+        self.review_btn.pack(side=tk.RIGHT)
         periods = tk.Frame(body, bg=BG)
         periods.pack(fill=tk.X, pady=(0, int(6 * s)))
         tk.Label(periods, text="Zeitraum", fg=MUTED, bg=BG, font=self.font_small).pack(
@@ -301,20 +283,6 @@ class WinratePanel:
             record.pack()
             tk.Label(tile, text=caption, fg=MUTED, bg=PANEL, font=self.font_small).pack()
             self.tiles[key] = (value, record)
-
-    def _place(self, anchor: Optional[tk.Misc]) -> None:
-        """Unter dem Button "Winrate", rechtsbündig mit dem Deck-Fenster (liegt über dessen Liste)."""
-        s = self.s
-        w, h = int(520 * s), int(660 * s)
-        screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        if anchor is not None:
-            top = anchor.winfo_toplevel()
-            x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
-            y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
-        else:
-            x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x, y = place_in_work_area(x, y, w, h, anchor)
-        self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Inhalt ──
     def _set_mode(self, key: str) -> None:
@@ -603,6 +571,7 @@ class WinratePanel:
             return
         from review_panel import ReviewPanel
         self.review = ReviewPanel(self.win, self.db, self.settings, on_close=self._on_review_closed)
+        self.review.win.place(x=0, y=0, relwidth=1, relheight=1)  # deckt die Winrate-Ansicht
 
     def _on_review_closed(self) -> None:
         self.review = None
@@ -616,11 +585,8 @@ class WinratePanel:
     # ── Zustand von außen ──
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
             if self.duel is not None:
                 self.duel.set_visible(visible)
-            if self.review is not None:
-                self.review.set_visible(visible)
 
     def close(self) -> None:
         if self.closed:

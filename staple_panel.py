@@ -17,9 +17,9 @@ import staple_analysis
 from card_grid import CardGrid
 from card_stats import name_key
 from history_panel import when
-from rounded_button import RoundedButton, close_button
+from rounded_button import RoundedButton
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
-                          WARN, BAD, NEUTRAL, apply_frame, no_activate, place_in_work_area)
+                          WARN, BAD)
 
 POLL_MS = 100
 COLUMNS = 5             # Karten pro Reihe
@@ -36,7 +36,7 @@ def avg_text(value: float) -> str:
 
 class StaplePanel:
     def __init__(self, master: tk.Misc, db, deck: Dict[str, int], archetypes: List[str],
-                 on_close: Callable[[], None], anchor: Optional[tk.Misc] = None, session=None,
+                 on_close: Callable[[], None], session=None,
                  passcodes: Optional[Dict[str, str]] = None, image_folder: str = card_images.FOLDER):
         self.master = master
         self.db = db
@@ -63,40 +63,24 @@ class StaplePanel:
         self.photos = card_images.PhotoCache(master, (int(CARD_SIZE[0] * s), int(CARD_SIZE[1] * s)), image_folder)
         self._tip: Optional[tk.Toplevel] = None
 
-        if anchor is not None:
-            # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
-            # zeigen, bevor es platziert ist – kurz oben links in der Ecke, und Windows blendet im Vollbild die
-            # Taskleiste ein.
-            anchor.update_idletasks()
-        self.win = tk.Toplevel(master, bg=BG)
-        self.win.overrideredirect(True)
-        self.win.wm_attributes("-topmost", True)
+        self.win = tk.Frame(master, bg=BG)  # Ansicht im Deck-Fenster (extras_panel packt sie)
         self._build()
-        self._place(anchor)
-        apply_frame(self.win)
-        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
-        self.win.bind("<Escape>", lambda e: self.close())
         self.load()
 
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
-        header = tk.Frame(self.win, bg=PANEL)
-        header.pack(fill=tk.X)
-        tk.Label(header, text="◆ STAPLES", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="Vergleich mit Top-Listen", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
-        self.refresh_btn = RoundedButton(header, text="Aktualisieren", command=lambda: self.load(refresh=True),
-                                         bg=NEUTRAL, font=self.font_small, padx=int(8 * s), pady=int(3 * s),
-                                         radius=int(6 * s))
-        self.refresh_btn.pack(side=tk.RIGHT)
-
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
-        self.status_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_small, anchor="w",
-                                     justify=tk.LEFT, wraplength=int(500 * s))
-        self.status_label.pack(fill=tk.X)
+        top = tk.Frame(body, bg=BG)
+        top.pack(fill=tk.X)
+        self.refresh_btn = RoundedButton(top, text="Aktualisieren", command=lambda: self.load(refresh=True),
+                                         role="neutral", font=self.font_small, padx=int(8 * s),
+                                         pady=int(3 * s), radius=int(6 * s))
+        self.refresh_btn.pack(side=tk.RIGHT)
+        self.status_label = tk.Label(top, text="", fg=INFO, bg=BG, font=self.font_small, anchor="w",
+                                     justify=tk.LEFT, wraplength=int(390 * s))
+        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.type_row = tk.Frame(body, bg=BG)  # Umschalten zwischen den Deck-Typen (Hybrid-Decks)
         self.type_row.pack(fill=tk.X, pady=(int(4 * s), 0))
 
@@ -118,20 +102,6 @@ class StaplePanel:
                  justify=tk.LEFT, wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
         self.grid = CardGrid(body, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
                              self.font_small)
-
-    def _place(self, anchor: Optional[tk.Misc]) -> None:
-        """Unter dem Button "Staples", rechtsbündig mit dem Deck-Fenster (liegt über dessen Liste)."""
-        s = self.s
-        w, h = int(520 * s), int(620 * s)
-        screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        if anchor is not None:
-            top = anchor.winfo_toplevel()
-            x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
-            y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
-        else:
-            x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x, y = place_in_work_area(x, y, w, h, anchor)
-        self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Laden (Hintergrund) ──
     def load(self, refresh: bool = False) -> None:
@@ -268,7 +238,6 @@ class StaplePanel:
         if not self.closed:
             if not visible:
                 self._hide_tip()  # sonst bleibt er als eigenes Fenster über anderen Programmen stehen
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:
         if self.closed:

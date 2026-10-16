@@ -11,11 +11,10 @@ from typing import Callable, Dict, List, Optional
 import side_profiles
 from card_stats import SideProfile
 from dark_scrollbar import DarkScrollbar
-from rounded_button import RoundedButton, close_button
+from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
-                          ROW_ALT, HIGHLIGHT, NEUTRAL, allow_typing, apply_frame, no_activate,
-                          place_in_work_area)
+                          ROW_ALT, HIGHLIGHT, NEUTRAL, allow_typing)
 
 DEFAULT_NAME = "Zweiter"
 SEARCH_RESULTS = 8
@@ -24,8 +23,7 @@ MAIN_MIN, MAIN_MAX, EXTRA_MAX = 40, 60, 15
 
 class SidePanel:
     def __init__(self, master: tk.Misc, db, deck_name: str, deck: Dict[str, int], zones: Dict[str, str],
-                 names: Dict[str, str], on_swap: Callable[[List[str], str], None], on_close: Callable[[], None],
-                 anchor: Optional[tk.Misc] = None, unknown: int = 0, memory: bool = True):
+                 names: Dict[str, str], on_swap: Callable[[List[str], str], None], on_close: Callable[[], None], unknown: int = 0, memory: bool = True):
         self.master = master
         self.db = db
         self.deck_name = deck_name
@@ -47,28 +45,13 @@ class SidePanel:
         self.font_small_bold = font(SIZE_SMALL, s, bold=True)
         self.font_head = font(SIZE_TITLE, s, bold=True)
 
-        if anchor is not None:
-            anchor.update_idletasks()  # vor dem Anlegen: sonst blitzt das Fenster oben links auf (siehe Winrate)
-        self.win = tk.Toplevel(master, bg=BG)
-        self.win.overrideredirect(True)
-        self.win.wm_attributes("-topmost", True)
+        self.win = tk.Frame(master, bg=BG)  # Ansicht im Deck-Fenster (extras_panel packt sie)
         self._build()
-        self._place(anchor)
-        apply_frame(self.win)
-        no_activate(self.win)  # Klicks lassen Master Duel aktiv; Eingabefelder siehe allow_typing
-        self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
 
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
-        header = tk.Frame(self.win, bg=PANEL)
-        header.pack(fill=tk.X)
-        tk.Label(header, text="◆ SIDE-PROFILE", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text=self.deck_name, fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
-
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
         self.info_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
@@ -142,20 +125,6 @@ class SidePanel:
         canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
         self._out_canvas = canvas
         return inner
-
-    def _place(self, anchor: Optional[tk.Misc]) -> None:
-        """Über dem Deck-Fenster, rechtsbündig (wie Winrate/Staples)."""
-        s = self.s
-        w, h = int(520 * s), int(640 * s)
-        screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        if anchor is not None:
-            top = anchor.winfo_toplevel()
-            x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
-            y = top.winfo_rooty() + int(40 * s)
-        else:
-            x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x, y = place_in_work_area(x, y, w, h, anchor)
-        self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Inhalt ──
     def refresh(self) -> None:
@@ -394,11 +363,6 @@ class SidePanel:
                 self.names.update({cid: info.name for cid, info in self.db.infos(todo).items()})
             except Exception:
                 pass
-
-    # ── Zustand von außen ──
-    def set_visible(self, visible: bool) -> None:
-        if not self.closed:
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:
         if self.closed:

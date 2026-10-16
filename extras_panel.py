@@ -169,9 +169,9 @@ class ExtrasPanel:
         s = self.s
         header = tk.Frame(self.win, bg=PANEL)
         header.pack(fill=tk.X)
-        tk.Label(header, text="◆ DECK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        # Rechts: ✕, Optionen, Verlauf, Winrate, Staples, Matchup – ohne Untertitel, sonst passen sie nicht
+        self.title_label = tk.Label(header, text="◆ DECK", fg=GOLD, bg=PANEL, font=self.font_head)
+        self.title_label.pack(side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
+        # Rechts: ✕, Optionen, dann die Tabs Verlauf, Winrate, Staples, Matchup (Combos/Side/Ash-Prio im Fuß)
         close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         # Optionen links neben ✕
         self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, role="neutral",
@@ -214,8 +214,12 @@ class ExtrasPanel:
         self.options_menu.add_buttons([("Automatisch kalibrieren", lambda: self._calibrate(self.on_auto_calibrate)),
                                        ("Assistent (von Hand)", lambda: self._calibrate(self.on_calibrate_manual))])
 
+        # Fuß zuerst packen: er behält seinen Platz, die Deck-Ansicht bzw. die gewählte Ansicht füllt den Rest
+        footer = tk.Frame(self.win, bg=BG)
+        footer.pack(side=tk.BOTTOM, fill=tk.X, padx=int(12 * s), pady=(0, int(8 * s)))
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
+        self.deck_body = body
         self.status_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_bold, anchor="w",
                                      justify=tk.LEFT, wraplength=int(480 * s))
         self.status_label.pack(fill=tk.X)
@@ -268,9 +272,9 @@ class ExtrasPanel:
 
         self._build_calculator(body)
 
-        footer = tk.Frame(body, bg=BG)
-        footer.pack(fill=tk.X, pady=(int(8 * s), 0))
-        self.rescan_btn = RoundedButton(footer, text="Neu scannen", command=self._rescan, role="primary",
+        self.rescan_slot = tk.Frame(footer, bg=BG)  # bleibt beim Ausblenden des Knopfs an seinem Platz
+        self.rescan_slot.pack(side=tk.RIGHT)
+        self.rescan_btn = RoundedButton(self.rescan_slot, text="Neu scannen", command=self._rescan, role="primary",
                                         font=self.font_bold, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s))
         self.rescan_btn.pack(side=tk.RIGHT)
         if self.stats_db is not None:
@@ -283,8 +287,9 @@ class ExtrasPanel:
             self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, role="neutral", **small)
             self.combos_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         # zuletzt packen: Tk verteilt den Platz in Packreihenfolge – bei Platzmangel wird der Tipp gekürzt, kein Knopf
-        tk.Label(footer, text="Tipp: Maus über eine Karte im Deck", fg=MUTED, bg=BG,
-                 font=self.font_small).pack(side=tk.LEFT)
+        self.tip_label = tk.Label(footer, text="Tipp: Maus über eine Karte im Deck", fg=MUTED, bg=BG,
+                                  font=self.font_small)
+        self.tip_label.pack(side=tk.LEFT)
 
     def _build_calculator(self, parent: tk.Frame) -> None:
         s = self.s
@@ -431,9 +436,9 @@ class ExtrasPanel:
             return
         from history_panel import HistoryPanel  # importiert die Farben von hier
         self._close_side_panels()  # lägen an derselben Stelle
-        self.history =HistoryPanel(self.win, self.stats_db, on_import=self._import_code, on_copy=self._copy_code,
-                                    on_close=self._on_history_closed, on_open=self.load_history_deck,
-                                    anchor=self.history_btn)
+        self.history = HistoryPanel(self.win, self.stats_db, on_import=self._import_code, on_copy=self._copy_code,
+                                    on_close=self._on_history_closed, on_open=self.load_history_deck)
+        self._refresh_nav()
 
     def _close_history(self) -> None:
         if self.history is not None:
@@ -452,7 +457,8 @@ class ExtrasPanel:
         self._close_side_panels()  # lägen an derselben Stelle
         self.winrate = WinratePanel(self.win, self.stats_db, self.settings, self.save_settings,
                                     on_open=self._open_winrate_deck, on_close=self._on_winrate_closed,
-                                    tracking=self.read_method.get() == "memory", anchor=self.winrate_btn)
+                                    tracking=self.read_method.get() == "memory")
+        self._refresh_nav()
 
     def _close_winrate(self) -> None:
         if self.winrate is not None:
@@ -472,17 +478,33 @@ class ExtrasPanel:
         self._close_side()
         self._close_ash_prio()
         if not self.closed:
+            if self._nav_job is not None:
+                self.win.after_cancel(self._nav_job)  # nur der letzte Aufruf zählt
             self._nav_job = self.win.after(1, self._refresh_nav)  # der Aufrufer öffnet danach das neue Fenster
 
     def _refresh_nav(self) -> None:
-        """Navigationsknöpfe: der Knopf des offenen Fensters ist gold markiert, die übrigen neutral."""
+        """Tabs: der Tab der offenen Ansicht ist gold markiert, die Ansicht ersetzt die Deck-Ansicht (Titel, Fuß)."""
         if self.closed:
             return
-        for button, panel in (("history_btn", self.history), ("winrate_btn", self.winrate),
-                              ("staples_btn", self.staples), ("matchup_btn", self.matchup),
-                              ("ash_btn", self.ash_prio), ("side_btn", self.side), ("combos_btn", self.combos)):
+        shown = None
+        for button, panel, title in (("history_btn", self.history, "VERLAUF"), ("winrate_btn", self.winrate, "WINRATE"),
+                                     ("staples_btn", self.staples, "STAPLES"), ("matchup_btn", self.matchup, "MATCHUP"),
+                                     ("ash_btn", self.ash_prio, "ASH-PRIO"), ("side_btn", self.side, "SIDE"),
+                                     ("combos_btn", self.combos, "COMBOS")):
             if hasattr(self, button):
                 getattr(self, button).config(role="neutral" if panel is None else "active")
+            if panel is not None:
+                shown = (panel, title)
+        self.title_label.config(text="◆ " + (shown[1] if shown else "DECK"))
+        self.deck_body.pack_forget()
+        if shown is None:
+            self.deck_body.pack(fill=tk.BOTH, expand=True)
+            self.rescan_btn.pack()
+            self.tip_label.pack(side=tk.LEFT)
+        else:
+            shown[0].win.pack(fill=tk.BOTH, expand=True)
+            self.rescan_btn.pack_forget()
+            self.tip_label.pack_forget()
 
     # ── Side-Profile (Karten für ein Match tauschen) ──
     def toggle_side(self) -> None:
@@ -490,6 +512,7 @@ class ExtrasPanel:
             self._close_side()
             return
         if self.analysis is None or self.scanning or self.offline:
+            self._close_side_panels()  # Status steht in der Deck-Ansicht
             self.set_status("Side-Profile gelten für das Deck im Spiel: erst das Deck scannen"
                             if not self.offline else "Side-Profile gelten für das Deck im Spiel, nicht für den "
                                                      "Verlauf – „Neu scannen“", WARN)
@@ -499,8 +522,9 @@ class ExtrasPanel:
         self._show_deck_winrate()  # bestimmt den Namen des angezeigten Decks
         deck, zones, names, unknown = self._deck_cards()
         self.side = SidePanel(self.win, self.stats_db, self._deck_name or "Deck", deck, zones, names,
-                              on_swap=self._side_swap, on_close=self._on_side_closed, anchor=self.side_btn,
+                              on_swap=self._side_swap, on_close=self._on_side_closed,
                               unknown=unknown, memory=self.read_method.get() == "memory")
+        self._refresh_nav()
 
     def _deck_cards(self):
         """
@@ -549,6 +573,7 @@ class ExtrasPanel:
             self._close_ash_prio()
             return
         if self.analysis is None or self.scanning:
+            self._close_side_panels()  # Status steht in der Deck-Ansicht
             self.set_status("Erst das Deck scannen, dann den Spickzettel öffnen", WARN)
             return
         from ash_panel import AshPrioPanel  # importiert die Farben von hier
@@ -556,7 +581,8 @@ class ExtrasPanel:
         self._show_deck_winrate()
         deck, _, names, _ = self._deck_cards()
         self.ash_prio = AshPrioPanel(self.win, self._deck_name or "Deck", deck, on_close=self._on_ash_prio_closed,
-                                     anchor=self.ash_btn, names=names, db=self.stats_db)
+                                     names=names, db=self.stats_db)
+        self._refresh_nav()
 
     def _close_ash_prio(self) -> None:
         if self.ash_prio is not None:
@@ -575,8 +601,8 @@ class ExtrasPanel:
         self._close_side_panels()
         self._show_deck_winrate()  # bestimmt den Namen des angezeigten Decks
         self.matchup = MatchupPanel(self.win, self.stats_db, self.settings, self.save_settings,
-                                    on_close=self._on_matchup_closed, deck_name=self._deck_name,
-                                    anchor=self.matchup_btn)
+                                    on_close=self._on_matchup_closed, deck_name=self._deck_name)
+        self._refresh_nav()
 
     def _close_matchup(self) -> None:
         if self.matchup is not None:
@@ -592,13 +618,15 @@ class ExtrasPanel:
             self._close_staples()
             return
         if self.analysis is None or self.scanning:
+            self._close_side_panels()  # Status steht in der Deck-Ansicht
             self.set_status("Erst das Deck scannen, dann mit den Top-Listen vergleichen", WARN)
             return
         from staple_panel import StaplePanel  # importiert die Farben von hier
         self._close_side_panels()
         deck, archetypes, passcodes = self._deck_for_staples()
         self.staples = StaplePanel(self.win, self.stats_db, deck, archetypes, on_close=self._on_staples_closed,
-                                   anchor=self.staples_btn, passcodes=passcodes)
+                                   passcodes=passcodes)
+        self._refresh_nav()
 
     def _close_staples(self) -> None:
         if self.staples is not None:
@@ -614,13 +642,14 @@ class ExtrasPanel:
             self._close_combos()
             return
         if self.analysis is None or self.scanning:
+            self._close_side_panels()  # Status steht in der Deck-Ansicht
             self.set_status("Erst das Deck scannen, dann die Combos dazu suchen", WARN)
             return
         from combo_panel import ComboPanel  # importiert die Farben von hier
         self._close_side_panels()
         main, extra, archetypes = self._deck_by_zone()
-        self.combos = ComboPanel(self.win, self.stats_db, main, extra, archetypes, on_close=self._on_combos_closed,
-                                 anchor=self.combos_btn)
+        self.combos = ComboPanel(self.win, self.stats_db, main, extra, archetypes, on_close=self._on_combos_closed)
+        self._refresh_nav()
 
     def _close_combos(self) -> None:
         if self.combos is not None:
@@ -824,8 +853,7 @@ class ExtrasPanel:
             return
         self._visible = visible
         self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
-        for panel in (self.history, self.winrate, self.staples, self.combos, self.matchup, self.side,
-                      self.ash_prio):  # eigene Fenster über diesem
+        for panel in (self.winrate, self.staples, self.combos):  # eigene Fenster (Replay, Kartentipp) darüber
             if panel is not None:
                 panel.set_visible(visible)
         try:

@@ -358,13 +358,10 @@ class PanelTest(unittest.TestCase):
                                on_close=lambda: None, tracking=True)
         self.addCleanup(winrate.close)
         self.root.update()
-        header = winrate.review_btn.master
-        self.assertLessEqual(header.winfo_reqwidth(), winrate.win.winfo_width())   # Knöpfe passen in die Kopfzeile
         winrate.review_btn.invoke()
         self.assertIsNotNone(winrate.review)
         self.assertEqual(winrate.review.month_label.cget("text"), sr.month_name(*sr.default_month()))
-        self.assertEqual((winrate.review.win.winfo_x(), winrate.review.win.winfo_width()),
-                         (winrate.win.winfo_x(), winrate.win.winfo_width()))   # genau über dem Winrate-Fenster
+        self.assertEqual(winrate.review.win.winfo_manager(), "place")          # deckt die Winrate-Ansicht
         winrate.review_btn.invoke()
         self.assertIsNone(winrate.review)
         winrate.review_btn.invoke()

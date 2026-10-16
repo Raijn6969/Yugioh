@@ -772,6 +772,19 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertIs(self.panel.analysis, analysis)
         self.assertEqual(str(self.panel.rescan_btn.cget("state")), "disabled")
 
+    def test_tab_replaces_the_deck_view_and_the_active_tab_goes_back(self):
+        self.panel.history_btn.invoke()
+        self.assertEqual((self.panel.title_label.cget("text"), self.panel.deck_body.winfo_manager()),
+                         ("◆ VERLAUF", ""))
+        self.assertEqual(self.panel.history.win.winfo_manager(), "pack")      # im Deck-Fenster, kein eigenes Fenster
+        self.assertEqual((self.panel.rescan_btn.winfo_manager(), self.panel.tip_label.winfo_manager()), ("", ""))
+        self.panel.winrate_btn.invoke()                                      # anderer Tab: nur eine Ansicht
+        self.assertIsNone(self.panel.history)
+        self.assertEqual(self.panel.title_label.cget("text"), "◆ WINRATE")
+        self.panel.winrate_btn.invoke()                                      # aktiver Tab: zurück zur Deck-Ansicht
+        self.assertEqual((self.panel.title_label.cget("text"), self.panel.deck_body.winfo_manager(),
+                          self.panel.rescan_btn.winfo_manager()), ("◆ DECK", "pack", "pack"))
+
     def test_history_button_left_of_options_opens_deck_without_game(self):
         import extras_panel
         imported = []
@@ -827,7 +840,7 @@ class ExtrasPanelTest(unittest.TestCase):
 
     def test_footer_buttons_are_not_cut_off_in_a_narrow_window(self):
         self.root.update()
-        footer = self.panel.rescan_btn.master
+        footer = self.panel.ash_btn.master
         buttons = [self.panel.rescan_btn, self.panel.ash_btn, self.panel.side_btn, self.panel.combos_btn]
         edge = footer.winfo_rootx() - self.panel.win.winfo_rootx()
         narrow = sum(b.winfo_reqwidth() for b in buttons) + 2 * edge + 24  # die Knöpfe passen, der Tipp nicht mehr
@@ -853,7 +866,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertEqual((combos.main["lukias"], sum(combos.extra.values()), combos.archetypes), (3, 1, []))
         self.assertIn("Keine Archetypen", combos.status_label.cget("text"))
         self.panel.set_visible(False)
-        self.assertEqual(float(combos.win.wm_attributes("-alpha")), 0.0)
+        self.assertEqual(float(self.panel.win.wm_attributes("-alpha")), 0.0)
         self.panel.winrate_btn.invoke()
         self.assertTrue(combos.closed)
         self.assertIsNone(self.panel.combos)

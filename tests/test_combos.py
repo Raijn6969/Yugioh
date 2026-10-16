@@ -417,20 +417,6 @@ class ComboPanelTest(unittest.TestCase):
                 session.gate.set()
                 panel.close()
 
-    def test_window_sits_below_the_top_of_the_deck_window(self):
-        from combo_panel import ComboPanel
-        top = tk.Toplevel(self.root)
-        top.geometry("400x300+200+10")
-        anchor = tk.Label(top, text="Combos")
-        anchor.pack(side=tk.BOTTOM)  # der Button sitzt unten in der Fußzeile
-        self.root.update()
-        panel = ComboPanel(self.root, make_db(), MAIN, EXTRA, [], on_close=lambda: None, anchor=anchor,
-                           image_folder=self.folder)
-        self.root.update()
-        self.assertEqual(panel.win.winfo_rooty(), top.winfo_rooty() + int(40 * panel.s))
-        panel.close()
-        top.destroy()
-
     def test_tooltip_goes_away_when_hidden(self):
         panel = self.open(["Elfnote"], FakeSession())
         panel._show_tip(type("E", (), {"x_root": 5, "y_root": 5})(), "Karte", "Aktion")

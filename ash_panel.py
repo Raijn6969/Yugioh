@@ -22,9 +22,9 @@ import card_images
 import handtrap_targets
 from dark_scrollbar import DarkScrollbar
 from debug_log import dlog
-from rounded_button import RoundedButton, close_button
+from rounded_button import RoundedButton
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
-                          ROW_ALT, HIGHLIGHT, apply_frame, no_activate, place_in_work_area)
+                          ROW_ALT, HIGHLIGHT)
 
 POLL_MS = 100
 CARD_SIZE = (58, 85)   # Bildleiste
@@ -33,8 +33,7 @@ MAX_CARDS = 14         # zwei Reihen – die Liste darunter braucht auch noch Pl
 
 
 class AshPrioPanel:
-    def __init__(self, master: tk.Misc, deck_name: str, deck: Dict[str, int], on_close: Callable[[], None],
-                 anchor: Optional[tk.Misc] = None, path: str = ash_prio.FACTORY_DB,
+    def __init__(self, master: tk.Misc, deck_name: str, deck: Dict[str, int], on_close: Callable[[], None], path: str = ash_prio.FACTORY_DB,
                  names: Optional[Dict[str, str]] = None, db=None, image_folder: str = card_images.FOLDER):
         self.master = master
         self.deck_name = deck_name
@@ -66,16 +65,8 @@ class AshPrioPanel:
         self.font_small_bold = font(SIZE_SMALL, s, bold=True)
         self.font_head = font(SIZE_TITLE, s, bold=True)
 
-        if anchor is not None:
-            anchor.update_idletasks()  # vor dem Anlegen: sonst blitzt das Fenster oben links auf (siehe Winrate)
-        self.win = tk.Toplevel(master, bg=BG)
-        self.win.overrideredirect(True)
-        self.win.wm_attributes("-topmost", True)
+        self.win = tk.Frame(master, bg=BG)  # Ansicht im Deck-Fenster (extras_panel packt sie)
         self._build()
-        self._place(anchor)
-        apply_frame(self.win)
-        no_activate(self.win)
-        self.win.bind("<Escape>", lambda e: self.close())
         self.info_label.config(text="Lese die Ergebnisse der Factory…", fg=MUTED)
         self._thread = threading.Thread(target=self._load, daemon=True, name="ash-prio")
         self._thread.start()
@@ -84,14 +75,6 @@ class AshPrioPanel:
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
-        header = tk.Frame(self.win, bg=PANEL)
-        header.pack(fill=tk.X)
-        tk.Label(header, text="◆ ASH-PRIO", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="wo Handtraps am meisten schaden", fg=MUTED, bg=PANEL, font=self.font).pack(
-            side=tk.LEFT)
-        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
-
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
         self.info_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
@@ -122,19 +105,6 @@ class AshPrioPanel:
         wheel = lambda e: self.canvas.yview_scroll(int(-e.delta / 120) * 2, "units")  # noqa: E731
         self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", wheel))
         self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
-
-    def _place(self, anchor: Optional[tk.Misc]) -> None:
-        s = self.s
-        w, h = int(520 * s), int(760 * s)
-        screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        if anchor is not None:
-            top = anchor.winfo_toplevel()
-            x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
-            y = top.winfo_rooty() + int(40 * s)
-        else:
-            x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x, y = place_in_work_area(x, y, w, h, anchor)
-        self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Laden (Factory-Datenbank, im Hintergrund) ──
     def _load(self) -> None:
@@ -411,11 +381,6 @@ class AshPrioPanel:
             for step in threat.continuation:
                 tk.Label(box, text=f"• {ash_prio.short_step(step)}", fg=TEXT, bg=PANEL, font=self.font_small,
                          anchor="w", justify=tk.LEFT, wraplength=int(420 * s)).pack(fill=tk.X)
-
-    # ── Zustand von außen ──
-    def set_visible(self, visible: bool) -> None:
-        if not self.closed:
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:
         if self.closed:

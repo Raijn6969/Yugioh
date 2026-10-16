@@ -960,28 +960,6 @@ class WorkAreaTest(unittest.TestCase):
             self.assertEqual(window_style.place_in_work_area(-1000, -50, 520, 660), (-1000, 0))
             self.assertEqual(window_style.place_in_work_area(-100, 700, 520, 660), (-520, 420))
 
-    def test_panel_is_placed_next_to_the_deck_window_on_monitor_2(self):
-        import history_panel
-        root = tk.Tk()
-        root.withdraw()
-        try:
-            deck = tk.Toplevel(root)
-            deck.geometry("540x810+2400+180")
-            button = tk.Button(deck, text="Verlauf")
-            button.pack()
-            root.update()
-            db = mock.Mock()
-            db.history.return_value = []
-            with mock.patch("window_style.win_api.monitor_work_area", side_effect=work_area_of), \
-                    mock.patch.object(root, "winfo_screenwidth", return_value=1920, create=True):
-                panel = history_panel.HistoryPanel(root, db, lambda c: None, lambda c: None, lambda: None,
-                                                   anchor=button)
-            root.update()
-            self.assertGreaterEqual(panel.win.winfo_x(), 1920)  # bleibt auf Monitor 2
-            panel.close()
-        finally:
-            root.destroy()
-
 
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
 class RoundedButtonTest(unittest.TestCase):

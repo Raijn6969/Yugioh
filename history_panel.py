@@ -9,19 +9,18 @@ Pro Deck außerdem: erneut importieren, Deck-Code kopieren oder aus dem Verlauf 
 
 import time
 import tkinter as tk
-from typing import Callable, List, Optional
+from typing import Callable, List
 
 import md_layout
 from card_db import CardMatch
 from card_stats import CardStatsDB, HistoryEntry
 from dark_scrollbar import DarkScrollbar
 from deck_export import DeckScan, ExportedCard
-from rounded_button import RoundedButton, close_button
+from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from utils import parse_deck_code
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, WARN, ROW_ALT,
-                          HIGHLIGHT, PRIMARY, NEUTRAL, allow_typing, apply_frame, no_activate,
-                          place_in_work_area)
+                          HIGHLIGHT, PRIMARY, NEUTRAL, allow_typing)
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
 SEARCH_DELAY_MS = 150  # Erst suchen, wenn kurz nicht getippt wurde
@@ -62,7 +61,7 @@ def when(timestamp: float) -> str:
 class HistoryPanel:
     def __init__(self, master: tk.Misc, db: CardStatsDB, on_import: Callable[[str], None],
                  on_copy: Callable[[str], None], on_close: Callable[[], None],
-                 on_open: Callable[[HistoryEntry], None] = lambda entry: None, anchor: Optional[tk.Misc] = None):
+                 on_open: Callable[[HistoryEntry], None] = lambda entry: None):
         self.master = master
         self.db = db
         self.on_open = on_open
@@ -78,31 +77,13 @@ class HistoryPanel:
         self.font_small = font(SIZE_SMALL, s)
         self.font_head = font(SIZE_TITLE, s, bold=True)
 
-        if anchor is not None:
-            # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
-            # zeigen, bevor es platziert ist – kurz oben links in der Ecke, und Windows blendet im Vollbild die
-            # Taskleiste ein.
-            anchor.update_idletasks()
-        self.win = tk.Toplevel(master, bg=BG)
-        self.win.overrideredirect(True)
-        self.win.wm_attributes("-topmost", True)
+        self.win = tk.Frame(master, bg=BG)  # Ansicht im Deck-Fenster (extras_panel packt sie)
         self._build()
-        self._place(anchor)
-        apply_frame(self.win)
-        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
-        self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
 
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
-        header = tk.Frame(self.win, bg=PANEL)
-        header.pack(fill=tk.X)
-        tk.Label(header, text="◆ VERLAUF", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="Importierte Decks", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
-
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
         self.query = tk.StringVar(master=self.win)
@@ -133,20 +114,6 @@ class HistoryPanel:
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
         self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
         self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
-
-    def _place(self, anchor: Optional[tk.Misc]) -> None:
-        """Unter dem Button "Verlauf", rechtsbündig mit dem Deck-Fenster (liegt über dessen Liste)."""
-        s = self.s
-        w, h = int(480 * s), int(460 * s)
-        screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        if anchor is not None:
-            top = anchor.winfo_toplevel()
-            x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
-            y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
-        else:
-            x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x, y = place_in_work_area(x, y, w, h, anchor)
-        self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Liste ──
     def _on_query_changed(self) -> None:
@@ -243,12 +210,6 @@ class HistoryPanel:
 
     def _on_wheel(self, event) -> None:
         self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
-
-    # ── Zustand von außen ──
-    def set_visible(self, visible: bool) -> None:
-        """Ausblenden, wenn weder Master Duel noch der Importer vorne ist (wie das Overlay)."""
-        if not self.closed:
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:
         if self.closed:

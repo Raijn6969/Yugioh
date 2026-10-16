@@ -20,9 +20,9 @@ import card_images
 import matchup_analysis
 from card_grid import CardGrid
 from match_history import RANKED
-from rounded_button import RoundedButton, close_button
+from rounded_button import RoundedButton
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
-                          BAD, apply_frame, no_activate, place_in_work_area)
+                          BAD)
 from winrate_panel import MODE_KEY
 
 COLUMNS = 5
@@ -48,7 +48,7 @@ def record_text(record: matchup_analysis.Record) -> str:
 
 class MatchupPanel:
     def __init__(self, master: tk.Misc, db, settings: dict, save_settings: Callable[[], None],
-                 on_close: Callable[[], None], deck_name: Optional[str] = None, anchor: Optional[tk.Misc] = None,
+                 on_close: Callable[[], None], deck_name: Optional[str] = None,
                  image_folder: str = card_images.FOLDER):
         self.master = master
         self.db = db
@@ -74,19 +74,8 @@ class MatchupPanel:
         self._generation = 0                           # Filter umgestellt → ältere Ergebnisse verwerfen
         self._poll_job = None
 
-        if anchor is not None:
-            # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
-            # zeigen, bevor es platziert ist – kurz oben links in der Ecke, und Windows blendet im Vollbild die
-            # Taskleiste ein.
-            anchor.update_idletasks()
-        self.win = tk.Toplevel(master, bg=BG)
-        self.win.overrideredirect(True)
-        self.win.wm_attributes("-topmost", True)
+        self.win = tk.Frame(master, bg=BG)  # Ansicht im Deck-Fenster (extras_panel packt sie)
         self._build()
-        self._place(anchor)
-        apply_frame(self.win)
-        no_activate(self.win)  # Klicks lassen Master Duel aktiv (sonst Taskleiste über dem Spiel)
-        self.win.bind("<Escape>", lambda e: self.close())
         self.refresh()
 
     @property
@@ -96,13 +85,6 @@ class MatchupPanel:
     # ── Aufbau ──
     def _build(self) -> None:
         s = self.s
-        header = tk.Frame(self.win, bg=PANEL)
-        header.pack(fill=tk.X)
-        tk.Label(header, text="◆ MATCHUP", fg=GOLD, bg=PANEL, font=self.font_head).pack(
-            side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
-        tk.Label(header, text="Störkarten deiner Gegner", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
-
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
         filters = tk.Frame(body, bg=BG)
@@ -139,20 +121,6 @@ class MatchupPanel:
                  wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
         self.grid = CardGrid(body, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
                              self.font_small)
-
-    def _place(self, anchor: Optional[tk.Misc]) -> None:
-        """Unter dem Button "Matchup", rechtsbündig mit dem Deck-Fenster (liegt über dessen Liste)."""
-        s = self.s
-        w, h = int(520 * s), int(620 * s)
-        screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
-        if anchor is not None:
-            top = anchor.winfo_toplevel()
-            x = top.winfo_rootx() + top.winfo_width() - w - int(8 * s)
-            y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
-        else:
-            x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x, y = place_in_work_area(x, y, w, h, anchor)
-        self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Auswerten (Hintergrund) ──
     def _set_filter(self, key: str) -> None:
@@ -282,11 +250,6 @@ class MatchupPanel:
         if self._tip is not None:
             self._tip.destroy()
             self._tip = None
-
-    # ── Zustand von außen ──
-    def set_visible(self, visible: bool) -> None:
-        if not self.closed:
-            self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
 
     def close(self) -> None:
         if self.closed:
