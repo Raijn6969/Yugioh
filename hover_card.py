@@ -253,7 +253,7 @@ class HoverCard:
         c.create_line(pad, y, w - pad, y, fill=NEON_DIM)
         y += int(10 * s)
 
-        label_w = int(118 * s)
+        label_w = int(140 * s)  # Consolas 9 statt 8 pt: "1. ZUG · 5 KARTEN" braucht mehr Platz
         for row in content.rows:
             c.create_text(pad, y, text=row.label, fill=MUTED, font=self.font_small, anchor="w")
             c.create_text(w - pad, y, text=row.value, fill=row.color, font=self.font_mono_bold, anchor="e")
