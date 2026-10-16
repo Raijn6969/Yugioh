@@ -850,17 +850,7 @@ class ExtrasPanel:
         self._row_bg.clear()
         self._highlighted = None
         analysis = self.analysis
-        starters, unknown = analysis.starter_copies()
-        self.tiles["main"].config(text=str(analysis.main_size))
-        self.tiles["extra"].config(text=str(analysis.sizes.get("Extra", 0)))
-        self.tiles["starter"].config(text=str(starters), fg=GREEN if starters else TEXT)
-        handtraps, _ = analysis.handtrap_copies()
-        self.tiles["handtrap"].config(text=str(handtraps), fg=GREEN if handtraps else TEXT)
-        text = self._odds_text("Mind. 1 Starter auf der Hand", *analysis.starter_odds())
-        if unknown:
-            text += f"\n({unknown} Karte(n) ohne Einstufung nicht mitgezählt)"
-        self.starter_odds.config(text=text)
-        self.handtrap_odds.config(text=self._odds_text("Mind. 1 Handtrap", *analysis.handtrap_odds()))
+        self._show_summary()
         self._show_deck_winrate()
 
         name_font = tkfont.Font(font=self.font)
@@ -876,6 +866,21 @@ class ExtrasPanel:
                 self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         self.list_canvas.yview_moveto(0)
 
+    def _show_summary(self) -> None:
+        """Kacheln und Chancen auf Starter/Handtrap."""
+        analysis = self.analysis
+        starters, unknown = analysis.starter_copies()
+        self.tiles["main"].config(text=str(analysis.main_size))
+        self.tiles["extra"].config(text=str(analysis.sizes.get("Extra", 0)))
+        self.tiles["starter"].config(text=str(starters), fg=GREEN if starters else TEXT)
+        handtraps, _ = analysis.handtrap_copies()
+        self.tiles["handtrap"].config(text=str(handtraps), fg=GREEN if handtraps else TEXT)
+        text = self._odds_text("Mind. 1 Starter auf der Hand", *analysis.starter_odds())
+        if unknown:
+            text += f"\n({unknown} Karte(n) ohne Einstufung nicht mitgezählt)"
+        self.starter_odds.config(text=text)
+        self.handtrap_odds.config(text=self._odds_text("Mind. 1 Handtrap", *analysis.handtrap_odds()))
+
     def _odds_text(self, caption: str, first: float, second: float) -> str:
         """Mit Spalte „2. Zug“ zweizeilig, damit Starter und Handtrap nebeneinander passen."""
         if self.show_second.get():
@@ -889,19 +894,14 @@ class ExtrasPanel:
         name = self._fit(entry.name, name_font, name_width)
         if entry.zone == "Main":
             stats = analysis.stats(entry)
-            starter = stats.starter
-            starter_text = {True: "Ja", False: "Nein", None: "?"}[starter.starter]
-            starter_color = {True: GREEN, False: MUTED, None: AMBER}[starter.starter]
             texts = [name, str(entry.copies), pct(stats.first)]
             colors = [TEXT, TEXT, NEON]
             if self.show_second.get():
                 texts.append(pct(stats.second))
                 colors.append(NEON)
-            texts += [starter_text, "✎" if starter.manual else ""]
-            colors += [starter_color, starter_color]
-            handtrap = stats.handtrap
-            texts += [{True: "Ja", False: "Nein", None: "?"}[handtrap.handtrap], "✎" if handtrap.manual else ""]
-            colors += [{True: GREEN, False: MUTED, None: AMBER}[handtrap.handtrap]] * 2
+            for text, color in self._rating_cells(entry):
+                texts.append(text)
+                colors.append(color)
         else:
             texts = [name, str(entry.copies)] + ["–"] * (len(self.columns) - 5) + [""] * 4
             colors = [MUTED] * len(texts)
@@ -918,6 +918,23 @@ class ExtrasPanel:
         self._rows[entry.key] = row
         self._row_bg[entry.key] = bg
 
+    def _rating_cells(self, entry: DeckEntry) -> List[tuple]:
+        """[(Text, Farbe)] der vier Zellen Starter, ✎, Handtrap, ✎ einer Zeile des Main Decks."""
+        starter, handtrap = self.analysis.starter(entry), self.analysis.handtrap(entry)
+        cells = []
+        for value, manual in ((starter.starter, starter.manual), (handtrap.handtrap, handtrap.manual)):
+            color = {True: GREEN, False: MUTED, None: AMBER}[value]
+            cells += [({True: "Ja", False: "Nein", None: "?"}[value], color), ("✎" if manual else "", color)]
+        return cells
+
+    def _rerate(self, entry: DeckEntry) -> None:
+        """Nach einer geänderten Einstufung nur die Zeile und die Kacheln neu setzen (die ganze Liste neu zu bauen
+        dauert ~170 ms je Klick und springt nach oben)."""
+        labels = self._rows[entry.key].winfo_children()[-4:]
+        for label, (text, color) in zip(labels, self._rating_cells(entry)):
+            label.config(text=text, fg=color)
+        self._show_summary()
+
     @staticmethod
     def _fit(text: str, font: tkfont.Font, width: int) -> str:
         if font.measure(text) <= width:
@@ -929,19 +946,19 @@ class ExtrasPanel:
     def _toggle_starter(self, entry: DeckEntry) -> None:
         current = self.analysis.starter(entry).starter
         self.analysis.set_starter(entry, not current)
-        self._render()
+        self._rerate(entry)
 
     def _reset_starter(self, entry: DeckEntry) -> None:
         self.analysis.set_starter(entry, None)
-        self._render()
+        self._rerate(entry)
 
     def _toggle_handtrap(self, entry: DeckEntry) -> None:
         self.analysis.set_handtrap(entry, not self.analysis.handtrap(entry).handtrap)
-        self._render()
+        self._rerate(entry)
 
     def _reset_handtrap(self, entry: DeckEntry) -> None:
         self.analysis.set_handtrap(entry, None)
-        self._render()
+        self._rerate(entry)
 
     def _highlight(self, key: Optional[str]) -> None:
         if self._highlighted == key:

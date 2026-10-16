@@ -716,6 +716,21 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertGreaterEqual(self.panel.handtrap_odds.winfo_x(),  # rechts daneben, ohne Überlappung
                            self.panel.starter_odds.winfo_x() + self.panel.starter_odds.winfo_width())
 
+    def test_changing_a_rating_does_not_rebuild_the_list(self):
+        self.panel.set_scan(self.scan)
+        self.root.update()
+        entry = self.panel.analysis.entry_at("Main", 10)  # eine Karte weiter unten
+        row = self.panel._rows[entry.key]
+        self.panel.list_canvas.yview_moveto(0.5)
+        self.panel._toggle_starter(entry)
+        self.assertIs(self.panel._rows[entry.key], row)  # dieselbe Zeile, kein Neuaufbau
+        self.assertAlmostEqual(self.panel.list_canvas.yview()[0], 0.5, places=1)  # kein Sprung nach oben
+        self.assertEqual(row.winfo_children()[-4].cget("text"), "Ja")
+        self.assertEqual(self.panel.tiles["starter"].cget("text"), "4")  # Lukias ×3 + diese Karte
+        self.panel._reset_starter(entry)
+        self.assertEqual((row.winfo_children()[-4].cget("text"), self.panel.tiles["starter"].cget("text")),
+                         ("Nein", "3"))
+
     def test_handtrap_can_be_changed_by_click(self):
         self.panel.set_scan(self.scan)
         self.root.update()
