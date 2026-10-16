@@ -31,7 +31,6 @@ COLLAPSED_KEY = "WINRATE_COLLAPSED"  # Einstellung: {section_key: bool}
 PERIODS = (("today", "Heute"), ("week", "7 Tage"), ("season", "Saison"), ("all", "Alle"))
 MATCH_LIMIT = 20
 OPPONENT_LIMIT = 12
-TREND_WINDOW = 10   # Verlauf: Winrate der jeweils letzten 10 Matches
 TREND_MIN = 3       # so viele Matches braucht der Verlauf mindestens
 UNKNOWN_DECK = "Unbekanntes Deck"
 OPPONENT_COLUMNS = (8, 7, 8, 6)  # Zeichen je Zahlenspalte, von rechts: Zweiter, Erster, Bilanz, Gesamt
@@ -61,13 +60,12 @@ def day_summary(db: CardStatsDB, mode: Optional[int], now: Optional[float] = Non
 
 
 def trend(matches: List[MatchEntry]) -> List[tuple]:
-    """Verlauf: [(Match, Winrate der letzten TREND_WINDOW Matches bis hierhin)], das älteste zuerst (Matches: das
-    letzte zuerst, wie aus der Datenbank). Am Anfang über alle bisherigen Matches."""
-    ordered = list(reversed(matches))
-    points = []
-    for i, match in enumerate(ordered):
-        window = ordered[max(0, i - TREND_WINDOW + 1):i + 1]
-        points.append((match, sum(m.result == WIN for m in window) / len(window)))
+    """Verlauf: [(Match, Winrate der ersten n Matches bis hierhin)], das älteste zuerst (Matches: das letzte zuerst,
+    wie aus der Datenbank). Der letzte Punkt ist die Winrate über alle übergebenen Matches."""
+    points, wins = [], 0
+    for n, match in enumerate(reversed(matches), 1):
+        wins += match.result == WIN
+        points.append((match, wins / n))
     return points
 
 
@@ -317,7 +315,8 @@ class WinratePanel:
             if self.selected not in {d.deck_name for d in decks}:
                 self.selected = None
             stats = self.db.win_stats(self.selected, self.mode, since)
-            matches = self.db.matches(self.selected, self.mode, MATCH_LIMIT, since)
+            period_matches = self.db.matches(self.selected, self.mode, 1_000_000, since)  # Verlauf: ganzer Zeitraum
+            matches = period_matches[:MATCH_LIMIT]
             self._shown_matches = matches
             try:
                 self._replay_by_match = self.db.replay_starts_by_match()
@@ -351,9 +350,9 @@ class WinratePanel:
         self._section_items.clear()
         for child in self.inner.winfo_children():
             child.destroy()
-        if len(matches) >= TREND_MIN:
-            self._section("trend", f"VERLAUF · Winrate der jeweils letzten {TREND_WINDOW} Matches")
-            chart = self._trend_chart(trend(matches))
+        if len(period_matches) >= TREND_MIN:
+            self._section("trend", "VERLAUF · Winrate im Zeitraum")
+            chart = self._trend_chart(trend(period_matches))
             self._register_item("trend", chart, {"anchor": "w", "pady": (0, int(4 * self.s))})
         if opponents:
             shown = opponents[:OPPONENT_LIMIT]
@@ -481,7 +480,7 @@ class WinratePanel:
         return row
 
     def _trend_chart(self, points: List[tuple]) -> tk.Canvas:
-        """Linie: Winrate der jeweils letzten TREND_WINDOW Matches (älteste links); Hover zeigt das Match."""
+        """Linie: laufende Winrate über den Zeitraum (älteste links); Hover zeigt das Match."""
         s = self.s
         w, h = int(470 * s), int(96 * s)
         left, right, top, bottom = int(44 * s), int(12 * s), int(10 * s), int(18 * s)
@@ -514,7 +513,7 @@ class WinratePanel:
                               tags="hover")
             result = "Sieg" if match.result == WIN else "Remis" if match.result == DRAW else "Niederlage"
             text = f"{result}{f' vs {match.opp_name}' if match.opp_name else ''} · {when(match.played_at)}\n" \
-                   f"Winrate letzte {min(i + 1, TREND_WINDOW)}: {rate_text(round(rate * 100), 100)}"
+                   f"Winrate nach {i + 1}: {rate_text(round(rate * 100), 100)}"
             label = chart.create_text(x + int(8 * s) if x < w / 2 else x - int(8 * s), top + int(2 * s), text=text,
                                       anchor="nw" if x < w / 2 else "ne", fill=TEXT, font=self.font_small,
                                       tags="hover")

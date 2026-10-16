@@ -188,7 +188,7 @@ class PeriodTest(unittest.TestCase):
         self.assertEqual(day_summary(db, None, start + 3600), "Heute 1–1")
         self.assertEqual(day_summary(make_db(), mh.RANKED, now), "")
 
-    def test_trend_is_rolling_win_rate_oldest_first(self):
+    def test_trend_is_running_win_rate_oldest_first(self):
         db = make_db()
         results = [mh.WIN, mh.LOSS] * 6 + [mh.WIN, mh.WIN]  # 14 Matches, das älteste zuerst
         for i, result in enumerate(results):
@@ -196,7 +196,7 @@ class PeriodTest(unittest.TestCase):
         points = trend(db.matches())
         self.assertEqual([m.did for m, _ in points][:3], ["0", "1", "2"])
         self.assertEqual([round(rate, 2) for _, rate in points[:3]], [1.0, 0.5, 0.67])
-        self.assertEqual(points[-1][1], 0.6)  # letzte 10: 6 Siege
+        self.assertEqual(points[-1][1], 8 / 14)  # alle Matches: wie die Kachel GESAMT
 
 
 class OldTableTest(unittest.TestCase):
@@ -636,7 +636,7 @@ class WinratePanelTest(unittest.TestCase):
     def test_period_buttons_trend_and_opponents(self):
         self.panel.mode_buttons["all"].invoke()
         texts = self.texts(self.panel.inner)
-        self.assertTrue(any(t.startswith("VERLAUF") for t in texts))
+        self.assertIn("VERLAUF · Winrate im Zeitraum", texts)
         self.assertIn("GEGEN GEGNER-DECKS (1)", texts)
         self.assertIn("vs Snake-Eye", texts)
         # Hover über dem Verlauf zeigt das Match
