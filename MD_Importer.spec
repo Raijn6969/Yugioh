@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import fnmatch
 import sys
 
 # Karten-Grunddatenbank für die Extras-Stats: fehlt sie oder ist sie älter als 14 Tage, wird sie
@@ -27,6 +28,33 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+# --- Paketgröße (befunde.md B92): Unnötiges aus dem Paket lassen ---
+# PyInstaller 6 behandelt die DLLs/exes aus 'Tesseract-OCR' als Binärdateien und legt deren Abhängigkeiten
+# zusätzlich in den Wurzelordner _internal. tesseract.exe findet seine DLLs im eigenen Ordner, die Kopien im Wurzel-
+# ordner braucht nur, was unten in WURZEL_BEHALTEN steht (Laufzeit-DLLs; libffi für _ctypes, zlib1 für Tcl – deren
+# eigene Fassungen hat PyInstaller wegen gleichem Namen durch die aus dem Tesseract-Ordner ersetzt).
+# Ausgeschlossen sind außerdem: Tesseract-Trainingswerkzeuge/Handbuch/Java, osd/eng_backup (nur --psm 7, Englisch/
+# Deutsch), ffmpeg-DLL von cv2 (kein VideoCapture), AVIF von Pillow.
+AUSSCHLUSS = ['tesseract-ocr/*.exe', 'tesseract-ocr/*.html', 'tesseract-ocr/doc/*', '*.jar',
+              'tesseract-ocr/tessdata/osd.*', 'tesseract-ocr/tessdata/eng_backup.*',
+              'cv2/opencv_videoio_ffmpeg*', 'pil/_avif*']
+WURZEL_BEHALTEN = ('vcruntime140.dll', 'msvcp140.dll', 'libffi-8.dll', 'zlib1.dll')
+
+
+def behalten(eintrag):
+    ziel, quelle = eintrag[0].replace('\\', '/').lower(), eintrag[1]
+    if ziel == 'tesseract-ocr/tesseract.exe':
+        return True
+    aus_tesseract = os.path.basename(os.path.dirname(quelle)) == 'Tesseract-OCR'
+    if '/' not in ziel and aus_tesseract and ziel not in WURZEL_BEHALTEN:
+        return False
+    return not any(fnmatch.fnmatch(ziel, muster) for muster in AUSSCHLUSS)
+
+
+a.binaries = [e for e in a.binaries if behalten(e)]
+a.datas = [e for e in a.datas if behalten(e)]
+# --- Ende Paketgröße ---
+
 pyz = PYZ(a.pure)
 
 exe = EXE(
