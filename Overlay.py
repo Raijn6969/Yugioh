@@ -74,6 +74,7 @@ REMINDER_CHECK_MS = 3000  # so oft prüfen, ob die Match History inzwischen geö
 STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Platz neben dem ✕)
 UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere Version (Frage nur einmal je Version)
 UPDATE_RETRY_MS = 1000  # läuft ein Import, wird die Update-Frage so lange verschoben
+MD_FRONT_RETRY_MS = 1000  # Dialoge ohne Zutun des Nutzers warten, bis Master Duel nicht mehr vorne liegt
 TOAST_GAP_MS = 300  # Pause zwischen zwei Hinweisen über der Taskleiste
 REVIEW_NOTICE_DELAY_MS = STARTED_TOAST_MS + 2000  # so lange nach dem Start wird der Rückblick-Hinweis geprüft
 
@@ -212,19 +213,27 @@ class MasterDuelImporter:
             return  # zu dieser Version schon gefragt – der Tray-Menüpunkt bleibt
         self.config[UPDATE_NOTIFIED_KEY] = release.version
         self._save_config_safely()
-        self._ask_update_when_idle()
+        self._ask_update_when_idle(user=False)
 
     def _can_self_update(self, release) -> bool:
         """Ein-Klick-Update nur als exe, mit zip am Release und beschreibbarem Programmordner."""
         return bool(getattr(sys, "frozen", False) and release.zip_url and DATA_DIR == APP_DIR)
 
-    def _ask_update_when_idle(self):
-        """Update-Frage; läuft gerade ein Import/Export, erst danach (alle UPDATE_RETRY_MS nachsehen)."""
+    def _show_config_broken(self, message: str):
+        if self._md_in_front():
+            self._after_ids["config_broken"] = self.root.after(MD_FRONT_RETRY_MS,
+                                                               lambda: self._show_config_broken(message))
+            return
+        show_message(self.root, "Konfiguration beschädigt", message, kind="warning")
+
+    def _ask_update_when_idle(self, user: bool = True):
+        """Update-Frage; läuft gerade ein Import/Export, erst danach (alle UPDATE_RETRY_MS nachsehen). Kommt sie
+        ohne Zutun des Nutzers (user=False, nach der Update-Prüfung), auch erst, wenn Master Duel nicht vorne liegt."""
         self._after_ids.pop("update_ask", None)
         if self.update_release is None or self._update_running:
             return
-        if self.is_running:
-            self._after_ids["update_ask"] = self.root.after(UPDATE_RETRY_MS, self._ask_update_when_idle)
+        if self.is_running or (not user and self._md_in_front()):
+            self._after_ids["update_ask"] = self.root.after(UPDATE_RETRY_MS, lambda: self._ask_update_when_idle(user))
             return
         release = self.update_release
         text = f"MD-Importer {release.version} ist da (installiert: {APP_VERSION}). "
@@ -329,6 +338,9 @@ class MasterDuelImporter:
 
     def _show_update_failed(self):
         """Das Update-Skript konnte nicht alles kopieren (update_failed.txt im Programmordner): einmal Bescheid geben."""
+        if self._md_in_front():
+            self._after_ids["update_failed"] = self.root.after(MD_FRONT_RETRY_MS, self._show_update_failed)
+            return
         code = updater.take_failed_marker(APP_DIR)
         if code is None:
             return
@@ -422,13 +434,10 @@ class MasterDuelImporter:
                     shutil.copyfile(CONFIG_FILE, backup)
                 except Exception:
                     backup = "(Sicherung fehlgeschlagen)"
-                show_message(
-                    self.root, "Konfiguration beschädigt",
-                    f"{CONFIG_FILE} konnte nicht gelesen werden:\n{e}\n\n"
-                    f"Die Datei wurde NICHT überschrieben. Sicherung: {backup}\n\n"
-                    "Bitte den Fehler in der Datei korrigieren und neu starten "
-                    "oder neu kalibrieren.", kind="warning"
-                )
+                message = (f"{CONFIG_FILE} konnte nicht gelesen werden:\n{e}\n\n"
+                           f"Die Datei wurde NICHT überschrieben. Sicherung: {backup}\n\n"
+                           "Bitte den Fehler in der Datei korrigieren und neu starten oder neu kalibrieren.")
+                self._after_ids["config_broken"] = self.root.after(0, lambda: self._show_config_broken(message))
 
         loaded, config_warnings = validate_config(loaded)
         for w in config_warnings:
@@ -562,6 +571,18 @@ class MasterDuelImporter:
         Overlay auch über einem Browser mit einem Master-Duel-Video (Titel enthält "Master Duel")."""
         return is_md_process(fg_pid)
 
+    def _md_in_front(self) -> bool:
+        """Liegt Master Duel gerade vorne? Ein Dialog holt sich den Fokus (im Vollbild kann das Spiel minimieren):
+        Dialoge ohne Zutun des Nutzers warten, bis es nicht mehr so ist."""
+        try:
+            fg_hwnd = win32gui.GetForegroundWindow()
+            if not fg_hwnd:
+                return False
+            _, fg_pid = win32process.GetWindowThreadProcessId(fg_hwnd)
+            return fg_pid != os.getpid() and self._is_md_active(fg_hwnd, fg_pid)
+        except Exception:
+            return False
+
     def _check_window_focus(self):
         """Loop, der alle 300ms prüft, welches Fenster in Windows gerade vorne liegt."""
         self.hang_watch.beat()
@@ -648,6 +669,9 @@ class MasterDuelImporter:
     def _ask_read_method(self):
         """Beim ersten Start fragen, wie Karten gelesen werden sollen (gilt für Import, Deck-Scan und Export)."""
         self._after_ids.pop("read_method", None)
+        if self._md_in_front():
+            self._after_ids["read_method"] = self.root.after(MD_FRONT_RETRY_MS, self._ask_read_method)
+            return
         choice = ask_choice(
             self.root, "Wie sollen Karten gelesen werden?",
             "Speicher lesen (empfohlen): Der Importer liest die Karten-IDs direkt aus Master Duel – schneller "
@@ -715,7 +739,7 @@ class MasterDuelImporter:
         self._after_ids.pop("ocr_offer", None)
         if not self._use_memory():
             return  # inzwischen schon umgestellt
-        if self.is_running or self.root.grab_current():
+        if self.is_running or self.root.grab_current() or self._md_in_front():
             self._after_ids["ocr_offer"] = self.root.after(UPDATE_RETRY_MS, self._offer_ocr_when_idle)
             return
         choice = ask_choice(
@@ -1188,6 +1212,10 @@ class MasterDuelImporter:
 
     def _show_db_recovered(self, broken, date):
         """Einmal Bescheid geben: die Datenbank war beschädigt (siehe card_stats.recover_database)."""
+        if self._md_in_front():
+            self._after_ids["db_recovered"] = self.root.after(
+                MD_FRONT_RETRY_MS, lambda: self._show_db_recovered(broken, date))
+            return
         if date:
             day = time.strftime("%d.%m.%Y", time.strptime(date, "%Y-%m-%d"))
             outcome = (f"Wiederhergestellt aus der Sicherung vom {day}. Duelle, Decks und Replays seit diesem Tag "

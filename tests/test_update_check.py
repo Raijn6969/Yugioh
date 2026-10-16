@@ -163,7 +163,7 @@ class OverlayHookTest(unittest.TestCase):
             root=SimpleNamespace(after=lambda ms, func: later.append((ms, func)) or "id"),
             _save_config_safely=lambda: saved.append(dict(app.config)),
             update_status=lambda text, color="white": status.append((text, color)),
-            _set_buttons=mock.Mock(), close=mock.Mock(),
+            _set_buttons=mock.Mock(), close=mock.Mock(), _md_in_front=lambda: False,
             _run_on_ui=lambda func, *args: queued.append((func, args)))
         for name in self.BOUND:
             setattr(app, name, getattr(Overlay.MasterDuelImporter, name).__get__(app))

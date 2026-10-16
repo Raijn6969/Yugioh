@@ -364,6 +364,7 @@ class BrokenDatabaseTest(unittest.TestCase):
     def test_overlay_tells_the_user_once_with_the_backup_date(self):
         import Overlay
         fake = mock.Mock()
+        fake._md_in_front.return_value = False
         with mock.patch.object(Overlay, "show_message") as show:
             Overlay.MasterDuelImporter._show_db_recovered(fake, r"C:\x\md_card_stats.db.defekt-1", "2026-10-15")
         title, text = show.call_args.args[1:3]
@@ -381,6 +382,7 @@ class UpdateFailedNoticeTest(unittest.TestCase):
         with open(marker, "w", encoding="utf-8") as f:
             f.write("robocopy exit code 8")
         fake = mock.Mock()
+        fake._md_in_front.return_value = False
         with mock.patch.object(Overlay, "APP_DIR", folder), mock.patch.object(Overlay, "show_message") as show:
             Overlay.MasterDuelImporter._show_update_failed(fake)
             Overlay.MasterDuelImporter._show_update_failed(fake)  # zweiter Start: nichts mehr da

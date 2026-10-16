@@ -94,6 +94,37 @@ class OverlayTest(unittest.TestCase):
             root.update()
             time.sleep(0.01)
 
+    def test_dialogs_without_user_action_wait_until_md_is_not_in_front(self):
+        from types import SimpleNamespace
+        import updater
+        self.write_config(json.dumps({"IS_CALIBRATED": True, "READ_METHOD": "memory"}))
+        root, app = self.open_app()
+        folder = tempfile.mkdtemp()
+        with open(os.path.join(folder, updater.FAILED_MARKER), "w", encoding="utf-8") as f:
+            f.write("robocopy exit code 8")
+        release = SimpleNamespace(version="99.0", zip_url="", page="")
+        front = [True]
+        app._md_in_front = lambda: front[0]
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
+                mock.patch.object(Overlay, "show_message") as show, \
+                mock.patch.object(Overlay, "APP_DIR", folder), \
+                mock.patch.object(Overlay, "MD_FRONT_RETRY_MS", 20), mock.patch.object(Overlay, "UPDATE_RETRY_MS", 20):
+            app.update_release = release
+            app._ask_update_when_idle()  # Klick im Tray-Menü: sofort, auch mit Master Duel vorne
+            self.assertEqual(ask.call_count, 1)
+            ask.reset_mock()
+            app._ask_read_method()
+            app._on_update_found(release)
+            app._offer_ocr_when_idle()
+            app._show_db_recovered("md_card_stats.db.defekt-1", "2026-10-15")
+            app._show_update_failed()
+            app._show_config_broken("kaputt")
+            self.pump(root, 0.15)
+            self.assertEqual((ask.call_count, show.call_count), (0, 0))  # Master Duel vorne: kein Dialog
+            front[0] = False
+            self.pump(root, 0.15)
+            self.assertEqual((ask.call_count, show.call_count), (3, 3))  # nicht mehr vorne: alle kommen
+
     def test_tk_scaling_does_not_follow_the_windows_scaling(self):
         root = tk.Tk()
         root.tk.call("tk", "scaling", 2.0)  # wie bei Windows-Skalierung 150 %
