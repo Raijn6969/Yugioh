@@ -135,7 +135,7 @@ class StoreMatchesTest(unittest.TestCase):
         ranked = self.db.win_stats(mode=mh.RANKED)
         self.assertEqual((ranked.matches, ranked.wins, ranked.losses), (3, 2, 1))
         self.assertEqual((ranked.first, ranked.first_wins, ranked.second, ranked.second_wins), (1, 1, 2, 1))
-        self.assertEqual(summary(ranked), "67 % (2–1) · Erster 100 % · Zweiter 50 %")
+        self.assertEqual(summary(ranked), "67 % · 2–1 · Erster 100 % · Zweiter 50 %")
         self.assertEqual(self.db.win_stats().matches, 4)  # alle Modi
         decks = self.db.deck_win_stats(mh.RANKED)
         self.assertEqual([(d.deck_name, d.stats.matches) for d in decks], [("Ryzeal / Mitsurugi", 3)])
@@ -176,7 +176,7 @@ class PeriodTest(unittest.TestCase):
         opponents = db.opponent_stats(mode=mh.RANKED, since=week)
         self.assertEqual([(o.opp_name, o.stats.matches, o.stats.wins) for o in opponents],
                          [("Snake-Eye", 2, 1), ("Yubel", 1, 1)])
-        self.assertEqual(summary(opponents[0].stats), "50 % (1–1) · Erster 0 % · Zweiter 100 %")
+        self.assertEqual(summary(opponents[0].stats), "50 % · 1–1 · Erster 0 % · Zweiter 100 %")
         self.assertEqual(len(db.opponent_stats()), 2)  # alle Modi, alle Zeit: Yubel 2×
         start = period_start("today", now)
         db = make_db()
@@ -604,13 +604,13 @@ class WinratePanelTest(unittest.TestCase):
         tile = lambda key: tuple(label.cget("text") for label in self.panel.tiles[key])  # noqa: E731
         self.assertEqual(tile("coin"), ("0 %", "0 von 2"))
         self.assertEqual(tile("coin_won"), ("–", "keine Matches"))
-        self.assertEqual(tile("coin_lost"), ("50 %", "1–1 · 2 Match(es)"))
+        self.assertEqual(tile("coin_lost"), ("50 %", "1–1 · 2 Matches"))
         self.assertEqual(self.panel.coin_label.cget("text"), "Münzwurf zuletzt 2× in Folge verloren")
         self.assertTrue(any("Münzwurf verloren" in text for text in self.texts(self.panel.inner)))
 
     def test_ranked_rates_decks_and_matches(self):
         value, record = self.panel.tiles["all"]
-        self.assertEqual((value.cget("text"), record.cget("text")), ("50 %", "1–1 · 2 Match(es)"))
+        self.assertEqual((value.cget("text"), record.cget("text")), ("50 %", "1–1 · 2 Matches"))
         self.assertEqual(self.panel.tiles["first"][0].cget("text"), "100 %")
         self.assertEqual(self.panel.tiles["second"][0].cget("text"), "0 %")
         texts = self.texts(self.panel.inner)
@@ -620,7 +620,17 @@ class WinratePanelTest(unittest.TestCase):
         # Alle Modi
         self.panel.mode_buttons["all"].invoke()
         self.assertEqual(self.settings["WINRATE_MODE"], "all")
-        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "2–1 · 3 Match(es)")
+        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "2–1 · 3 Matches")
+
+    def test_info_line_is_short_and_opponent_numbers_sit_in_columns(self):
+        info = self.panel.info_label.cget("text")
+        self.assertRegex(info, r"^2 Matches · zuletzt .+$")
+        self.assertNotIn("Ergebnis-Bildschirm", info)
+        rows = [w for w in self.panel.inner.winfo_children() if isinstance(w, tk.Frame) and w.winfo_children()
+                and w.winfo_children()[0].cget("anchor") == "e"]
+        self.assertTrue(rows)
+        self.assertEqual([w.cget("width") for w in rows[0].winfo_children()[:4]], [12, 11, 8, 4])
+        self.assertEqual(self.panel.filter_label.winfo_manager(), "")  # keine Wiederholung der Filter
 
     def test_period_buttons_trend_and_opponents(self):
         self.panel.mode_buttons["all"].invoke()
@@ -639,13 +649,13 @@ class WinratePanelTest(unittest.TestCase):
         # Zeitraum
         self.panel.period_buttons["today"].invoke()
         self.assertEqual(self.settings["WINRATE_PERIOD"], "today")
-        self.assertIn("Heute", self.panel.filter_label.cget("text"))
+        self.assertEqual(self.panel.filter_label.cget("text"), "")  # ohne Deckwahl keine Wiederholung der Filter
         self.panel.settings["WINRATE_PERIOD"] = "week"
         mh.store_matches(self.db, mh.parse_history({"58": {"9": entry(9, time.time() - 30 * 86400, mh.WIN)}}))
         self.panel.refresh()
-        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "2–1 · 3 Match(es)")  # ohne das alte Match
+        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "2–1 · 3 Matches")  # ohne das alte Match
         self.panel.period_buttons["all"].invoke()
-        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "3–1 · 4 Match(es)")
+        self.assertEqual(self.panel.tiles["all"][1].cget("text"), "3–1 · 4 Matches")
 
     def test_show_deck_in_deck_window(self):
         self.panel._open(self.db.deck_win_stats(mh.RANKED)[0])

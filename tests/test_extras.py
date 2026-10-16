@@ -882,6 +882,12 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.side_btn.invoke()
         side = self.panel.side
         self.assertEqual((side.deck["1"], side.zones["1"], side.unknown), (3, "Main", 0))
+        self.panel._deck_name = "Elfnote"
+        self.panel._refresh_nav()
+        self.assertEqual(self.panel.title_label.cget("text"), "◆ SIDE · Elfnote")  # Deckname im Titel
+        self.panel._deck_name = "A" * 30
+        self.panel._refresh_nav()
+        self.assertEqual(self.panel.title_label.cget("text"), "◆ SIDE · " + "A" * 17 + "…")
         with mock.patch.object(extras_panel, "current_changes", return_value=None):
             self.panel._side_swap(["1"], "Zweiter")
         self.assertEqual(swaps, [(["1"], "Zweiter")])

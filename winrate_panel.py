@@ -29,7 +29,7 @@ MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
 COLLAPSED_KEY = "WINRATE_COLLAPSED"  # Einstellung: {section_key: bool}
 PERIODS = (("today", "Heute"), ("week", "7 Tage"), ("season", "Saison"), ("all", "Alle"))
-MATCH_LIMIT = 50
+MATCH_LIMIT = 20
 OPPONENT_LIMIT = 12
 TREND_WINDOW = 10   # Verlauf: Winrate der jeweils letzten 10 Matches
 TREND_MIN = 3       # so viele Matches braucht der Verlauf mindestens
@@ -74,6 +74,10 @@ def rate_text(wins: int, matches: int) -> str:
     return f"{wins / matches * 100:.0f} %" if matches else "–"
 
 
+def matches_text(count: int) -> str:
+    return f"{count} Match" if count == 1 else f"{count} Matches"
+
+
 def record_text(stats: WinStats) -> str:
     """'13–8' bzw. '13–8–1' mit Unentschieden"""
     text = f"{stats.wins}–{stats.losses}"
@@ -81,8 +85,8 @@ def record_text(stats: WinStats) -> str:
 
 
 def summary(stats: WinStats) -> str:
-    """'62 % (13–8) · Erster 70 % · Zweiter 55 %' – für das Deck-Fenster und die Deck-Zeilen."""
-    parts = [f"{rate_text(stats.wins, stats.matches)} ({record_text(stats)})"]
+    """'62 % · 13–8 · Erster 70 % · Zweiter 55 %' – für das Deck-Fenster und die Deck-Zeilen."""
+    parts = [f"{rate_text(stats.wins, stats.matches)} · {record_text(stats)}"]
     if stats.first:
         parts.append(f"Erster {rate_text(stats.first_wins, stats.first)}")
     if stats.second:
@@ -166,7 +170,7 @@ class WinratePanel:
                 self.coin_body.pack_forget()
             else:
                 self.coin_arrow.config(text="▼")
-                self.coin_body.pack(fill=tk.X, pady=(0, int(4 * self.s)), before=self.filter_label)
+                self.coin_body.pack(fill=tk.X, pady=(0, int(4 * self.s)), before=self.list_frame)
             return
 
         header_info = self._section_headers.get(key)
@@ -230,7 +234,7 @@ class WinratePanel:
 
         # Münzwurf (einklappbar)
         self.coin_header = tk.Frame(body, bg=BG, cursor="hand2")
-        self.coin_header.pack(fill=tk.X, pady=(int(2 * s), int(2 * s)))
+        self.coin_header.pack(fill=tk.X, pady=(int(8 * s), int(2 * s)))
         self.coin_arrow = tk.Label(self.coin_header, text="▼" if not self.is_collapsed("coin") else "▶",
                                    fg=GOLD, bg=BG, font=self.font_small_bold, cursor="hand2")
         self.coin_arrow.pack(side=tk.LEFT, padx=(0, int(4 * s)))
@@ -255,9 +259,8 @@ class WinratePanel:
         self.coin_label.pack(fill=tk.X, pady=(int(2 * s), 0))
 
         self.filter_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_small, anchor="w")
-        self.filter_label.pack(fill=tk.X)
 
-        list_frame = tk.Frame(body, bg=BG)
+        self.list_frame = list_frame = tk.Frame(body, bg=BG)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(int(4 * s), 0))
         self.canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
         bar = DarkScrollbar(list_frame, command=self.canvas.yview, bg=BG, scale=self.s)
@@ -335,13 +338,14 @@ class WinratePanel:
             self.coin_body.pack_forget()
             self.coin_arrow.config(text="▶")
         else:
-            self.coin_body.pack(fill=tk.X, pady=(0, int(4 * self.s)), before=self.filter_label)
+            self.coin_body.pack(fill=tk.X, pady=(0, int(4 * self.s)), before=self.list_frame)
             self.coin_arrow.config(text="▼")
-        mode = "Ranked" if self.mode == RANKED else "alle Modi"
-        if self.period != "all":
-            mode += f" · {dict(PERIODS)[self.period]}"
-        self.filter_label.config(text=f"Nur „{self.selected}“ · {mode} – Klick aufs Deck zeigt wieder alle"
-                                 if self.selected else f"Alle Decks · {mode}")
+        if self.selected:  # ohne Auswahl wiederholte die Zeile nur die Filterknöpfe
+            self.filter_label.config(text=f"Nur „{self.selected}“ – Klick aufs Deck zeigt wieder alle")
+            self.filter_label.pack(fill=tk.X, before=self.list_frame)
+        else:
+            self.filter_label.config(text="")
+            self.filter_label.pack_forget()
         self._section_headers.clear()
         self._section_items.clear()
         for child in self.inner.winfo_children():
@@ -379,15 +383,14 @@ class WinratePanel:
             text, color = ("Noch keine Matches. Jedes Duell wird am Ergebnis-Bildschirm erfasst. Damit dein Deck "
                            "erkannt wird, in Master Duel einmal die Deck-Auswahl öffnen.", MUTED)
         else:
-            text, color = (f"{stats.matches} Match(es), zuletzt {when(stats.last_played)} · Duelle werden am "
-                           f"Ergebnis-Bildschirm erfasst; ein neues Deck einmal in der Deck-Auswahl ansehen.", MUTED)
+            text, color = (f"{matches_text(stats.matches)} · zuletzt {when(stats.last_played, short=True)}", MUTED)
             try:
                 unconfirmed = self.db.unconfirmed_matches()
             except Exception:
                 unconfirmed = 0
             if unconfirmed >= REMIND_AT[0]:  # im Fenster durchgehend, nicht nur bei 15/18 wie die Meldung
                 text = history_reminder(unconfirmed) or (
-                    f"{unconfirmed} Duelle seit dem letzten Blick in die Match History – bitte bald öffnen "
+                    f"{unconfirmed} Matches seit dem letzten Blick in die Match History – bitte bald öffnen "
                     f"(sie zeigt nur die letzten {HISTORY_SIZE}, sonst fehlen die Gegner-Decks).")
                 color = WARN
         self.info_label.config(text=text, fg=color)
@@ -404,7 +407,7 @@ class WinratePanel:
             rate = wins / matches if matches else None
             color = TEXT if rate is None else GOOD if rate >= 0.5 else WARN
             value.config(text=rate_text(wins, matches), fg=color)
-            record.config(text=f"{wins}–{matches - wins} · {matches} Match(es)" if matches else "keine Matches")
+            record.config(text=f"{wins}–{matches - wins} · {matches_text(matches)}" if matches else "keine Matches")
 
     def _section(self, key_or_title: str, title: Optional[str] = None) -> None:
         s = self.s
@@ -460,7 +463,12 @@ class WinratePanel:
     def _opponent_row(self, opponent: OpponentStats, bg: str) -> tk.Frame:
         s = self.s
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
-        tk.Label(row, text=summary(opponent.stats), fg=MUTED, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
+        stats = opponent.stats  # feste Spalten, rechtsbündig: die Zahlen stehen untereinander
+        mono = font(SIZE_SMALL, s, mono=True)
+        for width, text in ((12, f"Zweiter {rate_text(stats.second_wins, stats.second)}" if stats.second else ""),
+                            (11, f"Erster {rate_text(stats.first_wins, stats.first)}" if stats.first else ""),
+                            (8, record_text(stats)), (4, rate_text(stats.wins, stats.matches))):
+            tk.Label(row, text=text, fg=MUTED, bg=bg, font=mono, width=width, anchor="e").pack(side=tk.RIGHT)
         tk.Label(row, text=f"vs {opponent.opp_name}", fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
             side=tk.LEFT, fill=tk.X, expand=True)
         return row
@@ -530,15 +538,16 @@ class WinratePanel:
         text = tk.Frame(row, bg=bg)
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
         title = match.deck_name or match.md_deck or UNKNOWN_DECK
-        if match.opp_name:
-            title += f"  vs  {match.opp_name}"
+        if match.opp_name:  # bei gewähltem Deck steht es schon oben
+            title = f"vs  {match.opp_name}" if self.selected else f"{title}  vs  {match.opp_name}"
         tk.Label(text, text=title, fg=TEXT, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
-        details = [when(match.played_at)]
+        details = [when(match.played_at, short=True)]
         if match.coin is not None:
             details.append("Münzwurf gewonnen" if match.coin else "Münzwurf verloren")
         if match.turns:
             details.append(f"{match.turns} Züge" if match.turns != 1 else "1 Zug")
-        details.append(mode_name(match.mode))
+        if self.mode is None:  # sonst zeigt der Filter oben den Modus
+            details.append(mode_name(match.mode))
         if match.finish == FINISH_SURRENDER:
             details.append("Aufgabe")
         tk.Label(text, text="  ·  ".join(details), fg=MUTED, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)

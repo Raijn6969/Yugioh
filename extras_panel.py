@@ -495,7 +495,10 @@ class ExtrasPanel:
                 getattr(self, button).config(role="neutral" if panel is None else "active")
             if panel is not None:
                 shown = (panel, title)
-        self.title_label.config(text="◆ " + (shown[1] if shown else "DECK"))
+        title = shown[1] if shown else "DECK"
+        if shown and shown[0] is self.side and self._deck_name:  # Side gehört zu einem Deck: Name dazu
+            title += " · " + (self._deck_name if len(self._deck_name) <= 18 else self._deck_name[:17] + "…")
+        self.title_label.config(text="◆ " + title)
         self.deck_body.pack_forget()
         if shown is None:
             self.deck_body.pack(fill=tk.BOTH, expand=True)

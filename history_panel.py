@@ -45,8 +45,8 @@ def deck_from_history(code: str, db: CardStatsDB) -> DeckScan:
     return DeckScan(None, layout, zones["Main"] + zones["Extra"], {})
 
 
-def when(timestamp: float) -> str:
-    """'heute 14:32', 'gestern 09:10' oder '28.09.2026 18:05'"""
+def when(timestamp: float, short: bool = False) -> str:
+    """'heute 14:32', 'gestern 09:10' oder '28.09.2026 18:05' (short: '28.09. 18:05')"""
     day = time.strftime("%Y-%m-%d", time.localtime(timestamp))
     today = time.strftime("%Y-%m-%d")
     yesterday = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
@@ -55,7 +55,7 @@ def when(timestamp: float) -> str:
         return f"heute {clock}"
     if day == yesterday:
         return f"gestern {clock}"
-    return time.strftime("%d.%m.%Y %H:%M", time.localtime(timestamp))
+    return time.strftime("%d.%m. %H:%M" if short else "%d.%m.%Y %H:%M", time.localtime(timestamp))
 
 
 class HistoryPanel:
