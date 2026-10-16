@@ -776,7 +776,7 @@ class WinratePanelTest(unittest.TestCase):
                 self.assertTrue(self.panel.is_collapsed(key))
 
     def test_hover_header_changes_color(self):
-        from extras_panel import GOLD, HIGHLIGHT
+        from window_style import GOLD, HIGHLIGHT
         arrow = self.panel.coin_arrow
         title = self.panel.coin_title
         self.assertEqual(arrow.cget("fg"), GOLD)

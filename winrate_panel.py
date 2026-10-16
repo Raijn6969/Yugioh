@@ -18,13 +18,12 @@ from typing import Callable, List, Optional
 
 from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, WinStats
 from dark_scrollbar import DarkScrollbar
-from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
-from hover_card import AMBER, GREEN, NEON, RED
 from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
 from rounded_button import RoundedButton
 from season_review import DAY_START_HOUR  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im Tag
-from window_style import apply_frame, no_activate, place_in_work_area
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL,
+                          DANGER, apply_frame, no_activate, place_in_work_area)
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
@@ -215,7 +214,7 @@ class WinratePanel:
         tk.Label(header, text="◆ WINRATE", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="deine Duelle", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
@@ -274,7 +273,7 @@ class WinratePanel:
                                    justify=tk.LEFT, wraplength=int(500 * s))
         self.coin_label.pack(fill=tk.X, pady=(int(2 * s), 0))
 
-        self.filter_label = tk.Label(body, text="", fg=NEON, bg=BG, font=self.font_small, anchor="w")
+        self.filter_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_small, anchor="w")
         self.filter_label.pack(fill=tk.X)
 
         list_frame = tk.Frame(body, bg=BG)
@@ -338,9 +337,9 @@ class WinratePanel:
             return
         for key, button in self.mode_buttons.items():
             active = (key == "all") == (self.mode is None)
-            button.config(bg="#007acc" if active else "#444444")
+            button.config(bg=PRIMARY if active else NEUTRAL)
         for key, button in self.period_buttons.items():
-            button.config(bg="#007acc" if key == self.period else "#444444")
+            button.config(bg=PRIMARY if key == self.period else NEUTRAL)
         since = period_start(self.period)
         try:
             decks = self.db.deck_win_stats(self.mode, since)
@@ -355,7 +354,7 @@ class WinratePanel:
                 self._replay_by_match = {}
             opponents = self.db.opponent_stats(self.selected, self.mode, since)
         except Exception as e:  # Datenbank gesperrt/defekt → Fenster bleibt benutzbar
-            self.info_label.config(text=f"Matches nicht lesbar: {e}", fg=RED)
+            self.info_label.config(text=f"Matches nicht lesbar: {e}", fg=BAD)
             return
         self._show_info(stats)
         self._show_tiles(stats)
@@ -406,7 +405,7 @@ class WinratePanel:
     def _show_info(self, stats: WinStats) -> None:
         if not self.tracking:
             text, color = ("Matches werden nur mit „Speicher lesen“ übernommen (Deck → Optionen → Karten lesen).",
-                           AMBER)
+                           WARN)
         elif not stats.matches and self.period != "all":
             text, color = (f"Keine Matches im Zeitraum „{dict(PERIODS)[self.period]}“.", MUTED)
         elif not stats.matches:
@@ -423,7 +422,7 @@ class WinratePanel:
                 text = history_reminder(unconfirmed) or (
                     f"{unconfirmed} Duelle seit dem letzten Blick in die Match History – bitte bald öffnen "
                     f"(sie zeigt nur die letzten {HISTORY_SIZE}, sonst fehlen die Gegner-Decks).")
-                color = AMBER
+                color = WARN
         self.info_label.config(text=text, fg=color)
 
     def _show_tiles(self, stats: WinStats) -> None:
@@ -436,7 +435,7 @@ class WinratePanel:
                                     ("coin_lost", stats.coin_lost_wins, stats.coin_lost)):
             value, record = self.tiles[key]
             rate = wins / matches if matches else None
-            color = TEXT if rate is None else GREEN if rate >= 0.5 else AMBER
+            color = TEXT if rate is None else GOOD if rate >= 0.5 else WARN
             value.config(text=rate_text(wins, matches), fg=color)
             record.config(text=f"{wins}–{matches - wins} · {matches} Match(es)" if matches else "keine Matches")
 
@@ -515,10 +514,10 @@ class WinratePanel:
         chart.create_text(left, h - int(2 * s), text="älter", anchor="sw", fill=MUTED, font=self.font_small)
         chart.create_text(w - right, h - int(2 * s), text="neuestes", anchor="se", fill=MUTED, font=self.font_small)
         coords = [value for i, (_, rate) in enumerate(points) for value in (x_of(i), y_of(rate))]
-        chart.create_line(*coords, fill=NEON, width=2, capstyle=tk.ROUND, joinstyle=tk.ROUND)
+        chart.create_line(*coords, fill=INFO, width=2, capstyle=tk.ROUND, joinstyle=tk.ROUND)
         radius = int(4 * s)
         last_x, last_y = x_of(len(points) - 1), y_of(points[-1][1])
-        chart.create_oval(last_x - radius, last_y - radius, last_x + radius, last_y + radius, fill=NEON,
+        chart.create_oval(last_x - radius, last_y - radius, last_x + radius, last_y + radius, fill=INFO,
                           outline=BG, width=2)
         chart.create_text(last_x - int(7 * s), last_y - int(7 * s), text=rate_text(round(points[-1][1] * 100), 100),
                           anchor="se" if points[-1][1] < 0.85 else "ne", fill=TEXT, font=self.font_small_bold)
@@ -529,7 +528,7 @@ class WinratePanel:
             match, rate = points[i]
             x, y = x_of(i), y_of(rate)
             chart.create_line(x, top, x, top + plot_h, fill=MUTED, tags="hover")
-            chart.create_oval(x - radius, y - radius, x + radius, y + radius, fill=NEON, outline=BG, width=2,
+            chart.create_oval(x - radius, y - radius, x + radius, y + radius, fill=INFO, outline=BG, width=2,
                               tags="hover")
             result = "Sieg" if match.result == WIN else "Remis" if match.result == DRAW else "Niederlage"
             text = f"{result}{f' vs {match.opp_name}' if match.opp_name else ''} · {when(match.played_at)}\n" \
@@ -549,8 +548,8 @@ class WinratePanel:
     def _match_row(self, match: MatchEntry, bg: str, index: int = 0) -> tk.Frame:
         s = self.s
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s), cursor="hand2")
-        result, color = (("SIEG", GREEN) if match.result == WIN else ("REMIS", AMBER) if match.result == DRAW
-                         else ("NIEDERLAGE", RED))
+        result, color = (("SIEG", GOOD) if match.result == WIN else ("REMIS", WARN) if match.result == DRAW
+                         else ("NIEDERLAGE", BAD))
         tk.Label(row, text=result, fg=color, bg=bg, font=self.font_small_bold, width=11, anchor="w").pack(
             side=tk.LEFT)
         order = {True: "Erster", False: "Zweiter"}.get(match.first, "?")

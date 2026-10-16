@@ -16,11 +16,10 @@ import card_images
 import staple_analysis
 from card_grid import CardGrid
 from card_stats import name_key
-from extras_panel import BG, GOLD, MUTED, PANEL, TEXT
 from history_panel import when
-from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate, place_in_work_area
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, PRIMARY, NEUTRAL, DANGER, apply_frame,
+                          no_activate, place_in_work_area)
 
 POLL_MS = 100
 COLUMNS = 5             # Karten pro Reihe
@@ -87,17 +86,17 @@ class StaplePanel:
         tk.Label(header, text="◆ STAPLES", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Vergleich mit Top-Listen", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         self.refresh_btn = RoundedButton(header, text="Aktualisieren", command=lambda: self.load(refresh=True),
-                                         bg="#444444", font=self.font_small, padx=int(8 * s), pady=int(3 * s),
+                                         bg=NEUTRAL, font=self.font_small, padx=int(8 * s), pady=int(3 * s),
                                          radius=int(6 * s))
         self.refresh_btn.pack(side=tk.RIGHT)
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
-        self.status_label = tk.Label(body, text="", fg=NEON, bg=BG, font=self.font_small, anchor="w",
+        self.status_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_small, anchor="w",
                                      justify=tk.LEFT, wraplength=int(500 * s))
         self.status_label.pack(fill=tk.X)
         self.type_row = tk.Frame(body, bg=BG)  # Umschalten zwischen den Deck-Typen (Hybrid-Decks)
@@ -141,9 +140,9 @@ class StaplePanel:
         if self._thread is not None and self._thread.is_alive():
             return
         if not self.archetypes:
-            self.status_label.config(text="Keine Archetypen im Deck erkannt – nichts zum Vergleichen.", fg=AMBER)
+            self.status_label.config(text="Keine Archetypen im Deck erkannt – nichts zum Vergleichen.", fg=WARN)
             return
-        self.status_label.config(text=f"Lade Top-Listen zu {', '.join(self.archetypes)} …", fg=NEON)
+        self.status_label.config(text=f"Lade Top-Listen zu {', '.join(self.archetypes)} …", fg=INFO)
         self._thread = threading.Thread(target=self._worker, args=(refresh,), daemon=True)
         self._thread.start()
         self._poll()
@@ -182,12 +181,12 @@ class StaplePanel:
             return
         result, self._result = self._result, None
         if isinstance(result, str):
-            self.status_label.config(text=result, fg=RED)
+            self.status_label.config(text=result, fg=BAD)
             return
         self.comparisons, self.shown = result, 0
         if not result:
             self.status_label.config(text=f"Master Duel Meta kennt keine Top-Listen zu {', '.join(self.archetypes)}.",
-                                     fg=AMBER)
+                                     fg=WARN)
             return
         self.render()
 
@@ -209,13 +208,13 @@ class StaplePanel:
             tk.Label(self.type_row, text="Vergleichen mit:", fg=MUTED, bg=BG, font=self.font_small).pack(side=tk.LEFT)
             for i, other in enumerate(self.comparisons):
                 RoundedButton(self.type_row, text=other.stats.deck_type, command=lambda i=i: self.show(i),
-                              bg="#007acc" if i == self.shown else "#444444", font=self.font_small,
+                              bg=PRIMARY if i == self.shown else NEUTRAL, font=self.font_small,
                               padx=int(8 * s), pady=int(2 * s), radius=int(6 * s)).pack(side=tk.LEFT,
                                                                                        padx=(int(6 * s), 0))
         counts = {"matching": comparison.matching, "different": len(comparison.different),
                   "missing": len(comparison.missing), "only_mine": len(comparison.only_mine)}
         for key, value in counts.items():
-            color = GREEN if key == "matching" else (AMBER if value else TEXT)
+            color = GOOD if key == "matching" else (WARN if value else TEXT)
             self.tiles[key].config(text=str(value), fg=color)
         self._hide_tip()
         self.grid.clear()
@@ -223,11 +222,11 @@ class StaplePanel:
             self._grid("ANDERE KOPIENZAHL ALS ÜBLICH", [
                 (d.card.name, f"{d.mine}× → {d.card.usual}×", f"{share_text(d.card.usual_share)} spielen "
                  f"{d.card.usual}×", f"du {d.mine}× · {share_text(d.card.usual_share)} der Listen {d.card.usual}× "
-                 f"(Ø {avg_text(d.card.avg)})", AMBER) for d in comparison.different])
+                 f"(Ø {avg_text(d.card.avg)})", WARN) for d in comparison.different])
         if comparison.missing:
             self._grid("FEHLT DIR", [
                 (d.card.name, share_text(d.card.share), f"meist {d.card.usual}×",
-                 f"{share_text(d.card.share)} der Listen spielen sie · meist {d.card.usual}×", AMBER)
+                 f"{share_text(d.card.share)} der Listen spielen sie · meist {d.card.usual}×", WARN)
                 for d in comparison.missing])
         if comparison.only_mine:
             self._grid("NUR BEI DIR", [
@@ -235,7 +234,7 @@ class StaplePanel:
                  f"du {d.mine}× · " + (f"in {share_text(d.card.share)} der Top-Listen" if d.card.share
                                         else "in keiner Top-Liste"), MUTED) for d in comparison.only_mine])
         if not (comparison.different or comparison.missing or comparison.only_mine):
-            self.grid.message("Dein Deck spielt die Karten wie die Top-Listen.", GREEN, self.font)
+            self.grid.message("Dein Deck spielt die Karten wie die Top-Listen.", GOOD, self.font)
         self.grid.finish()
 
     def _grid(self, title: str, cards) -> None:

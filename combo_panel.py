@@ -25,11 +25,10 @@ import mdm_combos
 from card_grid import CardGrid
 from card_stats import name_key
 from dark_scrollbar import DarkScrollbar
-from extras_panel import BG, GOLD, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
-from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate, place_in_work_area
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, PRIMARY, NEUTRAL, DANGER,
+                          apply_frame, no_activate, place_in_work_area)
 
 POLL_MS = 100
 COLUMNS = 6             # Startkarten pro Reihe in der Detailansicht
@@ -98,7 +97,7 @@ def odds_text(odds: Optional[float]) -> Tuple[str, str]:
     """(Text, Farbe) der Chance auf die Starthand."""
     if odds is None:
         return "–", MUTED
-    return f"{odds * 100:.0f} % als Erster", GREEN if odds >= GOOD_ODDS else NEON
+    return f"{odds * 100:.0f} % als Erster", GOOD if odds >= GOOD_ODDS else INFO
 
 
 def walk_steps(steps: List[mdm_combos.Step], level: int = 0) -> Iterator[Tuple[int, str, object, int]]:
@@ -184,17 +183,17 @@ class ComboPanel:
         tk.Label(header, text="◆ COMBOS", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="von Master Duel Meta", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         self.refresh_btn = RoundedButton(header, text="Aktualisieren", command=lambda: self.load(refresh=True),
-                                         bg="#444444", font=self.font_small, padx=int(8 * s), pady=int(3 * s),
+                                         bg=NEUTRAL, font=self.font_small, padx=int(8 * s), pady=int(3 * s),
                                          radius=int(6 * s))
         self.refresh_btn.pack(side=tk.RIGHT)
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
-        self.status_label = tk.Label(body, text="", fg=NEON, bg=BG, font=self.font_small, anchor="w",
+        self.status_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_small, anchor="w",
                                      justify=tk.LEFT, wraplength=int(490 * s))
         self.status_label.pack(fill=tk.X)
         self.type_row = tk.Frame(body, bg=BG)  # Umschalten zwischen den Deck-Typen (Hybrid-Decks)
@@ -237,9 +236,9 @@ class ComboPanel:
         if self._thread is not None and self._thread.is_alive():
             return
         if not self.archetypes:
-            self.status_label.config(text="Keine Archetypen im Deck erkannt – keine Combos zu suchen.", fg=AMBER)
+            self.status_label.config(text="Keine Archetypen im Deck erkannt – keine Combos zu suchen.", fg=WARN)
             return
-        self.status_label.config(text=f"Lade Combos zu {', '.join(self.archetypes)} …", fg=NEON)
+        self.status_label.config(text=f"Lade Combos zu {', '.join(self.archetypes)} …", fg=INFO)
         self._thread = threading.Thread(target=self._worker, args=(refresh,), daemon=True)
         self._thread.start()
         self._poll()
@@ -331,11 +330,11 @@ class ComboPanel:
             return
         result, self._result = self._result, None
         if isinstance(result, str):
-            self.status_label.config(text=result, fg=RED)
+            self.status_label.config(text=result, fg=BAD)
             return
         self.sets, self.shown_type, self.detail = result, 0, None
         if not result:
-            self.status_label.config(text=f"Keine Combos gefunden zu {', '.join(self.archetypes)}.", fg=AMBER)
+            self.status_label.config(text=f"Keine Combos gefunden zu {', '.join(self.archetypes)}.", fg=WARN)
             self._clear()
             return
         self.render()
@@ -351,7 +350,7 @@ class ComboPanel:
         self.grid = None
         self.canvas.yview_moveto(0)
 
-    def _button(self, parent: tk.Misc, text: str, command, bg: str = "#444444") -> RoundedButton:
+    def _button(self, parent: tk.Misc, text: str, command, bg: str = NEUTRAL) -> RoundedButton:
         s = self.s
         button = RoundedButton(parent, text=text, command=command, bg=bg, font=self.font_small, padx=int(8 * s),
                                pady=int(2 * s), radius=int(6 * s))
@@ -374,7 +373,7 @@ class ComboPanel:
             tk.Label(self.type_row, text="Combos zu:", fg=MUTED, bg=BG, font=self.font_small).pack(side=tk.LEFT)
             for i, (other, _) in enumerate(self.sets):
                 RoundedButton(self.type_row, text=other.deck_type, command=lambda i=i: self.show_type(i),
-                              bg="#007acc" if i == self.shown_type else "#444444", font=self.font_small,
+                              bg=PRIMARY if i == self.shown_type else NEUTRAL, font=self.font_small,
                               padx=int(8 * s), pady=int(2 * s), radius=int(6 * s)).pack(side=tk.LEFT,
                                                                                        padx=(int(6 * s), 0))
         self._clear()
@@ -382,7 +381,7 @@ class ComboPanel:
         self.visible = [m for m in matches if not (self.only_playable and m.missing)]
         if not self.visible:
             tk.Label(self.inner, text="Keine Combo mit deinem Deck spielbar – „Alle“ zeigt auch die anderen.",
-                     fg=AMBER, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
+                     fg=WARN, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
                      wraplength=int(460 * s)).pack(fill=tk.X, pady=int(6 * s))
         for i, match in enumerate(self.visible):
             self._row(i, match)
@@ -431,7 +430,7 @@ class ComboPanel:
         hand = text(left, y, hand_text(combo), MUTED, self.font_small, wrap=chance[0] - left - pad)
         y = max(hand[3], chance[3]) + int(2 * s)
         if match.missing:
-            y = text(left, y, "Fehlt: " + ", ".join(match.missing), AMBER, self.font_small, wrap=right - left)[3]
+            y = text(left, y, "Fehlt: " + ", ".join(match.missing), WARN, self.font_small, wrap=right - left)[3]
         canvas.config(height=max(y, pad + h) + pad)
         canvas.bind("<Button-1>", lambda e, i=index: self.show_combo(i))
 
@@ -449,7 +448,7 @@ class ComboPanel:
         combo = match.combo
         self._clear()
         self._button(self.bar, "← Zurück", self.back)
-        self._button(self.bar, "Auf Master Duel Meta öffnen", self.open_site, "#007acc")
+        self._button(self.bar, "Auf Master Duel Meta öffnen", self.open_site, PRIMARY)
         self._label(combo.title, self.font_head, TEXT)
         info = [f"von {combo.author}"] if combo.author else []
         self._label(" · ".join(info + [f"▲ {combo.votes}"] + ([f"Stand {date_text(combo.updated)}"]
@@ -457,7 +456,7 @@ class ComboPanel:
         odds, color = odds_text(match.odds)
         self._label(f"Starthand: {hand_text(combo)}  ·  {odds}", self.font_small_bold, color, (int(6 * s), 0))
         if match.missing:
-            self._label("Fehlt: " + ", ".join(match.missing), self.font_small, AMBER)
+            self._label("Fehlt: " + ", ".join(match.missing), self.font_small, WARN)
         self._hand(combo)
         if combo.steps:
             self._section("SCHRITTE")
@@ -514,7 +513,7 @@ class ComboPanel:
                  wraplength=int(430 * s) - len(attrs) * (size + gap)).pack(side=tk.LEFT, fill=tk.X)
 
     def _steps(self, steps: List[mdm_combos.Step]) -> None:
-        colors = {"cond": NEON, "branch": GOLD}
+        colors = {"cond": INFO, "branch": GOLD}
         for level, kind, item, number in walk_steps(steps):
             indent = int(INDENT * self.s) * level
             if kind == "step":
@@ -545,7 +544,7 @@ class ComboPanel:
             canvas.create_text(0, int(2 * s), text=number, fill=TEXT, font=self.font_small_bold, anchor="nw")
 
         def joint_at(x: float, row_y: float, has_card: bool, sign: str) -> None:
-            canvas.create_text(x, row_y + (h // 2 if has_card else int(8 * s)), text=sign, fill=NEON, font=font_joint)
+            canvas.create_text(x, row_y + (h // 2 if has_card else int(8 * s)), text=sign, fill=INFO, font=font_joint)
 
         x, y, bottom = left, 0, 0
         prev_right, prev_y, prev_card = 0, 0, False   # rechte Kante, Reihe und Bild des vorigen Eintrags

@@ -19,11 +19,10 @@ from typing import Callable, Optional
 import card_images
 import matchup_analysis
 from card_grid import CardGrid
-from extras_panel import BG, GOLD, MUTED, PANEL, TEXT
-from hover_card import AMBER, GREEN, RED
 from match_history import RANKED
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate, place_in_work_area
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN, BAD, PRIMARY, NEUTRAL, DANGER, apply_frame,
+                          no_activate, place_in_work_area)
 from winrate_panel import MODE_KEY
 
 COLUMNS = 5
@@ -102,7 +101,7 @@ class MatchupPanel:
         tk.Label(header, text="◆ MATCHUP", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Störkarten deiner Gegner", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
 
@@ -173,7 +172,7 @@ class MatchupPanel:
         active = {"ranked": self.mode == RANKED, "all": self.mode is None, "deck": self.only_deck,
                   "decks": not self.only_deck}
         for key, button in self.filter_buttons.items():
-            button.config(bg="#007acc" if active[key] else "#444444")
+            button.config(bg=PRIMARY if active[key] else NEUTRAL)
         self._generation += 1
         self._thread = threading.Thread(target=self._worker, daemon=True, args=(
             self._generation, self.deck_name if self.only_deck else None, self.mode))
@@ -210,7 +209,7 @@ class MatchupPanel:
                 self._render_threats()
                 self.grid.canvas.yview_moveto(position)  # Scroll-Stand bleibt
             elif isinstance(result, str):
-                self.info_label.config(text=result, fg=RED)
+                self.info_label.config(text=result, fg=BAD)
             else:
                 self.matchup = result
                 self._show()
@@ -223,7 +222,7 @@ class MatchupPanel:
         whose = f"mit „{self.deck_name}“" if self.only_deck else "aller Decks"
         if not matchup.opponents:
             text, color = (f"Noch keine Gegner-Decks ({whose}). Die Decks deiner Gegner kommen aus der Match History "
-                           f"von Master Duel – öffne sie ab und zu, sie hält die letzten 20 Duelle.", AMBER)
+                           f"von Master Duel – öffne sie ab und zu, sie hält die letzten 20 Duelle.", WARN)
         else:
             text, color = (f"{matchup.opponents} Duelle {whose} mit bekanntem Gegner-Deck", MUTED)
             if matchup.unknown:
@@ -248,10 +247,10 @@ class MatchupPanel:
         overall = rate(self.matchup.overall.wins, self.matchup.overall.matches)
         for threat in threats:
             against = rate(threat.against.wins, threat.against.matches)
-            color = (TEXT if against is None or overall is None else GREEN if against >= overall
-                     else RED if against <= overall - WORSE else AMBER)
+            color = (TEXT if against is None or overall is None else GOOD if against >= overall
+                     else BAD if against <= overall - WORSE else WARN)
             self.grid.card(threat.name, threat.passcode, [
-                (f"{threat.share * 100:.0f} %", AMBER if threat.share >= 0.5 else TEXT, self.font_small_bold),
+                (f"{threat.share * 100:.0f} %", WARN if threat.share >= 0.5 else TEXT, self.font_small_bold),
                 (f"Win {rate_text(threat.against.wins, threat.against.matches)}", color, self.font_small)],
                 on_enter=lambda e, t=threat: self._show_tip(e, t), on_leave=lambda e: self._hide_tip())
         self.grid.finish()

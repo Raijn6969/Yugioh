@@ -22,10 +22,9 @@ import card_images
 import handtrap_targets
 from dark_scrollbar import DarkScrollbar
 from debug_log import dlog
-from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
-from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate, place_in_work_area
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL,
+                          DANGER, apply_frame, no_activate, place_in_work_area)
 
 POLL_MS = 100
 CARD_SIZE = (58, 85)   # Bildleiste
@@ -91,7 +90,7 @@ class AshPrioPanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="wo Handtraps am meisten schaden", fg=MUTED, bg=PANEL, font=self.font).pack(
             side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
 
@@ -219,7 +218,7 @@ class AshPrioPanel:
                 text=f"{hint} Einschätzung aus den Kartentexten: welche deiner Karten die gewählte Handtrap treffen "
                      f"kann, Starter zuerst. Die Reihenfolge der Combo kennt das nicht.", fg=MUTED)
         elif self.variant is None:
-            self.info_label.config(text=hint, fg=AMBER)
+            self.info_label.config(text=hint, fg=WARN)
         else:
             source = f" · {hint}" if hint else ""
             self.info_label.config(
@@ -264,7 +263,7 @@ class AshPrioPanel:
         if self.closed:
             return
         for key, button in self.buttons.items():
-            button.config(bg="#007acc" if key == self.handtrap else "#444444")
+            button.config(bg=PRIMARY if key == self.handtrap else NEUTRAL)
         for child in self.inner.winfo_children():
             child.destroy()
         self._hand_rows, self._line_box = {}, None
@@ -285,11 +284,11 @@ class AshPrioPanel:
             if self.handtrap == "nibiru":
                 return []
             return [(name, cid, [(f"×{copies}", MUTED, self.font_small)]
-                     + ([("STARTER", NEON, self.font_small_bold)] if starter else []))
+                     + ([("STARTER", INFO, self.font_small_bold)] if starter else []))
                     for cid, name, copies, starter, hit in self.text_rows if self.handtrap in hit][:MAX_CARDS]
         cards = []
         for target in ash_prio.targets(self.sheets, self.handtrap, self.names.values())[:MAX_CARDS]:
-            color = RED if target.loss >= 3 else AMBER if target.loss >= 1 else GREEN
+            color = BAD if target.loss >= 3 else WARN if target.loss >= 1 else GOOD
             cards.append((target.name, self.card_ids.get(target.name),
                           [(f"{target.hands} von {len(self.sheets)}", TEXT, self.font_small_bold),
                            (f"−{ash_prio.number(target.loss)} Board", color, self.font_small)]))
@@ -355,7 +354,7 @@ class AshPrioPanel:
         name = dict(ash_prio.HANDTRAPS)[self.handtrap]
         if not hit:
             tk.Label(self.inner, text=f"Keine Karte deines Decks bietet {name} eine erkennbare Angriffsfläche.",
-                     fg=GREEN, bg=BG, font=self.font_small, anchor="w").pack(fill=tk.X, pady=int(6 * s))
+                     fg=GOOD, bg=BG, font=self.font_small, anchor="w").pack(fill=tk.X, pady=int(6 * s))
         for i, (cid, card, copies, starter, targets) in enumerate(hit):
             bg = ROW_ALT if i % 2 else BG
             row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(4 * s))
@@ -363,7 +362,7 @@ class AshPrioPanel:
             head = tk.Frame(row, bg=bg)
             head.pack(fill=tk.X)
             if starter:
-                tk.Label(head, text="STARTER", fg=NEON, bg=bg, font=self.font_small_bold).pack(side=tk.RIGHT)
+                tk.Label(head, text="STARTER", fg=INFO, bg=bg, font=self.font_small_bold).pack(side=tk.RIGHT)
             tk.Label(head, text=f"{card}  ×{copies}", fg=TEXT, bg=bg, font=self.font_bold, anchor="w").pack(
                 side=tk.LEFT, fill=tk.X, expand=True)
             tk.Label(row, text=f"{name} trifft: {targets[self.handtrap]}", fg=MUTED, bg=bg, font=self.font_small,
@@ -382,7 +381,7 @@ class AshPrioPanel:
         threat = sheet.threats.get(self.handtrap)
         after = threat.after if threat is not None and threat.step is not None else sheet.score
         loss = sheet.score - after
-        color = GREEN if loss < 1 else AMBER if after >= 2 else RED
+        color = GOOD if loss < 1 else WARN if after >= 2 else BAD
         head = tk.Frame(row, bg=bg)
         head.pack(fill=tk.X)
         tk.Label(head, text=f"Board {ash_prio.number(sheet.score)} → {ash_prio.number(after)}", fg=color, bg=bg,
@@ -405,11 +404,11 @@ class AshPrioPanel:
         for index, step in enumerate(sheet.steps):
             marked = index == hit
             text = f"{index + 1}. {ash_prio.short_step(step)}" + (f"   ◀ {threat.name}" if marked else "")
-            tk.Label(box, text=text, fg=RED if marked else TEXT, bg=PANEL,
+            tk.Label(box, text=text, fg=BAD if marked else TEXT, bg=PANEL,
                      font=self.font_small_bold if marked else self.font_small, anchor="w", justify=tk.LEFT,
                      wraplength=int(420 * s)).pack(fill=tk.X)
         if threat is not None and threat.step is not None and threat.continuation:
-            tk.Label(box, text=f"Nach {threat.name} am besten weiter:", fg=NEON, bg=PANEL,
+            tk.Label(box, text=f"Nach {threat.name} am besten weiter:", fg=INFO, bg=PANEL,
                      font=self.font_small_bold, anchor="w").pack(fill=tk.X, pady=(int(6 * s), 0))
             for step in threat.continuation:
                 tk.Label(box, text=f"• {ash_prio.short_step(step)}", fg=TEXT, bg=PANEL, font=self.font_small,

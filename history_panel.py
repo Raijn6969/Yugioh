@@ -16,12 +16,11 @@ from card_db import CardMatch
 from card_stats import CardStatsDB, HistoryEntry
 from dark_scrollbar import DarkScrollbar
 from deck_export import DeckScan, ExportedCard
-from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
-from hover_card import AMBER, NEON
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from utils import parse_deck_code
-from window_style import allow_typing, apply_frame, no_activate, place_in_work_area
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, WARN, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL, DANGER,
+                          allow_typing, apply_frame, no_activate, place_in_work_area)
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
 SEARCH_DELAY_MS = 150  # Erst suchen, wenn kurz nicht getippt wurde
@@ -101,7 +100,7 @@ class HistoryPanel:
         tk.Label(header, text="◆ VERLAUF", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Importierte Decks", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
 
@@ -110,7 +109,7 @@ class HistoryPanel:
         self.query = tk.StringVar(master=self.win)
         self.search = tk.Entry(body, textvariable=self.query, font=self.font, bg=PANEL, fg=TEXT,
                                insertbackground=TEXT, relief=tk.FLAT, highlightthickness=1,
-                               highlightbackground="#444444", highlightcolor=NEON)
+                               highlightbackground=NEUTRAL, highlightcolor=INFO)
         self.search.pack(fill=tk.X, ipady=int(4 * s))
         self.placeholder = tk.Label(self.search, text=PLACEHOLDER, fg=MUTED, bg=PANEL, font=self.font)
         self.placeholder.place(x=int(4 * s), rely=0.5, anchor="w")
@@ -169,7 +168,7 @@ class HistoryPanel:
             self.entries = self.db.history(query)
         except Exception as e:  # Datenbank gesperrt/defekt → Fenster bleibt benutzbar
             self.entries = []
-            self.count_label.config(text=f"Verlauf nicht lesbar: {e}", fg=AMBER)
+            self.count_label.config(text=f"Verlauf nicht lesbar: {e}", fg=WARN)
         else:
             if query:
                 self.count_label.config(text=f"{len(self.entries)} Treffer für „{query}“", fg=MUTED)
@@ -192,9 +191,9 @@ class HistoryPanel:
         buttons = tk.Frame(row, bg=bg)
         buttons.pack(side=tk.RIGHT)
         small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
-        RoundedButton(buttons, text="Importieren", command=lambda: self._import(entry), bg="#007acc",
+        RoundedButton(buttons, text="Importieren", command=lambda: self._import(entry), bg=PRIMARY,
                       **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
-        RoundedButton(buttons, text="Kopieren", command=lambda: self.on_copy(entry.code), bg="#444444",
+        RoundedButton(buttons, text="Kopieren", command=lambda: self.on_copy(entry.code), bg=NEUTRAL,
                       **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
         RoundedButton(buttons, text="✕", command=lambda: self._delete(entry), bg="#5a1f1f", border="#8a4a4a",
                       **small).pack(side=tk.LEFT)
@@ -212,7 +211,7 @@ class HistoryPanel:
             details.append(f"{entry.times}× importiert")
         if entry.result != "ok":
             details.append("⚠ mit Lücken")
-        tk.Label(text, text="  ·  ".join(details), fg=AMBER if entry.result != "ok" else MUTED, bg=bg,
+        tk.Label(text, text="  ·  ".join(details), fg=WARN if entry.result != "ok" else MUTED, bg=bg,
                  font=self.font_small, anchor="w").pack(fill=tk.X)
         # Klick auf das Deck (nicht auf die Buttons) → im Deck-Fenster anzeigen
         clickable = [row, text, top] + [w for w in (*text.winfo_children(), *top.winfo_children())

@@ -11,11 +11,10 @@ from typing import Callable, Dict, List, Optional
 import side_profiles
 from card_stats import SideProfile
 from dark_scrollbar import DarkScrollbar
-from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
-from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
-from window_style import allow_typing, apply_frame, no_activate, place_in_work_area
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL,
+                          DANGER, allow_typing, apply_frame, no_activate, place_in_work_area)
 
 DEFAULT_NAME = "Zweiter"
 SEARCH_RESULTS = 8
@@ -67,7 +66,7 @@ class SidePanel:
         tk.Label(header, text="◆ SIDE-PROFILE", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text=self.deck_name, fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
 
@@ -92,7 +91,7 @@ class SidePanel:
         self.save_btn = RoundedButton(name_row, text="Profil speichern", command=self.save, bg="#00796b",
                                       font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.save_btn.pack(side=tk.RIGHT)
-        RoundedButton(name_row, text="Leeren", command=self.clear, bg="#444444", font=self.font_small,
+        RoundedButton(name_row, text="Leeren", command=self.clear, bg=NEUTRAL, font=self.font_small,
                       padx=int(9 * s), pady=int(3 * s), radius=int(6 * s)).pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.feedback = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
                                  justify=tk.LEFT, wraplength=int(480 * s))
@@ -103,9 +102,9 @@ class SidePanel:
         columns.columnconfigure(0, weight=1, uniform="col")
         columns.columnconfigure(1, weight=1, uniform="col")
         columns.rowconfigure(1, weight=1)
-        tk.Label(columns, text="RAUS · Klick auf eine Karte deines Decks", fg=RED, bg=BG,
+        tk.Label(columns, text="RAUS · Klick auf eine Karte deines Decks", fg=BAD, bg=BG,
                  font=self.font_small_bold, anchor="w").grid(row=0, column=0, sticky="ew")
-        tk.Label(columns, text="REIN · Karte suchen und anklicken", fg=GREEN, bg=BG,
+        tk.Label(columns, text="REIN · Karte suchen und anklicken", fg=GOOD, bg=BG,
                  font=self.font_small_bold, anchor="w").grid(row=0, column=1, sticky="ew", padx=(int(8 * s), 0))
         self.out_list = self._scroll_list(columns, row=1, column=0)
         right = tk.Frame(columns, bg=BG)
@@ -165,11 +164,11 @@ class SidePanel:
             return
         if self.unknown:
             self.info_label.config(text=f"{self.unknown} Karte(n) im Deck nicht erkannt – erst „Neu scannen“, dann "
-                                        f"lässt sich tauschen.", fg=AMBER)
+                                        f"lässt sich tauschen.", fg=WARN)
         elif not self.memory:
             self.info_label.config(text="Tipp: Am zuverlässigsten mit „Speicher lesen“ (Optionen). Mit Texterkennung "
                                         "tauscht die Kontrolle am Ende nicht, wenn sie eine Karte unsicher liest – "
-                                        "dann meldet sie nur, was zu ändern ist.", fg=AMBER)
+                                        "dann meldet sie nur, was zu ändern ist.", fg=WARN)
         else:
             self.info_label.config(text="Tauschen ändert das Deck im Deck-Editor wie ein kleiner Import (Maus kurz "
                                         "loslassen). „Zurück“ macht es wieder rückgängig.", fg=MUTED)
@@ -210,19 +209,19 @@ class SidePanel:
             small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
             ready = not self.unknown
             if ready and side_profiles.can_apply(self.deck, profile):
-                RoundedButton(buttons, text="Tauschen", bg="#007acc", command=lambda p=profile: self.apply(p),
+                RoundedButton(buttons, text="Tauschen", bg=PRIMARY, command=lambda p=profile: self.apply(p),
                               **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
             if ready and side_profiles.can_revert(self.deck, profile):
                 RoundedButton(buttons, text="Zurück", bg="#ef6c00", command=lambda p=profile: self.revert(p),
                               **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
-            RoundedButton(buttons, text="Löschen", bg="#444444", command=lambda p=profile: self.delete(p),
+            RoundedButton(buttons, text="Löschen", bg=NEUTRAL, command=lambda p=profile: self.delete(p),
                           **small).pack(side=tk.LEFT)
             text = tk.Frame(row, bg=bg)
             text.pack(side=tk.LEFT, fill=tk.X, expand=True)
             title = profile.name + ("  ·  angewendet" if active else "")
-            tk.Label(text, text=title, fg=NEON if active else TEXT, bg=bg, font=self.font_bold, anchor="w").pack(
+            tk.Label(text, text=title, fg=INFO if active else TEXT, bg=bg, font=self.font_bold, anchor="w").pack(
                 fill=tk.X)
-            for label, cards, color in (("raus", profile.cards_out, RED), ("rein", profile.cards_in, GREEN)):
+            for label, cards, color in (("raus", profile.cards_out, BAD), ("rein", profile.cards_in, GOOD)):
                 if cards:
                     tk.Label(text, text=f"{label}: {side_profiles.describe(cards, self.names)}", fg=color, bg=bg,
                              font=self.font_small, anchor="w", justify=tk.LEFT,
@@ -241,7 +240,7 @@ class SidePanel:
             bg = HIGHLIGHT if chosen else ROW_ALT if i % 2 else BG
             row = tk.Frame(self.out_list, bg=bg, padx=int(6 * s), pady=int(2 * s), cursor="hand2")
             row.pack(fill=tk.X)
-            minus = tk.Label(row, text=f"−{chosen}" if chosen else "", fg=RED, bg=bg, font=self.font_small_bold,
+            minus = tk.Label(row, text=f"−{chosen}" if chosen else "", fg=BAD, bg=bg, font=self.font_small_bold,
                              width=3, anchor="e")
             minus.pack(side=tk.RIGHT)
             self._out_rows[cid] = (row, minus, ROW_ALT if i % 2 else BG)
@@ -273,7 +272,7 @@ class SidePanel:
         for cid, count in self.cards_in.items():
             row = tk.Frame(self.in_list, bg=HIGHLIGHT, padx=int(6 * s), pady=int(2 * s), cursor="hand2")
             row.pack(fill=tk.X, pady=(0, 1))
-            tk.Label(row, text=f"+{count}", fg=GREEN, bg=HIGHLIGHT, font=self.font_small_bold, width=3,
+            tk.Label(row, text=f"+{count}", fg=GOOD, bg=HIGHLIGHT, font=self.font_small_bold, width=3,
                      anchor="w").pack(side=tk.LEFT)
             tk.Label(row, text=self.names.get(cid, cid), fg=TEXT, bg=HIGHLIGHT, font=self.font_small,
                      anchor="w").pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -315,7 +314,7 @@ class SidePanel:
         self.cards_in[cid] = min(room, max(0, self.cards_in.get(cid, 0) + step))
         self.cards_in = side_profiles.clean(self.cards_in)
         if step > 0 and cid not in self.cards_in:
-            self.feedback.config(text=f"{self.names.get(cid, cid)}: schon 3× im Deck.", fg=AMBER)
+            self.feedback.config(text=f"{self.names.get(cid, cid)}: schon 3× im Deck.", fg=WARN)
             return
         self._show_in()
         self._check()
@@ -358,21 +357,21 @@ class SidePanel:
     def _check(self) -> None:
         problem = self._problem()
         if problem:
-            self.feedback.config(text=problem, fg=MUTED if not (self.cards_out or self.cards_in) else AMBER)
+            self.feedback.config(text=problem, fg=MUTED if not (self.cards_out or self.cards_in) else WARN)
         else:
             sizes = self._sizes()
-            self.feedback.config(text=f"Danach: Main {sizes['Main']}, Extra {sizes['Extra']} Karten", fg=GREEN)
-        self.save_btn.config(bg="#00796b" if problem is None else "#444444")
+            self.feedback.config(text=f"Danach: Main {sizes['Main']}, Extra {sizes['Extra']} Karten", fg=GOOD)
+        self.save_btn.config(bg="#00796b" if problem is None else NEUTRAL)
 
     def save(self) -> None:
         name = self.name_var.get().strip()
         problem = self._problem() or (None if name else "Bitte einen Namen eingeben.")
         if problem:
-            self.feedback.config(text=problem, fg=AMBER)
+            self.feedback.config(text=problem, fg=WARN)
             return
         self.db.save_side_profile(SideProfile(self.deck_name, name, dict(self.cards_out), dict(self.cards_in)))
         self.clear()
-        self.feedback.config(text=f"„{name}“ gespeichert.", fg=GREEN)
+        self.feedback.config(text=f"„{name}“ gespeichert.", fg=GOOD)
         self._show_profiles()
 
     def delete(self, profile: SideProfile) -> None:

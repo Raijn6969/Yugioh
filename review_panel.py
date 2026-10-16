@@ -17,18 +17,17 @@ import review_export
 import season_review as sr
 from bug_report import reveal
 from dark_scrollbar import DarkScrollbar
-from extras_panel import BG, GOLD, MUTED, PANEL, ROW_ALT, TEXT
-from hover_card import AMBER, GREEN, RED
 from match_history import RANKED
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate
+from window_style import (BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN, BAD, ROW_ALT, NEUTRAL, DANGER, apply_frame,
+                          no_activate)
 
 MODE_KEY = "WINRATE_MODE"  # wie im Winrate-Fenster: "ranked" oder "all"
 POLL_MS = 100
 
 
 def rate_color(wins: int, matches: int) -> str:
-    return TEXT if not matches else GREEN if wins / matches >= 0.5 else AMBER
+    return TEXT if not matches else GOOD if wins / matches >= 0.5 else WARN
 
 
 class ReviewPanel:
@@ -79,7 +78,7 @@ class ReviewPanel:
         tk.Label(header, text="◆ RÜCKBLICK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Season = ein Kalendermonat", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
+        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
                       font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
@@ -162,15 +161,15 @@ class ReviewPanel:
         earliest = self._earliest_month()
         self.month_label.config(text=sr.month_name(self.year, self.month))
         self.mode_label_widget.config(text=self.mode_label)
-        self.prev_btn.config(bg="#444444" if earliest is not None and (self.year, self.month) > earliest else "#2a2a2a")
-        self.next_btn.config(bg="#444444" if (self.year, self.month) < self._current_month() else "#2a2a2a")
+        self.prev_btn.config(bg=NEUTRAL if earliest is not None and (self.year, self.month) > earliest else PANEL)
+        self.next_btn.config(bg=NEUTRAL if (self.year, self.month) < self._current_month() else PANEL)
         for child in self.inner.winfo_children():
             child.destroy()
         try:
             self.review = sr.build(self.db, self.year, self.month, self.mode)
         except Exception as e:  # Datenbank gesperrt/defekt → Fenster bleibt benutzbar
             self.review = None
-            self._note(f"Rückblick nicht lesbar: {e}", RED)
+            self._note(f"Rückblick nicht lesbar: {e}", BAD)
             return
         review = self.review
         total = review.total
@@ -203,7 +202,7 @@ class ReviewPanel:
                 self._row(f"{label}: {opponent.opp_name}",
                           f"{sr.rate_text(stats.wins, stats.matches)} ({sr.record_text(stats)}) "
                           f"· {stats.matches} Duelle",
-                          ROW_ALT if i % 2 else BG, color=GREEN if i == 0 else RED)
+                          ROW_ALT if i % 2 else BG, color=GOOD if i == 0 else BAD)
         self._section("SERIEN UND AKTIVSTER TAG")
         facts: List[Tuple[str, str]] = [("Längste Siegserie", f"{review.win_streak} in Folge"),
                                         ("Längste Niederlagenserie", f"{review.loss_streak} in Folge"),
@@ -275,10 +274,10 @@ class ReviewPanel:
         kind, value = self._export_result
         self._exporting = False
         if kind == "ok":
-            self.status_label.config(text=f"Gespeichert: {os.path.basename(value)} (Downloads)", fg=GREEN)
+            self.status_label.config(text=f"Gespeichert: {os.path.basename(value)} (Downloads)", fg=GOOD)
             self.reveal_file(value)
         else:
-            self.status_label.config(text=f"Export fehlgeschlagen: {value}", fg=RED)
+            self.status_label.config(text=f"Export fehlgeschlagen: {value}", fg=BAD)
 
     def _on_wheel(self, event) -> None:
         self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")

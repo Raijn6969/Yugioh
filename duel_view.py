@@ -32,12 +32,10 @@ import replay_steps as rs
 from card_stats import CardInfo, MatchEntry, Replay
 from dark_dialog import _make_draggable
 from dark_scrollbar import DarkScrollbar
-from extras_panel import BG, GOLD, MUTED, PANEL, TEXT
 from history_panel import when
-from hover_card import AMBER, GREEN, RED
 from match_history import DRAW, FINISH_SURRENDER, WIN, mode_name
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate
+from window_style import BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN, BAD, apply_frame, no_activate
 
 POLL_MS = 100
 OPP_HAND = 0.62          # Gegnerhand: so hoch (und breit) wie eine Karte, wie in der Factory
@@ -121,10 +119,10 @@ def unique(cards: Sequence[str]) -> List[Tuple[str, int]]:
 
 def result_text(match: MatchEntry) -> Tuple[str, str]:
     if match.result == WIN:
-        return "SIEG", GREEN
+        return "SIEG", GOOD
     if match.result == DRAW:
-        return "REMIS", AMBER
-    return "NIEDERLAGE", RED
+        return "REMIS", WARN
+    return "NIEDERLAGE", BAD
 
 
 def details(match: MatchEntry) -> str:
