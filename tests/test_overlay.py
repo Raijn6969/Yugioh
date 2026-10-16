@@ -681,6 +681,48 @@ class DarkDialogTest(unittest.TestCase):
             app.close()
         preload.assert_called_once()
 
+    def test_auto_calibration_error_unlocks_buttons_and_opens_wizard(self):
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")),                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),                 mock.patch.object(Overlay, "show_message"),                 mock.patch.object(Overlay, "ask_choice", return_value=None),                 mock.patch.object(Overlay, "auto_calibrate", side_effect=OSError("kein Bild")),                 mock.patch.object(Overlay.MasterDuelImporter, "open_calibration") as wizard:
+            app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
+            app.start_auto_calibration()
+            self.assertEqual(str(app.start_btn.cget("state")), "disabled")
+            end = time.time() + 3
+            while not wizard.called and time.time() < end:
+                self.root.update()
+                time.sleep(0.01)
+            app.close()
+        wizard.assert_called_once()
+
+    def test_extras_scan_survives_failing_stats_lookup(self):
+        from types import SimpleNamespace
+
+        class FakeExporter:
+            memory_fallback = False
+
+            def __init__(self, config, tesseract, status, finish, **kwargs):
+                self.finish = finish
+
+            def execute_scan(self):
+                card = SimpleNamespace(match=SimpleNamespace(cid="1"))
+                self.finish(scan=SimpleNamespace(cards=[card]), error="")
+
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")),                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),                 mock.patch.object(Overlay, "ask_choice", return_value=None),                 mock.patch.object(Overlay, "DeckExporter", FakeExporter):
+            app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
+            app.extras = mock.Mock()
+            app.card_stats = mock.Mock()
+            app.card_stats.ensure.side_effect = OSError("gesperrt")
+            app._start_extras_scan()
+            end = time.time() + 3
+            while app.is_running and time.time() < end:
+                self.root.update()
+                time.sleep(0.01)
+            running = app.is_running
+            scan_done = app.extras.set_scan.call_args
+            app.extras = None
+            app.close()
+        self.assertFalse(running)
+        self.assertEqual(scan_done.args[1], 1)  # eine Karte ohne Stats
+
     def test_uncalibrated_start_tries_automatic_first(self):
         with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \

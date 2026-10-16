@@ -909,7 +909,11 @@ class MasterDuelImporter:
         self.update_status("Kalibriere automatisch...", "cyan")
 
         def work():
-            new_config, message = auto_calibrate(self.config, TESSERACT_CMD)
+            try:
+                new_config, message = auto_calibrate(self.config, TESSERACT_CMD)
+            except Exception as e:  # Bildschirmaufnahme/Texterkennung fällt aus: sonst blieben die Knöpfe gesperrt
+                dlog(f"[KALIBRIERUNG] Automatisch fehlgeschlagen: {type(e).__name__}: {e}")
+                new_config, message = None, f"Fehler: {e}"
             self._run_on_ui(self._on_auto_calibration_done, new_config, message, then)
 
         threading.Thread(target=work, daemon=True).start()
@@ -1302,7 +1306,12 @@ class MasterDuelImporter:
             missing = 0
             if scan is not None and self.card_stats is not None:
                 status_cb("Karten-Stats werden nachgeschlagen …", "cyan")
-                missing = self.card_stats.ensure(c.match.cid for c in scan.cards if c.match.cid)
+                ids = [c.match.cid for c in scan.cards if c.match.cid]
+                try:
+                    missing = self.card_stats.ensure(ids)
+                except Exception as e:  # Datenbank gesperrt o.Ä.: der Scan hat geklappt, sonst bliebe alles gesperrt
+                    dlog(f"[STATS] Karten-Stats nicht nachgeschlagen: {type(e).__name__}: {e}")
+                    missing = len(ids)
             self._run_on_ui(self._on_extras_scan_done, scan, error, missing)
             if exporter.memory_fallback:
                 self._run_on_ui(self._memory_fell_back)
