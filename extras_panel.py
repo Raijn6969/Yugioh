@@ -841,11 +841,16 @@ class ExtrasPanel:
             # Kartenliste (bis 990) plus die halbe Reihe darunter und die Scrollleiste (x 1856–1867) von Master Duel
             area = frame.region(1320, 180, 1880, 1070)
             x, y, w, h = area["left"], area["top"], area["width"], area["height"]
+            bar = self.master  # Hauptleiste: bleibt frei, wenn sie unter dem Fenster liegt
+            if (bar.winfo_viewable() and bar.winfo_rootx() < x + w and bar.winfo_rootx() + bar.winfo_width() > x
+                    and y < bar.winfo_rooty() < y + h):
+                h = bar.winfo_rooty() - int(6 * s) - y
         else:
             w, h = int(560 * s), int(890 * s)
             x, y = self.master.winfo_screenwidth() - w - int(60 * s), int(180 * s)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
         self._width = w
+        self.master.lift()  # die Hauptleiste liegt bei Überlappung immer oben
         self.status_label.config(wraplength=w - int(30 * s))
 
     # ── Zustand von außen ──

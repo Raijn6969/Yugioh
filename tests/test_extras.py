@@ -721,6 +721,14 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertGreaterEqual(self.panel.handtrap_odds.winfo_x(),  # rechts daneben, ohne Überlappung
                            self.panel.starter_odds.winfo_x() + self.panel.starter_odds.winfo_width())
 
+    def test_panel_stays_clear_of_the_main_bar(self):
+        self.root.geometry("560x60+1400+1010")  # Hauptleiste am unteren Rand, über der Kartenliste
+        self.root.deiconify()
+        self.root.update()
+        self.panel._place_over_card_list()
+        self.root.update()
+        self.assertLessEqual(self.panel.win.winfo_y() + self.panel.win.winfo_height(), self.root.winfo_rooty() - 6)
+
     def test_changing_a_rating_does_not_rebuild_the_list(self):
         self.panel.set_scan(self.scan)
         self.root.update()
