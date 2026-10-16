@@ -17,7 +17,7 @@ import threading
 import time
 from typing import Callable, Dict, List, NamedTuple, Optional
 
-from debug_log import dlog
+from debug_log import clear_changed, dlog, dlog_changed
 
 REPLAY_PARENTS = ("ColosseumHistoryViewController",)  # Replay aus der Match History
 DUEL_VIEW = "DuelClient"
@@ -110,8 +110,9 @@ class ReplayRecorder:
         while not self._stop.wait(POLL if self.recording else IDLE):
             try:
                 self.check()
+                clear_changed("replay")
             except Exception as e:  # Replay lädt gerade, Objekte im Umbau … → beim nächsten Mal
-                dlog(f"[REPLAY] nicht gelesen: {e}")
+                dlog_changed("replay", f"[REPLAY] nicht gelesen: {e}")
 
     def check(self) -> None:
         if not (self.enabled and self.connected()):

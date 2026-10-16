@@ -22,10 +22,10 @@ from PIL import Image
 import md_layout
 import vision_engine
 import win_api
-from app_paths import APP_VERSION, LOG_FILE
+from app_paths import APP_VERSION
 from auto_calibration import deck_editor_visible, read_deck_count
 from card_db import CardDB, CardMatch, load_card_db
-from debug_log import dlog, end_run, start_run
+from debug_log import dlog
 from import_engine import DeckImporterCore
 from md_memory import MemoryUnavailable
 from input_utils import FocusLostError, focus_master_duel
@@ -215,8 +215,7 @@ class DeckExporter:
         self._execute("Deck-Analyse", self.scan, "scan")
 
     def _execute(self, title: str, work: Callable, key: str) -> None:
-        start_run(LOG_FILE)
-        dlog(f"=== MD DECK IMPORTER {APP_VERSION} | {title} vom {time.strftime('%Y-%m-%d %H:%M:%S')} ===")
+        dlog(f"\n===== {title} {time.strftime('%H:%M:%S')} | MD DECK IMPORTER {APP_VERSION} =====")
         try:
             value = work()
         except Exception as e:
@@ -225,8 +224,6 @@ class DeckExporter:
             self.finish_callback(**{key: None, "error": str(e)})
         else:
             self.finish_callback(**{key: value, "error": ""})
-        finally:
-            end_run()
 
     def scan(self) -> DeckScan:
         frame = self.frame or md_layout.md_frame()

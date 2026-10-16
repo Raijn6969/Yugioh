@@ -16,7 +16,7 @@ import md_memory
 import win_api
 from auto_calibration import count_region, read_deck_count
 from app_paths import LOG_FILE
-from debug_log import append
+from debug_log import append, clear_changed, dlog_changed
 from card_stats import CardInfo, CardStatsDB, HandtrapInfo, StarterInfo
 from deck_export import (DeckScan, background_mask, card_center_box, check_layout, signature,
                          signature_distance)
@@ -332,8 +332,10 @@ class DeckWatcher:
                         rounds += 1
                         try:
                             self.check(sct, images=rounds % self.IMAGE_EVERY == 0)
+                            clear_changed("deck-watch")
                         except Exception as e:  # z.B. Spiel gerade geschlossen – nächste Runde neu versuchen
-                            append(LOG_FILE, f"[DECK-FENSTER] Deck-Prüfung fehlgeschlagen: {e}")
+                            dlog_changed("deck-watch", f"[DECK-FENSTER] Deck-Prüfung fehlgeschlagen: {e}",
+                                         lambda text: append(LOG_FILE, text))
         except Exception as e:
             append(LOG_FILE, f"[DECK-FENSTER] Deck-Überwachung beendet: {e}")
 

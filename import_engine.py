@@ -31,8 +31,8 @@ import resume_state
 import vision_engine
 import win_api
 from match_validator import MatchValidator, knight_night_conflict
-from debug_log import dlog, start_run, end_run
-from app_paths import APP_VERSION, LOG_FILE
+from debug_log import dlog
+from app_paths import APP_VERSION
 
 # ── Abgleich-Schwellen (SequenceMatcher-Ratio 0..1) ──
 BATCH_MATCH_THRESHOLD = 0.85   # Archetyp-Suche: Karte der Gruppe
@@ -167,8 +167,7 @@ class DeckImporterCore:
         self.final_scan = None            # Deck, wie es die Kontrolle am Ende gelesen hat (DeckScan, fürs Deck-Fenster)
 
     def execute_import(self):
-        start_run(LOG_FILE)
-        dlog(f"=== MD DECK IMPORTER {APP_VERSION} | Lauf vom {time.strftime('%Y-%m-%d %H:%M:%S')} ===")
+        dlog(f"\n===== Import {time.strftime('%H:%M:%S')} | MD DECK IMPORTER {APP_VERSION} =====")
         dlog(f"=== Tempo: {self.config.get('SPEED_PROFILE', 'normal')} | "
              f"Sprache: {self.config.get('LANGUAGE', 'en')} | Texterkennung: {self.ocr_lang} ===")
         if self.wants_german and self.ocr_lang != "deu":
@@ -190,7 +189,6 @@ class DeckImporterCore:
         finally:
             self._restore_clipboard(original_clipboard)
             self.memory = None  # Verbindung bleibt für den nächsten Import bestehen (md_memory.shared)
-            end_run()
 
     @staticmethod
     def _read_clipboard() -> Optional[str]:

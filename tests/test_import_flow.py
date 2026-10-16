@@ -10,6 +10,7 @@ import unittest
 from collections import Counter
 from unittest import mock
 
+import debug_log
 import import_engine as ie
 import resume_state
 from utils import clean_text, sanitize_name
@@ -162,6 +163,7 @@ class ImportFlowTest(unittest.TestCase):
             p.start()
 
     def tearDown(self):
+        debug_log.end_run()
         for p in self.patches:
             p.stop()
 
@@ -189,12 +191,13 @@ class ImportFlowTest(unittest.TestCase):
                 mock.patch.object(ie, "fetch_card_types", return_value={c: t for c, (_, _, t) in deck.items()}), \
                 mock.patch.object(ie, "WindowAutomator", lambda config: FakeAutomator(game)), \
                 mock.patch.object(ie, "DeckCounter", make_fake_counter(game)), \
-                mock.patch.object(ie, "LOG_FILE", log_file), \
                 mock.patch.object(ie, "load_card_db", return_value=card_db) if card_db else \
                 mock.patch.object(ie, "load_card_db", side_effect=RuntimeError("offline")), \
                 mock.patch.object(ie, "pyperclip", clipboard), \
                 mock.patch.object(ie.time, "sleep", lambda s: None if s >= 1 else _real_sleep(s)):
+            debug_log.start_run(log_file)  # im Programm startet Overlay.main() den Lauf, hier der Test (eigene Datei)
             core.execute_import()
+            debug_log.end_run()
 
         with open(log_file, encoding="utf-8") as f:
             log = f.read()
@@ -205,7 +208,6 @@ class ImportFlowTest(unittest.TestCase):
         core = ie.DeckImporterCore({}, "", lambda *a: None, lambda **k: finished.update(k))
         with mock.patch.object(ie, "parse_clipboard", side_effect=ie.DeckCodeError("Der YDKE-Code ist beschädigt.")), \
                 mock.patch.object(ie, "WindowAutomator") as automator, \
-                mock.patch.object(ie, "LOG_FILE", os.path.join(self.tmp, "md_debug.log")), \
                 mock.patch.object(ie, "pyperclip"):
             core.execute_import()
         automator.assert_not_called()

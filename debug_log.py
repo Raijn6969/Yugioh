@@ -1,9 +1,10 @@
 """
 Diagnose-Log (md_debug.log) über Pythons logging.
 
-Ein Lauf beginnt mit start_run(): Die bisherigen Logs werden als md_debug.1.log,
-md_debug.2.log … aufbewahrt, damit man auch frühere Läufe noch vergleichen kann.
-Ohne laufenden Import (z.B. in Tests) wird nichts geschrieben.
+Ein Lauf = ein Programmstart: Overlay.main() ruft einmal start_run(), die bisherigen Logs werden als
+md_debug.1.log, md_debug.2.log … aufbewahrt. Import, Export und Scan schreiben nur einen Trennkopf in dieselbe Datei.
+So landen auch die Meldungen der Hintergrund-Wächter (Winrate, Replay, Speicher …) im Log.
+Ohne start_run (z.B. in Tests) wird über dlog nichts geschrieben.
 """
 
 import logging
@@ -17,6 +18,19 @@ logger.setLevel(logging.INFO)
 logger.propagate = False
 
 _handler = None
+_last_seen: dict = {}
+
+
+class _CappedHandler(logging.FileHandler):
+    """Schreibt ab MAX_LOG_BYTES nichts mehr (ein Lauf dauert jetzt so lange wie das Programm)."""
+
+    def emit(self, record):
+        try:
+            if os.path.getsize(self.baseFilename) > MAX_LOG_BYTES:
+                return
+        except OSError:
+            pass
+        super().emit(record)
 
 
 def dlog(message: str) -> None:
@@ -24,8 +38,20 @@ def dlog(message: str) -> None:
     logger.info(message.rstrip("\n"))
 
 
+def dlog_changed(key: str, message: str, write=dlog) -> None:
+    """Fehler einer Schleife nur loggen, wenn sich die Meldung seit dem letzten Mal geändert hat
+    (clear_changed beim nächsten Erfolg) – sonst schriebe ein Dauerfehler bei jedem Durchlauf."""
+    if _last_seen.get(key) != message:
+        _last_seen[key] = message
+        write(message)
+
+
+def clear_changed(key: str) -> None:
+    _last_seen.pop(key, None)
+
+
 def append(path: str, message: str) -> None:
-    """Eine Zeile ans Log anhängen, auch ohne laufenden Import (z.B. Meldungen des Deck-Fensters)."""
+    """Eine Zeile ans Log anhängen, auch ohne start_run (z.B. Meldungen des Deck-Fensters, Tests mit eigenem Pfad)."""
     try:
         if os.path.getsize(path) > MAX_LOG_BYTES:
             return
@@ -44,7 +70,7 @@ def start_run(path: str) -> None:
     _rotate(path)
     try:
         # "a": append() hängt zwischendurch Zeilen an; ein Handler mit "w" würde sie überschreiben
-        _handler = logging.FileHandler(path, mode="a", encoding="utf-8")
+        _handler = _CappedHandler(path, mode="a", encoding="utf-8")
     except OSError:
         return  # Log gesperrt: der Import läuft trotzdem, nur ohne Log
     _handler.setFormatter(logging.Formatter("%(message)s"))

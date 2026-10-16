@@ -401,6 +401,14 @@ class MatchWatcherTest(unittest.TestCase):
         self.memory.reads.clear()
         return self.watcher.check()
 
+    def test_persistent_read_error_is_logged_once(self):
+        self.watcher._stop = mock.Mock(wait=mock.Mock(side_effect=[False, False, False, True]))
+        with mock.patch.object(self.watcher, "check", side_effect=RuntimeError("MD lädt")), \
+                mock.patch("debug_log._last_seen", {}), \
+                self.assertLogs("md_importer", "INFO") as logs:
+            self.watcher._run()
+        self.assertEqual(logs.output, ["INFO:md_importer:[MATCHES] nicht gelesen: MD lädt"])
+
     def test_deck_from_deck_selection_first_from_coin_toss_result_from_result_screen(self):
         menu = ["HomeViewController", "ColosseumViewController"]
         self.assertEqual(self.step(menu), 0)

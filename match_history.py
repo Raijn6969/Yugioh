@@ -23,7 +23,7 @@ import threading
 import time
 from typing import Callable, Dict, List, NamedTuple, Optional
 
-from debug_log import dlog
+from debug_log import clear_changed, dlog, dlog_changed
 from replay_recorder import is_replay
 
 HISTORY_VIEW = "ColosseumHistoryViewController"  # Menü "Match History"
@@ -243,8 +243,9 @@ class MatchWatcher:
         while not self._stop.wait(COIN_TOSS_INTERVAL if self._views[-1:] == [COIN_TOSS_VIEW] else CHECK_INTERVAL):
             try:
                 self.check()
+                clear_changed("matches")
             except Exception as e:  # Spiel lädt gerade, Menü im Aufbau … → beim nächsten Mal
-                dlog(f"[MATCHES] nicht gelesen: {e}")
+                dlog_changed("matches", f"[MATCHES] nicht gelesen: {e}")
 
     def check(self) -> int:
         """Ein Durchgang. Returns: Anzahl neu erfasster Matches."""

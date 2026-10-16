@@ -1,4 +1,4 @@
-"""Diagnose-Log: Rotation der alten Läufe, kein Schreiben außerhalb eines Laufs."""
+"""Diagnose-Log: Rotation der alten Läufe, kein Schreiben ohne start_run, keine Logflut."""
 
 import os
 import tempfile
@@ -47,7 +47,7 @@ class DebugLogTest(unittest.TestCase):
         self.assertEqual(self.read(self.path), "eins\n[HÄNGER] von einem anderen Thread\nzwei\n")
 
     def test_locked_log_file_does_not_stop_the_run(self):
-        with unittest.mock.patch("logging.FileHandler", side_effect=PermissionError("gesperrt")):
+        with unittest.mock.patch.object(debug_log, "_CappedHandler", side_effect=PermissionError("gesperrt")):
             debug_log.start_run(self.path)
         dlog("geht ins Leere")
         debug_log.end_run()
@@ -57,6 +57,24 @@ class DebugLogTest(unittest.TestCase):
         with unittest.mock.patch.object(debug_log, "MAX_LOG_BYTES", 3):
             debug_log.append(self.path, "zwei")
         self.assertEqual(self.read(self.path), "eins\n")
+
+    def test_dlog_stops_at_the_size_limit(self):
+        debug_log.start_run(self.path)
+        dlog("eins")
+        with unittest.mock.patch.object(debug_log, "MAX_LOG_BYTES", 3):
+            dlog("zwei")
+        debug_log.end_run()
+        self.assertEqual(self.read(self.path), "eins\n")
+
+    def test_changed_message_is_logged_once_until_cleared(self):
+        debug_log.start_run(self.path)
+        for _ in range(3):
+            debug_log.dlog_changed("t", "Fehler A")
+        debug_log.dlog_changed("t", "Fehler B")
+        debug_log.clear_changed("t")  # Erfolg dazwischen: derselbe Fehler gilt wieder als neu
+        debug_log.dlog_changed("t", "Fehler B")
+        debug_log.end_run()
+        self.assertEqual(self.read(self.path), "Fehler A\nFehler B\nFehler B\n")
 
     def test_nothing_written_outside_a_run(self):
         dlog("ohne Lauf")  # darf keine Datei anlegen und nicht abstürzen

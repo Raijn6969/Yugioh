@@ -46,7 +46,7 @@ from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, DATA_DIR, LOG_FILE, TES
 from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message, show_toast
 from dark_menu import DarkMenu
-from debug_log import append, dlog
+from debug_log import append, dlog, dlog_changed, start_run
 from editor_watch import EditorWatcher
 from hang_watch import HangWatch
 from window_style import apply_frame, no_activate
@@ -841,7 +841,7 @@ class MasterDuelImporter:
                 try:
                     func(*args)
                 except tk.TclError as err:
-                    dlog(f"[UI] TclError in Queue abgefangen: {err}")
+                    dlog_changed("ui-queue", f"[UI] TclError in Queue abgefangen: {err}")
         finally:
             self._after_ids["ui_queue"] = self.root.after(50, self._process_ui_queue)
 
@@ -1367,6 +1367,8 @@ def main():
         root.after(STARTED_TOAST_MS + 100, root.destroy)
         root.mainloop()
         return
+    start_run(LOG_FILE)
+    dlog(f"===== Programmstart {time.strftime('%Y-%m-%d %H:%M:%S')} | MD DECK IMPORTER {APP_VERSION} =====")
     root = tk.Tk()
     root.report_callback_exception = report_tk_error
     MasterDuelImporter(root, tray=True)
