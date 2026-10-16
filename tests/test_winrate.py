@@ -109,9 +109,9 @@ class StoreMatchesTest(unittest.TestCase):
         self.assertEqual(self.db.unconfirmed_matches(), 14)
         self.assertEqual(mh.history_reminder(14), "")
         self.db.add_matches([live(1014, 514)])
-        self.assertIn("bald die Match History öffnen: 15 Duelle", mh.history_reminder(self.db.unconfirmed_matches()))
+        self.assertIn("bald die Match History öffnen: 15 Matches", mh.history_reminder(self.db.unconfirmed_matches()))
         self.assertEqual(mh.history_reminder(16), "")
-        self.assertIn("öffnen: 18 Duelle", mh.history_reminder(18))
+        self.assertIn("öffnen: 18 Matches", mh.history_reminder(18))
         self.assertIn("fehlt das Gegner-Deck schon", mh.history_reminder(21))  # ab 20 nach jedem Duell
         # Match History geöffnet: die Duelle sind bestätigt
         mh.store_matches(self.db, mh.parse_history({"58": {"1": entry(1014, 520, mh.WIN)}}))

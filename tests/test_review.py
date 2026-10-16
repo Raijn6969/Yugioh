@@ -222,12 +222,12 @@ class ExportTest(unittest.TestCase):
 
     def test_empty_month_and_missing_coin_toss(self):
         page = review_export.render(sr.build(self.db, 2026, 7, mh.RANKED), "Ranked")
-        self.assertIn("keine erfassten Duelle", page)
+        self.assertIn("keine erfassten Matches", page)
         duels = Duels(make_db())
         duels.add(at(6, 3), W)
         page = review_export.render(sr.build(duels.db, 2026, 6, None))
         self.assertIn("Münzwurf wurde in diesem Monat nicht erfasst", page)
-        self.assertIn("Noch zu wenige Duelle", page)                # kein Gegner-Deck mit 3 Duellen
+        self.assertIn("Noch zu wenige Matches", page)                # kein Gegner-Deck mit 3 Matches
 
     def test_game_texts_cannot_break_the_page(self):
         duels = Duels(make_db())

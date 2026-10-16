@@ -165,13 +165,13 @@ def live_record(result, deck, first: Optional[bool], now: float,
 
 
 def history_reminder(unconfirmed: int) -> str:
-    """Hinweis, die Match History zu öffnen ("" = noch nicht nötig): Sie zeigt nur die letzten HISTORY_SIZE Duelle,
+    """Hinweis, die Match History zu öffnen ("" = noch nicht nötig): Sie zeigt nur die letzten HISTORY_SIZE Matches,
     ältere bekommen danach nie mehr Gegner-Deck und Zugzahl."""
     if unconfirmed >= HISTORY_SIZE:
-        return (f"Match History öffnen: {unconfirmed} Duelle seit dem letzten Mal – bei den ältesten fehlt das "
+        return (f"Match History öffnen: {unconfirmed} Matches seit dem letzten Mal – bei den ältesten fehlt das "
                 f"Gegner-Deck schon (sie zeigt nur die letzten {HISTORY_SIZE}).")
     if unconfirmed in REMIND_AT:
-        return (f"Bitte bald die Match History öffnen: {unconfirmed} Duelle seit dem letzten Mal, sie zeigt nur die "
+        return (f"Bitte bald die Match History öffnen: {unconfirmed} Matches seit dem letzten Mal, sie zeigt nur die "
                 f"letzten {HISTORY_SIZE} (sonst fehlen die Gegner-Decks).")
     return ""
 

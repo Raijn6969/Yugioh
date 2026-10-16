@@ -30,7 +30,7 @@ def _tile(value: str, caption: str, note: str = "", color: str = "var(--text)") 
 
 
 def _rate_tile(caption: str, wins: int, matches: int) -> str:
-    note = f"{wins}–{matches - wins} · {matches} Duell(e)" if matches else "keine Duelle"
+    note = f"{wins}–{matches - wins} · {matches} Matches" if matches else "keine Matches"
     return _tile(rate_text(wins, matches), caption, note, _color(wins, matches) if matches else "var(--text)")
 
 
@@ -42,7 +42,7 @@ def _bar(wins: int, matches: int) -> str:
 def _matchup(label: str, opponent) -> str:
     stats = opponent.stats
     return (f'<tr><td>{html.escape(label)}</td><td><b>{html.escape(opponent.opp_name)}</b></td>'
-            f'<td>{html.escape(record_text(stats))} · {stats.matches} Duelle</td>'
+            f'<td>{html.escape(record_text(stats))} · {stats.matches} Matches</td>'
             f'<td style="color:{_color(stats.wins, stats.matches)}">{rate_text(stats.wins, stats.matches)}</td></tr>')
 
 
@@ -53,10 +53,10 @@ def render(review: Review, mode_label: str = "") -> str:
     sub = " · ".join(part for part in (mode_label, "Season = ein Kalendermonat") if part)
     body = []
     if not total.matches:
-        body.append('<p class="empty">In diesem Monat gibt es keine erfassten Duelle.</p>')
+        body.append('<p class="empty">In diesem Monat gibt es keine erfassten Matches.</p>')
     else:
         body.append('<section><h2>Bilanz</h2><div class="tiles">'
-                    + _tile(str(total.matches), "Duelle", f"{record_text(total)} (Siege–Niederlagen)")
+                    + _tile(str(total.matches), "Matches", f"{record_text(total)} (Siege–Niederlagen)")
                     + _rate_tile("Winrate gesamt", total.wins, total.matches)
                     + _rate_tile("als Erster", total.first_wins, total.first)
                     + _rate_tile("als Zweiter", total.second_wins, total.second) + "</div></section>")
@@ -76,20 +76,20 @@ def render(review: Review, mode_label: str = "") -> str:
             f'</td></tr>' for deck in review.decks)
         more = (f' (die {len(review.decks)} meistgespielten von {review.deck_count})'
                 if review.deck_count > len(review.decks) else "")
-        body.append(f'<section><h2>Meistgespielte Decks{more}</h2><table><tr><th>Deck</th><th>Duelle</th>'
+        body.append(f'<section><h2>Meistgespielte Decks{more}</h2><table><tr><th>Deck</th><th>Matches</th>'
                     f'<th>Bilanz</th><th>Winrate</th><th></th></tr>{rows}</table></section>')
         if review.best is None:
-            matchups = '<p class="note">Noch zu wenige Duelle: ein Gegner-Deck braucht mindestens 3.</p>'
+            matchups = '<p class="note">Noch zu wenige Matches: ein Gegner-Deck braucht mindestens 3.</p>'
         else:
             matchups = ("<table>" + _matchup("Bestes Matchup", review.best)
                         + (_matchup("Schlechtestes Matchup", review.worst) if review.worst else "") + "</table>"
-                        '<p class="note">Gegner-Decks mit mindestens 3 Duellen.</p>')
+                        '<p class="note">Gegner-Decks mit mindestens 3 Matches.</p>')
         body.append(f"<section><h2>Gegner-Decks</h2>{matchups}</section>")
         facts = [("Längste Siegserie", f"{review.win_streak} in Folge"),
                  ("Längste Niederlagenserie", f"{review.loss_streak} in Folge")]
         if review.busiest:
             day = review.busiest
-            facts.append(("Aktivster Tag", f"{day_text(day)} · {day.duels} Duelle ({record_text(day)})"))
+            facts.append(("Aktivster Tag", f"{day_text(day)} · {day.duels} Matches ({record_text(day)})"))
         body.append("<section><h2>Serien und aktivster Tag</h2><table>" + "".join(
             f"<tr><td>{html.escape(name)}</td><td><b>{html.escape(value)}</b></td></tr>" for name, value in facts)
             + "</table></section>")

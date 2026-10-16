@@ -54,6 +54,9 @@ class SidePanel:
         s = self.s
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
+        if self.deck_name:  # Side gehört zu einem Deck
+            tk.Label(body, text=self.deck_name, fg=TEXT, bg=BG, font=self.font_bold, anchor="w", justify=tk.LEFT,
+                     wraplength=int(480 * s)).pack(fill=tk.X)
         self.info_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
                                    justify=tk.LEFT, wraplength=int(480 * s))
         self.info_label.pack(fill=tk.X)
@@ -134,12 +137,10 @@ class SidePanel:
             self.info_label.config(text=f"{self.unknown} Karte(n) im Deck nicht erkannt – erst „Neu scannen“, dann "
                                         f"lässt sich tauschen.", fg=WARN)
         elif not self.memory:
-            self.info_label.config(text="Tipp: Am zuverlässigsten mit „Speicher lesen“ (Optionen). Mit Texterkennung "
-                                        "tauscht die Kontrolle am Ende nicht, wenn sie eine Karte unsicher liest – "
-                                        "dann meldet sie nur, was zu ändern ist.", fg=WARN)
+            self.info_label.config(text="Tipp: Mit „Speicher lesen“ (Optionen) tauscht die Kontrolle am Ende "
+                                        "zuverlässiger.", fg=WARN)
         else:
-            self.info_label.config(text="Tauschen ändert das Deck im Deck-Editor wie ein kleiner Import (Maus kurz "
-                                        "loslassen). „Zurück“ macht es wieder rückgängig.", fg=MUTED)
+            self.info_label.config(text="Tauschen ändert das Deck wie ein kleiner Import, „Zurück“ macht es rückgängig.", fg=MUTED)
         self._show_profiles()
         self._show_out()
         self._show_in()
@@ -162,8 +163,7 @@ class SidePanel:
         profiles = self._profiles()
         self._learn_names([cid for p in profiles for cid in (*p.cards_out, *p.cards_in)])
         if not profiles:
-            tk.Label(self.profiles_frame, text="Noch keins – unten anlegen, z.B. „Zweiter“: Handtraps raus, "
-                                               "Board-Breaker rein.", fg=MUTED, bg=BG, font=self.font_small,
+            tk.Label(self.profiles_frame, text="Noch keins – unten anlegen.", fg=MUTED, bg=BG, font=self.font_small,
                      anchor="w").pack(fill=tk.X)
             return
         for i, profile in enumerate(profiles):
