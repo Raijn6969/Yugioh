@@ -39,6 +39,7 @@ class SidePanel:
         self.closed = False
         self.cards_out: Dict[str, int] = {}
         self.cards_in: Dict[str, int] = {}
+        self._out_rows: Dict[str, tuple] = {}  # Passcode -> (Zeile, Minus-Anzeige, Grundfarbe)
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = ("Helvetica", int(10 * s))
         self.font_bold = ("Helvetica", int(10 * s), "bold")
@@ -235,13 +236,16 @@ class SidePanel:
         s = self.s
         for child in self.out_list.winfo_children():
             child.destroy()
+        self._out_rows = {}
         for i, cid in enumerate(self._ordered_deck()):
             chosen = self.cards_out.get(cid, 0)
             bg = HIGHLIGHT if chosen else ROW_ALT if i % 2 else BG
             row = tk.Frame(self.out_list, bg=bg, padx=int(6 * s), pady=int(2 * s), cursor="hand2")
             row.pack(fill=tk.X)
-            tk.Label(row, text=f"−{chosen}" if chosen else "", fg=RED, bg=bg, font=self.font_small_bold,
-                     width=3, anchor="e").pack(side=tk.RIGHT)
+            minus = tk.Label(row, text=f"−{chosen}" if chosen else "", fg=RED, bg=bg, font=self.font_small_bold,
+                             width=3, anchor="e")
+            minus.pack(side=tk.RIGHT)
+            self._out_rows[cid] = (row, minus, ROW_ALT if i % 2 else BG)
             tk.Label(row, text=f"{self.deck[cid]}×", fg=MUTED, bg=bg, font=self.font_small).pack(side=tk.RIGHT)
             extra = "  (Extra)" if self.zones.get(cid) == "Extra" else ""
             tk.Label(row, text=self.names.get(cid, cid) + extra, fg=TEXT, bg=bg, font=self.font_small,
@@ -249,6 +253,17 @@ class SidePanel:
             for widget in (row, *row.winfo_children()):
                 widget.bind("<Button-1>", lambda e, c=cid: self.take_out(c))
                 widget.bind("<Button-3>", lambda e, c=cid: self.take_out(c, -1))
+
+    def _paint_out(self, cid: str) -> None:
+        """Nur die angeklickte Zeile umfärben (die Liste ganz neu zu bauen dauert bei 60 Karten über 100 ms)."""
+        if cid not in self._out_rows:
+            return
+        row, minus, base = self._out_rows[cid]
+        chosen = self.cards_out.get(cid, 0)
+        bg = HIGHLIGHT if chosen else base
+        for widget in (row, *row.winfo_children()):
+            widget.config(bg=bg)
+        minus.config(text=f"−{chosen}" if chosen else "")
 
     def _show_in(self) -> None:
         s = self.s
@@ -293,7 +308,7 @@ class SidePanel:
     def take_out(self, cid: str, step: int = 1) -> None:
         self.cards_out[cid] = min(self.deck.get(cid, 0), max(0, self.cards_out.get(cid, 0) + step))
         self.cards_out = side_profiles.clean(self.cards_out)
-        self._show_out()
+        self._paint_out(cid)
         self._check()
 
     def put_in(self, cid: str, step: int = 1) -> None:

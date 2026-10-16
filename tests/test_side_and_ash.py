@@ -259,6 +259,20 @@ class PanelTest(unittest.TestCase):
         self.assertEqual([p.name for p in other._profiles()], ["Zweiter"])
         self.assertEqual(db.side_profiles(None)[0].deck_name, "Deck")
 
+    def test_taking_a_card_out_repaints_only_its_row(self):
+        from side_panel import HIGHLIGHT, SidePanel
+        zones = {DROLL: "Main", ASH: "Main", MAIN: "Main", FUSION: "Extra"}
+        names = {DROLL: "Droll", ASH: "Ash", MAIN: "K", FUSION: "F"}
+        panel = SidePanel(self.root, make_db(), "Deck", DECK, zones, names, on_swap=lambda t, l: None,
+                          on_close=lambda: None)
+        self.addCleanup(panel.close)
+        row, minus, base = panel._out_rows[DROLL]
+        panel.take_out(DROLL)
+        self.assertIs(panel._out_rows[DROLL][0], row)  # keine neue Zeile
+        self.assertEqual((minus.cget("text"), row.cget("bg")), ("−1", HIGHLIGHT))
+        panel.take_out(DROLL, -1)
+        self.assertEqual((minus.cget("text"), row.cget("bg")), ("", base))
+
     def test_ash_panel_uses_card_texts_without_starting_hands(self):
         from ash_panel import AshPrioPanel
         db = make_db()
