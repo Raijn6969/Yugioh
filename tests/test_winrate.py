@@ -628,8 +628,9 @@ class WinratePanelTest(unittest.TestCase):
         self.assertNotIn("Ergebnis-Bildschirm", info)
         rows = [w for w in self.panel.inner.winfo_children() if isinstance(w, tk.Frame) and w.winfo_children()
                 and w.winfo_children()[0].cget("anchor") == "e"]
-        self.assertTrue(rows)
-        self.assertEqual([w.cget("width") for w in rows[0].winfo_children()[:4]], [12, 11, 8, 4])
+        self.assertEqual([w.cget("text") for w in rows[0].winfo_children()[:4]],
+                         ["Zweiter", "Erster", "Bilanz", "Gesamt"])  # erste Zeile = Spaltenköpfe
+        self.assertEqual([w.cget("width") for w in rows[1].winfo_children()[:4]], [8, 7, 8, 6])
         self.assertEqual(self.panel.filter_label.winfo_manager(), "")  # keine Wiederholung der Filter
 
     def test_period_buttons_trend_and_opponents(self):

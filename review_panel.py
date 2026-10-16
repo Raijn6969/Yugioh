@@ -72,7 +72,7 @@ class ReviewPanel:
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
         nav = tk.Frame(body, bg=BG)
-        nav.pack(fill=tk.X)
+        nav.pack(fill=tk.X, pady=(0, int(6 * s)))
         self.prev_btn = RoundedButton(nav, text="◀", command=lambda: self.step(-1), **small)
         self.prev_btn.pack(side=tk.LEFT)
         self.month_label = tk.Label(nav, text="", fg=TEXT, bg=BG, font=self.font_head, width=16)
@@ -164,7 +164,8 @@ class ReviewPanel:
         for i, deck in enumerate(review.decks):
             stats = deck.stats
             self._row(deck.deck_name or "Unbekanntes Deck",
-                      f"{sr.rate_text(stats.wins, stats.matches)} · {sr.record_text(stats)} · {matches_text(stats.matches)}",
+                      f"{sr.rate_text(stats.wins, stats.matches)} · {sr.record_text(stats)} · "
+                      f"{matches_text(stats.matches)}",
                       ROW_ALT if i % 2 else BG, color=rate_color(stats.wins, stats.matches))
         self._section(f"GEGNER-DECKS (mindestens {sr.MIN_MATCHUP} Matches)")
         if review.best is None:

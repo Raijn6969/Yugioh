@@ -34,6 +34,7 @@ OPPONENT_LIMIT = 12
 TREND_WINDOW = 10   # Verlauf: Winrate der jeweils letzten 10 Matches
 TREND_MIN = 3       # so viele Matches braucht der Verlauf mindestens
 UNKNOWN_DECK = "Unbekanntes Deck"
+OPPONENT_COLUMNS = (8, 7, 8, 6)  # Zeichen je Zahlenspalte, von rechts: Zweiter, Erster, Bilanz, Gesamt
 
 
 def period_start(period: str, now: Optional[float] = None) -> Optional[float]:
@@ -358,6 +359,7 @@ class WinratePanel:
             shown = opponents[:OPPONENT_LIMIT]
             more = f", {len(shown)} häufigste" if len(opponents) > len(shown) else ""
             self._section("opponents", f"GEGEN GEGNER-DECKS ({len(opponents)}{more})")
+            self._register_item("opponents", self._opponent_row(None, BG), {"fill": tk.X})
             for i, opponent in enumerate(shown):
                 row = self._opponent_row(opponent, ROW_ALT if i % 2 else BG)
                 self._register_item("opponents", row, {"fill": tk.X})
@@ -460,16 +462,21 @@ class WinratePanel:
             widget.bind("<Button-1>", lambda e: self.select(deck.deck_name))
         return row
 
-    def _opponent_row(self, opponent: OpponentStats, bg: str) -> tk.Frame:
+    def _opponent_row(self, opponent: Optional[OpponentStats], bg: str) -> tk.Frame:
+        """Eine Gegnerzeile in festen Zahlenspalten (rechtsbündig untereinander); ohne Gegner: die Spaltenköpfe."""
         s = self.s
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(3 * s))
-        stats = opponent.stats  # feste Spalten, rechtsbündig: die Zahlen stehen untereinander
+        if opponent is None:
+            cells = ("Zweiter", "Erster", "Bilanz", "Gesamt")
+        else:
+            stats = opponent.stats
+            cells = (rate_text(stats.second_wins, stats.second), rate_text(stats.first_wins, stats.first),
+                     record_text(stats), rate_text(stats.wins, stats.matches))
         mono = font(SIZE_SMALL, s, mono=True)
-        for width, text in ((12, f"Zweiter {rate_text(stats.second_wins, stats.second)}" if stats.second else ""),
-                            (11, f"Erster {rate_text(stats.first_wins, stats.first)}" if stats.first else ""),
-                            (8, record_text(stats)), (4, rate_text(stats.wins, stats.matches))):
+        for width, text in zip(OPPONENT_COLUMNS, cells):
             tk.Label(row, text=text, fg=MUTED, bg=bg, font=mono, width=width, anchor="e").pack(side=tk.RIGHT)
-        tk.Label(row, text=f"vs {opponent.opp_name}", fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
+        name = "" if opponent is None else f"vs {opponent.opp_name}"
+        tk.Label(row, text=name, fg=TEXT, bg=bg, font=self.font_small_bold, anchor="w").pack(
             side=tk.LEFT, fill=tk.X, expand=True)
         return row
 

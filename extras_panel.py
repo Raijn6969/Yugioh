@@ -497,7 +497,8 @@ class ExtrasPanel:
                 shown = (panel, title)
         title = shown[1] if shown else "DECK"
         if shown and shown[0] is self.side and self._deck_name:  # Side gehört zu einem Deck: Name dazu
-            title += " · " + (self._deck_name if len(self._deck_name) <= 18 else self._deck_name[:17] + "…")
+            name = self._deck_name  # nur wenig Platz bis zu den Tabs
+            title += " · " + (name if len(name) <= 7 else name[:6] + "…")
         self.title_label.config(text="◆ " + title)
         self.deck_body.pack_forget()
         if shown is None:
