@@ -94,6 +94,48 @@ class OverlayTest(unittest.TestCase):
             root.update()
             time.sleep(0.01)
 
+    def test_tk_scaling_does_not_follow_the_windows_scaling(self):
+        root = tk.Tk()
+        root.tk.call("tk", "scaling", 2.0)  # wie bei Windows-Skalierung 150 %
+        self.apps.append(Overlay.MasterDuelImporter(root))
+        self.assertAlmostEqual(float(root.tk.call("tk", "scaling")), 96 / 72)
+
+    def test_panels_look_the_same_at_150_percent_windows_scaling(self):
+        import history_panel
+        import winrate_panel
+        root = tk.Tk()
+        root.withdraw()
+        self.addCleanup(root.destroy)
+        root.winfo_screenheight = lambda: 1080  # 1080p: Maßstab 1,0
+        db = mock.Mock()
+        db.history.return_value = []
+        db.deck_win_stats.return_value = db.matches.return_value = db.opponent_stats.return_value = []
+        db.win_stats.return_value = winrate_panel.WinStats()
+        db.replay_starts_by_match.return_value = {}
+
+        def widest():
+            sizes = []
+            for panel in (history_panel.HistoryPanel(root, db, lambda c: None, lambda c: None, lambda: None),
+                          winrate_panel.WinratePanel(root, db, {}, lambda: None, lambda *a: None, lambda: None,
+                                                     tracking=True)):
+                root.update()
+                stack = [panel.win]
+                widths = []
+                while stack:
+                    widget = stack.pop()
+                    stack.extend(widget.winfo_children())
+                    widths.append(widget.winfo_reqwidth())
+                sizes.append(max(widths))
+                panel.close()
+            return sizes
+
+        Overlay.fix_tk_scaling(root)
+        at_100 = widest()
+        root.tk.call("tk", "scaling", 2.0)
+        self.assertNotEqual(widest(), at_100)  # ohne die Korrektur wären die Fenster zu schmal
+        Overlay.fix_tk_scaling(root)
+        self.assertEqual(widest(), at_100)
+
     def test_corrupt_config_is_not_overwritten(self):
         self.write_config('{"FIRST_CARD": [1, 2], "SPEED_PROFILE": "slow",}')  # Komma zu viel
         self.open_app()

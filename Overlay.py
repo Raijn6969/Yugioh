@@ -113,8 +113,15 @@ def validate_config(raw):
     return cleaned, warnings
 
 
+def fix_tk_scaling(root) -> None:
+    """Punktschriften immer so groß wie bei 100 % Windows-Skalierung: Die Maße der Fenster richten sich nach der
+    Größe von Master Duel (Pixel), nicht nach der Windows-Skalierung (Tk rechnet Schriften sonst mit dem DPI)."""
+    root.tk.call("tk", "scaling", 96 / 72)
+
+
 class MasterDuelImporter:
     def __init__(self, root, tray: bool = False):
+        fix_tk_scaling(root)
         self.root = root
         self.tray = None
         self.is_running = False
@@ -1395,6 +1402,7 @@ def main():
         # Schon ein Importer offen: kein zweites Overlay (jedes Duell würde doppelt erfasst), nur kurz Bescheid geben
         root = tk.Tk()
         root.withdraw()
+        fix_tk_scaling(root)
         show_toast(root, started_text(), duration_ms=STARTED_TOAST_MS)
         root.after(STARTED_TOAST_MS + 100, root.destroy)
         root.mainloop()
