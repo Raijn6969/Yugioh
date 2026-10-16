@@ -97,9 +97,8 @@ class StaplePanel:
             self.tiles[key] = value
 
         # Hinweis unten zuerst packen, damit ihn das Raster (füllt den Rest) nicht verdrängt
-        tk.Label(body, text="Quelle: Master Duel Meta (aktuelle Top-Listen in Master Duel). Wenige Listen = nur "
-                            "eine grobe Richtung.", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
-                 justify=tk.LEFT, wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
+        tk.Label(body, text="Wenige Listen = nur eine grobe Richtung.", fg=MUTED, bg=BG, font=self.font_small,
+                 anchor="w", justify=tk.LEFT, wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
         self.grid = CardGrid(body, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
                              self.font_small)
 
@@ -167,7 +166,8 @@ class StaplePanel:
         s = self.s
         comparison = self.comparisons[self.shown]
         stats = comparison.stats
-        self.status_label.config(text=f"{stats.deck_type}: {stats.lists} Top-Liste(n) · Stand {when(stats.fetched_at)}"
+        self.status_label.config(text=f"Master Duel Meta · {stats.deck_type}: {stats.lists} Top-Liste(n) · "
+                                      f"Stand {when(stats.fetched_at)}"
                                       f" · {comparison.overlap * 100:.0f} % deiner Karten spielen auch die Top-Listen",
                                  fg=MUTED)
         for child in self.type_row.winfo_children():
@@ -188,8 +188,8 @@ class StaplePanel:
         self.grid.clear()
         if comparison.different:
             self._grid("ANDERE KOPIENZAHL ALS ÜBLICH", [
-                (d.card.name, f"{d.mine}× → {d.card.usual}×", f"{share_text(d.card.usual_share)} spielen "
-                 f"{d.card.usual}×", f"du {d.mine}× · {share_text(d.card.usual_share)} der Listen {d.card.usual}× "
+                (d.card.name, f"{d.mine}× → {d.card.usual}×", f"{share_text(d.card.usual_share)} · {d.card.usual}×",
+                 f"du {d.mine}× · {share_text(d.card.usual_share)} der Listen {d.card.usual}× "
                  f"(Ø {avg_text(d.card.avg)})", WARN) for d in comparison.different])
         if comparison.missing:
             self._grid("FEHLT DIR", [

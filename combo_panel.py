@@ -58,6 +58,11 @@ def hand_text(combo: mdm_combos.Combo) -> str:
     return " + ".join(parts) or "–"
 
 
+def repeats_title(combo: mdm_combos.Combo) -> bool:
+    """Die Startkarten stehen schon im Titel (z.B. „A + B“ bzw. „A 1 card combo“): keine zweite Zeile dafür."""
+    return hand_text(combo).lower() in combo.title.lower()
+
+
 def attributes(text: str) -> List[Tuple[str, bool]]:
     """Attribute im Platzhalter-Text in Reihenfolge, ohne Doppelte: "Non-FIRE" → [("FIRE", True)] (True = verneint)."""
     found: Dict[str, bool] = {}
@@ -186,8 +191,7 @@ class ComboPanel:
         self.bar = tk.Frame(body, bg=BG)       # Liste: Filter · Detail: Zurück / Master Duel Meta
         self.bar.pack(fill=tk.X, pady=(int(4 * s), int(4 * s)))
         # Hinweis unten zuerst packen, damit ihn die Liste (füllt den Rest) nicht verdrängt
-        tk.Label(body, text="Quelle: Master Duel Meta (Community-Combos). Chance = alle genannten Startkarten in 5 "
-                            "Karten.", fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
+        tk.Label(body, text="Chance = alle genannten Startkarten in 5 Karten.", fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
                  wraplength=int(490 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
 
         frame = tk.Frame(body, bg=BG)
@@ -336,8 +340,8 @@ class ComboPanel:
         self.detail = None
         combo_set, matches = self.sets[self.shown_type]
         playable = sum(1 for m in matches if not m.missing)
-        self.status_label.config(text=f"{combo_set.deck_type}: {len(matches)} Combos, {playable} mit deinem Deck "
-                                      f"spielbar · Stand {when(combo_set.fetched_at)}", fg=MUTED)
+        self.status_label.config(text=f"Master Duel Meta · {combo_set.deck_type}: {len(matches)} Combos, "
+                                      f"{playable} mit deinem Deck spielbar · Stand {when(combo_set.fetched_at)}", fg=MUTED)
         for child in self.type_row.winfo_children():
             child.destroy()
         if len(self.sets) > 1:
@@ -398,7 +402,8 @@ class ComboPanel:
         y = title[3] + int(2 * s)
         odds, color = odds_text(match.odds)
         chance = text(right, y, odds, color, self.font_small_bold, "ne")
-        hand = text(left, y, hand_text(combo), MUTED, self.font_small, wrap=chance[0] - left - pad)
+        hand = (text(left, y, hand_text(combo), MUTED, self.font_small, wrap=chance[0] - left - pad)
+                if not repeats_title(combo) else chance)
         y = max(hand[3], chance[3]) + int(2 * s)
         if match.missing:
             y = text(left, y, "Fehlt: " + ", ".join(match.missing), WARN, self.font_small, wrap=right - left)[3]
@@ -419,13 +424,14 @@ class ComboPanel:
         combo = match.combo
         self._clear()
         self._button(self.bar, "← Zurück", self.back)
-        self._button(self.bar, "Auf Master Duel Meta öffnen", self.open_site, PRIMARY)
+        self._button(self.bar, "Im Browser öffnen", self.open_site, PRIMARY)
         self._label(combo.title, self.font_head, TEXT)
         info = [f"von {combo.author}"] if combo.author else []
         self._label(" · ".join(info + [f"▲ {combo.votes}"] + ([f"Stand {date_text(combo.updated)}"]
                                                               if combo.updated else [])), self.font_small, MUTED)
         odds, color = odds_text(match.odds)
-        self._label(f"Starthand: {hand_text(combo)}  ·  {odds}", self.font_small_bold, color, (int(6 * s), 0))
+        self._label(odds if repeats_title(combo) else f"Starthand: {hand_text(combo)}  ·  {odds}",
+                    self.font_small_bold, color, (int(6 * s), 0))
         if match.missing:
             self._label("Fehlt: " + ", ".join(match.missing), self.font_small, WARN)
         self._hand(combo)

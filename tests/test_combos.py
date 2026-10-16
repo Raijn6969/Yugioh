@@ -335,7 +335,7 @@ class ComboPanelTest(unittest.TestCase):
         self.assertIn("Elfnote Tinia", panel.grid.texts())  # ohne Bild: Name als Platzhalter
         self.assertFalse([w for w in panel.grid.canvas.master.winfo_children() if isinstance(w, DarkScrollbar)])
         self.assertEqual([w.cget("text") for w in panel.bar.winfo_children()],
-                         ["← Zurück", "Auf Master Duel Meta öffnen"])
+                         ["← Zurück", "Im Browser öffnen"])
         panel.bar.winfo_children()[0].invoke()
         self.assertIsNone(panel.detail)
         self.assertEqual(len(panel.inner.winfo_children()), 2)
