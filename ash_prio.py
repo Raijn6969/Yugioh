@@ -230,7 +230,7 @@ def load(deck: Mapping[str, int], path: str = FACTORY_DB,
                                       f"{close.overlap * 100:.0f} % "
                                       f"gleiche Karten), hat sie aber noch nicht gegen Handtraps geprüft. Sobald sie "
                                       f"das getan hat, erscheint sie hier.")
-                return None, [], "Die Factory hat dieses Deck noch nicht durchgerechnet."
+                return None, [], "Für dieses Deck gibt es noch keine Berechnung."
             return variant, hand_sheets(con, variant.key), ""
         finally:
             con.close()

@@ -24,7 +24,7 @@ from dark_scrollbar import DarkScrollbar
 from debug_log import dlog
 from rounded_button import RoundedButton
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
-                          ROW_ALT, HIGHLIGHT)
+                          ROW_ALT, HIGHLIGHT, show_tip)
 
 POLL_MS = 100
 CARD_SIZE = (58, 85)   # Bildleiste
@@ -33,13 +33,15 @@ MAX_CARDS = 14         # zwei Reihen – die Liste darunter braucht auch noch Pl
 
 
 class AshPrioPanel:
-    def __init__(self, master: tk.Misc, deck_name: str, deck: Dict[str, int], on_close: Callable[[], None], path: str = ash_prio.FACTORY_DB,
-                 names: Optional[Dict[str, str]] = None, db=None, image_folder: str = card_images.FOLDER):
+    def __init__(self, master: tk.Misc, deck_name: str, deck: Dict[str, int], on_close: Callable[[], None],
+                 path: str = ash_prio.FACTORY_DB, names: Optional[Dict[str, str]] = None, db=None,
+                 image_folder: str = card_images.FOLDER):
         self.master = master
         self.deck_name = deck_name
         self.deck = dict(deck)
         self.names = dict(names or {})         # {Passcode: Name}: Alt-Arts der Factory-Variante zuordnen
         self.db = db                           # CardStatsDB: Kartentexte für die Einschätzung ohne Factory
+        self._tip: Optional[tk.Toplevel] = None  # Tooltip an der Board-Angabe
         self.text_rows: List[tuple] = []       # ohne Starthände: (Passcode, Name, Kopien, Starter?, {Handtrap: Effekt})
         self.on_close = on_close
         self.path = path
@@ -231,6 +233,7 @@ class AshPrioPanel:
             return
         for key, button in self.buttons.items():
             button.config(role="active" if key == self.handtrap else "neutral")
+        self._hide_tip()
         for child in self.inner.winfo_children():
             child.destroy()
         self._hand_rows, self._line_box = {}, None
@@ -351,14 +354,27 @@ class AshPrioPanel:
         color = GOOD if loss < 1 else WARN if after >= 2 else BAD
         head = tk.Frame(row, bg=bg)
         head.pack(fill=tk.X)
-        tk.Label(head, text=f"Board {ash_prio.number(sheet.score)} → {ash_prio.number(after)}", fg=color, bg=bg,
-                 font=self.font_small_bold).pack(side=tk.RIGHT)
+        board = tk.Label(head, text=f"Board {ash_prio.number(sheet.score)} → {ash_prio.number(after)}", fg=color,
+                         bg=bg, font=self.font_small_bold)
+        board.pack(side=tk.RIGHT)
+        board.bind("<Enter>", self._show_tip)
+        board.bind("<Leave>", self._hide_tip)
         tk.Label(head, text=sheet.hand, fg=TEXT, bg=bg, font=self.font_bold, anchor="w", justify=tk.LEFT,
                  wraplength=int(340 * s)).pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Label(row, text=ash_prio.advice(sheet, self.handtrap), fg=MUTED, bg=bg, font=self.font_small,
                  anchor="w", justify=tk.LEFT, wraplength=int(440 * s)).pack(fill=tk.X)
         for widget in (row, head, *row.winfo_children(), *head.winfo_children()):
             widget.bind("<Button-1>", lambda e, h=sheet.hand: self.toggle(h))
+
+    def _show_tip(self, event) -> None:
+        self._hide_tip()
+        self._tip = show_tip(self.win, "Board = Unterbrechungen am Zugende",
+                             event.x_root - int(200 * self.s), event.y_root + int(18 * self.s), self.s)
+
+    def _hide_tip(self, event=None) -> None:
+        tip, self._tip = self._tip, None
+        if tip is not None:
+            tip.destroy()
 
     def _line(self, sheet: ash_prio.HandSheet, after: Optional[tk.Frame] = None) -> None:
         """Die ganze Linie (unter `after`, sonst am Ende); die Stelle der gewählten Handtrap markiert, danach die beste
@@ -385,6 +401,7 @@ class AshPrioPanel:
         if self.closed:
             return
         self.closed = True
+        self._hide_tip()
         if self._poll_job is not None:
             try:
                 self.win.after_cancel(self._poll_job)

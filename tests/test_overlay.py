@@ -835,7 +835,9 @@ class DarkDialogTest(unittest.TestCase):
         self.assertEqual(scan_done.args[1], 1)  # eine Karte ohne Stats
 
     def test_scan_status_is_shown_in_one_place_only(self):
-        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")),                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),                 mock.patch.object(Overlay, "ask_choice", return_value=None):
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
+                mock.patch.object(Overlay, "ask_choice", return_value=None):
             app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
             before = app.status_label.cget("text")
             app.extras = mock.Mock()

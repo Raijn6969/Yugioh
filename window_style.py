@@ -102,6 +102,17 @@ def no_activate(window: tk.Misc) -> None:
         pass  # ohne den Stil funktioniert alles, nur evtl. mit Taskleiste
 
 
+def show_tip(master: tk.Misc, text: str, x: int, y: int, scale: float = 1.0) -> tk.Toplevel:
+    """Tooltip mit einer Zeile Text bei (x, y) in Bildschirmkoordinaten; der Aufrufer zerstört ihn beim Verlassen."""
+    tip = tk.Toplevel(master)
+    tip.overrideredirect(True)
+    tip.attributes("-topmost", True)
+    tk.Label(tip, text=text, fg=TEXT, bg=PANEL, font=font(SIZE_SMALL, scale), padx=int(8 * scale),
+             pady=int(4 * scale), bd=1, relief=tk.SOLID, justify=tk.LEFT).pack()
+    tip.geometry(f"+{x}+{y}")
+    return tip
+
+
 def allow_typing(field: tk.Widget) -> None:
     """
     Eingabefeld in einem Fenster mit no_activate(): Erst beim Hineinklicken darf das Fenster aktiv werden (sonst

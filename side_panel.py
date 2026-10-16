@@ -23,7 +23,8 @@ MAIN_MIN, MAIN_MAX, EXTRA_MAX = 40, 60, 15
 
 class SidePanel:
     def __init__(self, master: tk.Misc, db, deck_name: str, deck: Dict[str, int], zones: Dict[str, str],
-                 names: Dict[str, str], on_swap: Callable[[List[str], str], None], on_close: Callable[[], None], unknown: int = 0, memory: bool = True):
+                 names: Dict[str, str], on_swap: Callable[[List[str], str], None], on_close: Callable[[], None],
+                 unknown: int = 0, memory: bool = True):
         self.master = master
         self.db = db
         self.deck_name = deck_name
@@ -310,7 +311,7 @@ class SidePanel:
 
     def _problem(self) -> Optional[str]:
         if not self.cards_out and not self.cards_in:
-            return "Links Karten raus und rechts Karten rein wählen."
+            return "Nichts gewählt."
         too_many = [cid for cid in self.cards_in
                     if self.deck.get(cid, 0) - self.cards_out.get(cid, 0) + self.cards_in[cid]
                     > side_profiles.MAX_COPIES]
@@ -325,8 +326,10 @@ class SidePanel:
 
     def _check(self) -> None:
         problem = self._problem()
-        if problem:
-            self.feedback.config(text=problem, fg=MUTED if not (self.cards_out or self.cards_in) else WARN)
+        if not (self.cards_out or self.cards_in):  # Spaltenköpfe sagen schon, was zu tun ist
+            self.feedback.config(text="")
+        elif problem:
+            self.feedback.config(text=problem, fg=WARN)
         else:
             sizes = self._sizes()
             self.feedback.config(text=f"Danach: Main {sizes['Main']}, Extra {sizes['Extra']} Karten", fg=GOOD)

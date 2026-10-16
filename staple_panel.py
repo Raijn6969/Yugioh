@@ -98,7 +98,8 @@ class StaplePanel:
 
         # Hinweis unten zuerst packen, damit ihn das Raster (füllt den Rest) nicht verdrängt
         tk.Label(body, text="Wenige Listen = nur eine grobe Richtung.", fg=MUTED, bg=BG, font=self.font_small,
-                 anchor="w", justify=tk.LEFT, wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
+                 anchor="w", justify=tk.LEFT,
+                 wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
         self.grid = CardGrid(body, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
                              self.font_small)
 

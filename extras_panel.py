@@ -41,7 +41,7 @@ from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
 from hover_card import ANALYSIS_TIME, HoverCard, HoverContent, HoverRow
 from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
-                          WARN, BAD, ROW_ALT, HIGHLIGHT, NEUTRAL, allow_typing, apply_frame, no_activate)
+                          WARN, BAD, ROW_ALT, HIGHLIGHT, NEUTRAL, allow_typing, apply_frame, no_activate, show_tip)
 
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
@@ -284,10 +284,6 @@ class ExtrasPanel:
             self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
             self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, role="neutral", **small)
             self.combos_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-        # zuletzt packen: Tk verteilt den Platz in Packreihenfolge – bei Platzmangel wird der Tipp gekürzt, kein Knopf
-        self.tip_label = tk.Label(footer, text="Tipp: Maus über eine Karte im Deck", fg=MUTED, bg=BG,
-                                  font=self.font_small)
-        self.tip_label.pack(side=tk.LEFT)
 
     def _build_calculator(self, parent: tk.Frame) -> None:
         s = self.s
@@ -343,13 +339,10 @@ class ExtrasPanel:
     def _show_rating_tip(self, event) -> None:
         """Hinweis zur Einstufung als Tooltip am Tabellenkopf (statt einer dauernden Textzeile)."""
         self._hide_rating_tip()
-        tip = self._rating_tip = tk.Toplevel(self.win)
-        tip.overrideredirect(True)
-        tip.attributes("-topmost", True)
-        tk.Label(tip, text="Klick auf Ja/Nein ändert die Einstufung · Rechtsklick: wieder automatisch", fg=TEXT,
-                 bg=PANEL, font=self.font_small, padx=int(8 * self.s), pady=int(4 * self.s), bd=1,
-                 relief=tk.SOLID).pack()
-        tip.geometry(f"+{event.x_root - int(300 * self.s)}+{event.y_root + int(18 * self.s)}")
+        self._rating_tip = show_tip(
+            self.win, "Klick auf Ja/Nein ändert die Einstufung · Rechtsklick: wieder automatisch\n"
+                      "Maus über eine Karte im Deck zeigt ihre Werte",
+            event.x_root - int(300 * self.s), event.y_root + int(18 * self.s), self.s)
 
     def _hide_rating_tip(self, event=None) -> None:
         tip, self._rating_tip = self._rating_tip, None
@@ -518,11 +511,9 @@ class ExtrasPanel:
         if shown is None:
             self.deck_body.pack(fill=tk.BOTH, expand=True)
             self.rescan_btn.pack()
-            self.tip_label.pack(side=tk.LEFT)
         else:
             shown[0].win.pack(fill=tk.BOTH, expand=True)
             self.rescan_btn.pack_forget()
-            self.tip_label.pack_forget()
 
     # ── Side-Profile (Karten für ein Match tauschen) ──
     def toggle_side(self) -> None:
@@ -928,7 +919,8 @@ class ExtrasPanel:
             self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         extras = analysis.entries("Extra")
         if extras:
-            tk.Label(self.list_inner, text="EXTRA DECK", fg=GOLD, bg=BG, font=self.font_small, anchor="w").pack(fill=tk.X, pady=(int(8 * self.s), 2))
+            tk.Label(self.list_inner, text="EXTRA DECK", fg=GOLD, bg=BG, font=self.font_small,
+                     anchor="w").pack(fill=tk.X, pady=(int(8 * self.s), 2))
             for i, entry in enumerate(extras):
                 self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         self.list_canvas.yview_moveto(0)

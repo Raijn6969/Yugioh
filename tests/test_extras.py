@@ -777,7 +777,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertEqual((self.panel.title_label.cget("text"), self.panel.deck_body.winfo_manager()),
                          ("◆ VERLAUF", ""))
         self.assertEqual(self.panel.history.win.winfo_manager(), "pack")      # im Deck-Fenster, kein eigenes Fenster
-        self.assertEqual((self.panel.rescan_btn.winfo_manager(), self.panel.tip_label.winfo_manager()), ("", ""))
+        self.assertEqual(self.panel.rescan_btn.winfo_manager(), "")
         self.panel.winrate_btn.invoke()                                      # anderer Tab: nur eine Ansicht
         self.assertIsNone(self.panel.history)
         self.assertEqual(self.panel.title_label.cget("text"), "◆ WINRATE")
@@ -854,7 +854,7 @@ class ExtrasPanelTest(unittest.TestCase):
         footer = self.panel.ash_btn.master
         buttons = [self.panel.rescan_btn, self.panel.ash_btn, self.panel.side_btn, self.panel.combos_btn]
         edge = footer.winfo_rootx() - self.panel.win.winfo_rootx()
-        narrow = sum(b.winfo_reqwidth() for b in buttons) + 2 * edge + 24  # die Knöpfe passen, der Tipp nicht mehr
+        narrow = sum(b.winfo_reqwidth() for b in buttons) + 2 * edge + 24  # die Knöpfe passen gerade noch
         self.panel.win.geometry(f"{narrow}x{self.panel.win.winfo_height()}")
         self.root.update()
         for button in buttons:

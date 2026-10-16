@@ -191,8 +191,9 @@ class ComboPanel:
         self.bar = tk.Frame(body, bg=BG)       # Liste: Filter · Detail: Zurück / Master Duel Meta
         self.bar.pack(fill=tk.X, pady=(int(4 * s), int(4 * s)))
         # Hinweis unten zuerst packen, damit ihn die Liste (füllt den Rest) nicht verdrängt
-        tk.Label(body, text="Chance = alle genannten Startkarten in 5 Karten.", fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
-                 wraplength=int(490 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
+        tk.Label(body, text="Chance = alle genannten Startkarten in 5 Karten.", fg=MUTED, bg=BG,
+                 font=self.font_small, anchor="w", justify=tk.LEFT, wraplength=int(490 * s)).pack(
+            side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
 
         frame = tk.Frame(body, bg=BG)
         frame.pack(fill=tk.BOTH, expand=True)
@@ -340,8 +341,9 @@ class ComboPanel:
         self.detail = None
         combo_set, matches = self.sets[self.shown_type]
         playable = sum(1 for m in matches if not m.missing)
-        self.status_label.config(text=f"Master Duel Meta · {combo_set.deck_type}: {len(matches)} Combos, "
-                                      f"{playable} mit deinem Deck spielbar · Stand {when(combo_set.fetched_at)}", fg=MUTED)
+        self.status_label.config(
+            text=f"Master Duel Meta · {combo_set.deck_type}: {len(matches)} Combos, "
+                 f"{playable} mit deinem Deck spielbar · Stand {when(combo_set.fetched_at)}", fg=MUTED)
         for child in self.type_row.winfo_children():
             child.destroy()
         if len(self.sets) > 1:

@@ -1,8 +1,8 @@
 """
 Dunkles Auswahlmenü mit Goldrand (statt des nativen Windows-Menüs, dessen Rahmen Tk nicht färben kann).
 Gleiche Schnittstelle wie tk.Menu für das, was das Overlay braucht: add_command, add_radiobutton,
-add_checkbutton, invoke(index). RoundedButton(menu=…) klappt es über dem Button auf, popup_at(x, y) mit der unteren rechten Ecke an einem
-Punkt (Tray-Menü). Zusätzlich: add_label (ausgegraut, nicht
+add_checkbutton, invoke(index). RoundedButton(menu=…) klappt es über dem Button auf, popup_at(x, y) mit der
+unteren rechten Ecke an einem Punkt (Tray-Menü). Zusätzlich: add_label (ausgegraut, nicht
 klickbar) und add_separator. Die Zeile unter der Maus bekommt eine abgerundete, dunkelgoldene Fläche.
 """
 

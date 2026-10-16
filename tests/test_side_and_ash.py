@@ -154,7 +154,7 @@ class AshPrioTest(unittest.TestCase):
     def test_unknown_deck_and_missing_factory(self):
         variant, sheets, hint = ash_prio.load({"999": 40}, self.path)
         self.assertIsNone(variant)
-        self.assertIn("noch nicht durchgerechnet", hint)
+        self.assertIn("noch keine Berechnung", hint)
         # ohne Factory und ohne Schnappschuss
         self.assertIn("keine Starthände", ash_prio.load(DECK, self.path + ".fehlt", snapshot="fehlt.json.gz")[2])
         # Passende Liste, aber noch ohne Handtrap-Prüfung
@@ -225,7 +225,7 @@ class PanelTest(unittest.TestCase):
                           on_close=lambda: None)
         self.addCleanup(panel.close)
         panel.save()
-        self.assertIn("raus", panel.feedback.cget("text"))  # noch nichts gewählt
+        self.assertIn("Nichts gewählt", panel.feedback.cget("text"))  # noch nichts gewählt
         for _ in range(4):
             panel.take_out(DROLL)  # höchstens so oft wie im Deck
         self.assertEqual(panel.cards_out, {DROLL: 3})
@@ -328,6 +328,12 @@ class PanelTest(unittest.TestCase):
         self.assertEqual(len(panel.sheets), 2)
         self.assertIn("Meine Liste", panel.info_label.cget("text"))
         rows = [w for w in panel.inner.winfo_children()]
+        board = [w for w in rows[0].winfo_children()[0].winfo_children() if "Board" in str(w.cget("text"))][0]
+        panel._show_tip(mock.Mock(x_root=300, y_root=300))
+        self.assertIn("Unterbrechungen", panel._tip.winfo_children()[0].cget("text"))
+        self.assertTrue(board.bind("<Enter>"))
+        panel._hide_tip()
+        self.assertIsNone(panel._tip)
         panel.toggle("Hand 0")
         self.assertEqual(rows, panel.inner.winfo_children()[:len(rows)])  # keine Zeile neu gebaut
         self.assertEqual(panel.inner.pack_slaves()[1], panel._line_box)  # Linie direkt unter ihrer Hand
