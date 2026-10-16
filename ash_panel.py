@@ -48,6 +48,8 @@ class AshPrioPanel:
         self.closed = False
         self.handtrap = "ash"
         self.open_hand: Optional[str] = None   # aufgeklappte Hand
+        self._hand_rows: Dict[str, tuple] = {}  # Hand -> (Zeile, Grundfarbe, Starthand) der angezeigten Liste
+        self._line_box: Optional[tk.Frame] = None  # Linie der aufgeklappten Hand
         self.variant: Optional[ash_prio.Variant] = None
         self.sheets: List[ash_prio.HandSheet] = []
         self.focus: Optional[str] = None       # angeklickte Karte der Bildleiste (filtert die Liste)
@@ -234,8 +236,24 @@ class AshPrioPanel:
         self.render()
 
     def toggle(self, hand: str) -> None:
-        self.open_hand = None if self.open_hand == hand else hand
-        self.render()
+        """Hand auf-/zuklappen: nur ihre Zeile und die Linie ändern (alles neu zu bauen dauert über 100 ms)."""
+        previous, self.open_hand = self.open_hand, (None if self.open_hand == hand else hand)
+        if self._line_box is not None:
+            self._line_box.destroy()
+            self._line_box = None
+        for key in (previous, self.open_hand):
+            if key in self._hand_rows:
+                self._paint_hand(key)
+        if self.open_hand in self._hand_rows:
+            row, _, sheet = self._hand_rows[self.open_hand]
+            self._line(sheet, after=row)
+
+    def _paint_hand(self, hand: str) -> None:
+        row, base, _ = self._hand_rows[hand]
+        bg = HIGHLIGHT if hand == self.open_hand else base
+        for widget in (row, *row.winfo_children(), *[w for child in row.winfo_children()
+                                                     for w in child.winfo_children()]):
+            widget.config(bg=bg)
 
     def pick(self, card: str) -> None:
         """Klick auf ein Bild: nur die Hände, in denen die Handtrap diese Karte trifft (nochmal: alle)."""
@@ -250,6 +268,7 @@ class AshPrioPanel:
             button.config(bg="#007acc" if key == self.handtrap else "#444444")
         for child in self.inner.winfo_children():
             child.destroy()
+        self._hand_rows, self._line_box = {}, None
         self._render_strip()
         if self.variant is None and self.text_rows:
             self._render_text()
@@ -357,9 +376,10 @@ class AshPrioPanel:
 
     def _hand_row(self, sheet: ash_prio.HandSheet, bg: str) -> None:
         s = self.s
-        bg = HIGHLIGHT if sheet.hand == self.open_hand else bg
+        base, bg = bg, HIGHLIGHT if sheet.hand == self.open_hand else bg
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(4 * s), cursor="hand2")
         row.pack(fill=tk.X)
+        self._hand_rows[sheet.hand] = (row, base, sheet)
         threat = sheet.threats.get(self.handtrap)
         after = threat.after if threat is not None and threat.step is not None else sheet.score
         loss = sheet.score - after
@@ -375,11 +395,12 @@ class AshPrioPanel:
         for widget in (row, head, *row.winfo_children(), *head.winfo_children()):
             widget.bind("<Button-1>", lambda e, h=sheet.hand: self.toggle(h))
 
-    def _line(self, sheet: ash_prio.HandSheet) -> None:
-        """Die ganze Linie; die Stelle der gewählten Handtrap markiert, danach die beste Fortsetzung."""
+    def _line(self, sheet: ash_prio.HandSheet, after: Optional[tk.Frame] = None) -> None:
+        """Die ganze Linie (unter `after`, sonst am Ende); die Stelle der gewählten Handtrap markiert, danach die beste
+        Fortsetzung."""
         s = self.s
-        box = tk.Frame(self.inner, bg=PANEL, padx=int(10 * s), pady=int(6 * s))
-        box.pack(fill=tk.X, pady=(0, int(4 * s)))
+        box = self._line_box = tk.Frame(self.inner, bg=PANEL, padx=int(10 * s), pady=int(6 * s))
+        box.pack(fill=tk.X, pady=(0, int(4 * s)), **({"after": after} if after is not None else {}))
         threat = sheet.threats.get(self.handtrap)
         hit = threat.step if threat is not None else None
         for index, step in enumerate(sheet.steps):

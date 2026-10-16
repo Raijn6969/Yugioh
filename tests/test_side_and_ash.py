@@ -325,11 +325,19 @@ class PanelTest(unittest.TestCase):
                 break
         self.assertEqual(len(panel.sheets), 2)
         self.assertIn("Meine Liste", panel.info_label.cget("text"))
+        rows = [w for w in panel.inner.winfo_children()]
         panel.toggle("Hand 0")
-        texts = [w.cget("text") for w in panel.inner.winfo_children()[1].winfo_children()
-                 if isinstance(w, tk.Label)]
+        self.assertEqual(rows, panel.inner.winfo_children()[:len(rows)])  # keine Zeile neu gebaut
+        self.assertEqual(panel.inner.pack_slaves()[1], panel._line_box)  # Linie direkt unter ihrer Hand
+        texts = [w.cget("text") for w in panel._line_box.winfo_children() if isinstance(w, tk.Label)]
         self.assertTrue(texts[0].endswith("◀ Ash Blossom"))
         self.assertIn("Nach Ash Blossom am besten weiter:", texts)
+        panel.toggle("Hand 1")  # eine andere Hand: die erste klappt zu
+        self.assertEqual(panel.inner.pack_slaves()[2], panel._line_box)
+        self.assertEqual(len([w for w in panel.inner.winfo_children() if w.winfo_class() == "Frame"
+                              and w.cget("bg") == "#2b2b2b"]), 1)  # genau eine Linie
+        panel.toggle("Hand 1")
+        self.assertIsNone(panel._line_box)
         panel.choose("nibiru")
         self.assertEqual(panel.buttons["nibiru"].cget("bg"), "#007acc")
 
