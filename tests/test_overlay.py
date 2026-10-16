@@ -145,6 +145,13 @@ class OverlayTest(unittest.TestCase):
         auto.assert_called_once_with()
         manual.assert_called_once_with()
 
+    def test_import_export_and_deck_have_equal_width(self):
+        for method in ("memory", "ocr"):  # mit und ohne Tempo-Knopf daneben
+            self.write_config(json.dumps({"IS_CALIBRATED": True, "READ_METHOD": method}))
+            root, app = self.open_app()
+            widths = [b.winfo_width() for b in (app.start_btn, app.export_btn, app.extras_btn)]
+            self.assertLessEqual(max(widths) - min(widths), 2, widths)
+
     def test_window_position_remembered(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()

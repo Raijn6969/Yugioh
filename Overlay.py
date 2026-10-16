@@ -462,22 +462,27 @@ class MasterDuelImporter:
         btn_pack = dict(side=tk.LEFT, padx=int(4 * scale))
         btn_size = dict(padx=int(14 * scale), pady=int(5 * scale), radius=int(7 * scale))
 
+        # Importieren, Exportieren und Deck gleich breit: Mittel aus der bisherigen Summe (der Deck-Knopf nimmt den
+        # Platz des früheren Kalibrieren-Knopfs samt Abstand ein, die Leiste bleibt gleich breit), nie schmaler als
+        # der breiteste Text
+        pad = 2 * btn_size["padx"]
+        imp_w = tkfont.Font(font=font_main).measure("Importieren") + pad
+        exp_w = tkfont.Font(font=font_main).measure("Exportieren") + pad
+        deck_w = tkfont.Font(font=font_main).measure("Deck") + pad
+        calib_w = tkfont.Font(font=font_sub).measure("Kalibrieren ▾") + pad
+        same_w = max(imp_w, exp_w, deck_w, round((imp_w + exp_w + deck_w + calib_w + 2 * btn_pack["padx"]) / 3))
+
         # Lesemethode (Speicher oder Texterkennung) steht in den Optionen des Deck-Fensters
         self.start_btn = RoundedButton(btn_frame, text="Importieren", command=self.start_import_thread,
-                                       bg="#007acc", font=font_main, **btn_size)
+                                       bg="#007acc", font=font_main, min_width=same_w, **btn_size)
         self.start_btn.pack(**btn_pack)
 
         self.export_btn = RoundedButton(btn_frame, text="Exportieren", command=self.start_export_thread,
-                                        bg="#2e7d32", font=font_main, **btn_size)
+                                        bg="#2e7d32", font=font_main, min_width=same_w, **btn_size)
         self.export_btn.pack(**btn_pack)
 
-        # Kalibrieren steht in den Optionen des Deck-Fensters; der Deck-Knopf nimmt dafür den Platz des
-        # früheren Kalibrieren-Knopfs ein (Breite: beide Knöpfe samt Abstand), die Leiste bleibt gleich breit
-        deck_w = tkfont.Font(font=font_main).measure("Deck") + 2 * btn_size["padx"]
-        calib_w = tkfont.Font(font=font_sub).measure("Kalibrieren ▾") + 2 * btn_size["padx"]
         self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras, bg="#5e35b1",
-                                        font=font_main, min_width=deck_w + calib_w + 2 * btn_pack["padx"],
-                                        **btn_size)
+                                        font=font_main, min_width=same_w, **btn_size)
         self.extras_btn.pack(**btn_pack)
 
         # Tempo-Auswahl ganz rechts: Button mit ▾, öffnet ein Auswahlmenü (nach oben, da das
