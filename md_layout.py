@@ -84,7 +84,7 @@ class Frame(NamedTuple):
 
 def md_frame() -> Optional[Frame]:
     """Innenbereich von Master Duel, None wenn das Spiel nicht läuft."""
-    from window_automation import find_md_window  # window_automation konfiguriert beim Import pyautogui
+    from window_automation import find_md_window  # Zirkelimport vermeiden
     hwnd = find_md_window()
     rect = win_api.get_client_rect(hwnd) if hwnd else None
     if not rect or rect[2] <= 0 or rect[3] <= 0:

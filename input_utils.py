@@ -3,13 +3,19 @@ Suchbegriff in die Master-Duel-Suchleiste schreiben (per Zwischenablage, ohne Ba
 """
 import time
 import pyperclip
-import pyautogui
 
 import win_api
 from debug_log import dlog
 
 
 FOCUS_TIMEOUT = 1.0  # So lange wird versucht, Master Duel nach vorne zu holen
+
+
+def _pyautogui():
+    """pyautogui erst bei Bedarf laden (spart Startzeit); PAUSE = Wartezeit nach jedem eigenen Aufruf."""
+    import pyautogui
+    pyautogui.PAUSE = 0.001
+    return pyautogui
 
 
 class FocusLostError(RuntimeError):
@@ -32,7 +38,7 @@ def focus_master_duel() -> int:
     Master Duel nach vorne holen und prüfen, dass es geklappt hat (Windows verweigert das manchmal).
     Returns: Fenster-Handle. Raises FocusLostError, wenn Master Duel nicht nach vorne kommt.
     """
-    # Import hier, weil window_automation beim Laden pyautogui konfiguriert
+    # Import hier, weil window_automation selbst input_utils importiert
     from window_automation import find_md_window
     hwnd = find_md_window()
     if not hwnd:
@@ -49,6 +55,7 @@ def focus_master_duel() -> int:
 
 
 def type_card_name(automator, clean_name: str, config: dict):
+    keyboard = _pyautogui()  # gleich am Anfang: der erste Import dauert, nicht mitten zwischen Klick und Tastenkürzel
     # 1. Zwischenablage laden (kann kurz von einem anderen Programm belegt sein)
     for attempt in range(3):
         try:
@@ -73,11 +80,11 @@ def type_card_name(automator, clean_name: str, config: dict):
     focus_master_duel()
 
     # 4. Alles markieren (STRG+A)
-    pyautogui.hotkey('ctrl', 'a')
+    keyboard.hotkey('ctrl', 'a')
     time.sleep(0.02)
 
     # 5. Einfügen (STRG+V) - Überschreibt den markierten Text direkt
-    pyautogui.hotkey('ctrl', 'v')
+    keyboard.hotkey('ctrl', 'v')
 
     # 6. Render-Delay (Minimal gehalten)
     time.sleep(0.01)
@@ -86,4 +93,4 @@ def type_card_name(automator, clean_name: str, config: dict):
 def submit_search() -> None:
     """Getippte Suche abschicken (Enter). Vorher prüfen, dass Master Duel vorne ist – Enter darf nie woanders landen."""
     focus_master_duel()
-    pyautogui.press('enter')
+    _pyautogui().press('enter')

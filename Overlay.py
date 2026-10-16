@@ -10,9 +10,6 @@ import ctypes
 from collections import Counter
 import tkinter as tk
 import tkinter.font as tkfont
-# Nicht entfernen, obwohl hier nicht direkt benutzt: pyautogui setzt beim Import die
-# DPI-Awareness des Prozesses. Die Import-Reihenfolge bestimmt also die DPI-Behandlung.
-import pyautogui  # noqa: F401
 import threading
 import queue
 import time
@@ -30,13 +27,11 @@ import win32process
 from PIL import ImageTk
 
 try:
-    # Zwingt Windows zu echten Hardware-Pixeln. Macht manuelles DPI-Scaling überflüssig!
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    # System-DPI-aware (echte Hardware-Pixel). So hat es früher pyautogui beim Import gesetzt – danach lehnt Windows
+    # jede Änderung ab (auch SetProcessDpiAwareness). Die Kalibrierung hängt daran: nicht auf PerMonitor ändern.
+    ctypes.windll.user32.SetProcessDPIAware()
 except Exception:
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
+    pass
 
 from auto_calibration import auto_calibrate
 from calibration import CalibrationWizard

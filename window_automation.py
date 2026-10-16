@@ -5,7 +5,6 @@ Maus-Steuerung für Master Duel: Klicks, Karten einfügen, Ruckler-Erkennung, Pi
 import time
 from typing import Optional, Tuple
 
-import pyautogui
 import win32gui
 import win32process
 
@@ -70,10 +69,6 @@ def get_md_window_size() -> Optional[Tuple[int, int]]:
     width, height = rect[2] - rect[0], rect[3] - rect[1]
     return (width, height) if width > 0 and height > 0 else None
 
-# Pause, die pyautogui nach jedem eigenen Aufruf (z.B. Tastenkürzel) einlegt.
-# Wird nur hier gesetzt, damit der Wert nicht von der Import-Reihenfolge abhängt.
-pyautogui.PAUSE = 0.001
-
 
 class UserInterrupt(Exception):
     """Der Spieler hat die Maus bewegt → Import sofort anhalten (darf nirgends abgefangen werden)."""
@@ -99,7 +94,7 @@ class WindowAutomator:
             return size[0] / 1920, size[1] / 1080
 
         # Fenster nicht gefunden → Bildschirmgröße (Vollbild)
-        screen_w, screen_h = pyautogui.size()
+        screen_w, screen_h = win_api.screen_size()
         return screen_w / 1920, screen_h / 1080
 
     def check_user_interruption(self):

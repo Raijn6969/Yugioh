@@ -64,6 +64,21 @@ class WinApiTest(unittest.TestCase):
         self.assertGreater(vw, 0)
         self.assertGreater(vh, 0)
         self.assertEqual(len(win_api.get_pixel(0, 0) or (0, 0, 0)), 3)
+        import pyautogui
+        self.assertEqual(win_api.screen_size(), tuple(pyautogui.size()))
+
+    def test_startup_does_not_load_pyautogui(self):
+        # pyautogui kostet Startzeit und wird erst für Tastenkürzel gebraucht; die DPI-Behandlung (System-DPI-aware,
+        # wie früher durch den Import) muss trotzdem schon beim Start stehen
+        import ctypes
+        import subprocess
+        import sys
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        code = ("import ctypes, sys; sys.path.insert(0, sys.argv[1]); import Overlay; aw = ctypes.c_int(-1); "
+                "ctypes.windll.shcore.GetProcessDpiAwareness(0, ctypes.byref(aw)); "
+                "print('pyautogui' in sys.modules, aw.value)")
+        out = subprocess.run([sys.executable, "-c", code, root], capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.stdout.split(), ["False", "1"], out.stderr)
 
 
 class ClickFocusTest(unittest.TestCase):

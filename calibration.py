@@ -3,8 +3,8 @@ Kalibrierungs-Assistent: nimmt die Bildschirmpunkte auf, die der Import anklickt
 """
 
 import tkinter as tk
-import pyautogui
 
+import win_api
 from rounded_button import RoundedButton
 from window_style import apply_frame
 
@@ -103,7 +103,7 @@ class CalibrationWizard:
             self.capture_point()
 
     def capture_point(self):
-        x, y = pyautogui.position()
+        x, y = win_api.get_cursor_pos()
         key, desc = self.steps[self.current_step]
         self.config[key] = [x, y]
         self.labels[self.current_step].config(text=f"✓  {desc}", fg="#00ff00", font=("Helvetica", 11))

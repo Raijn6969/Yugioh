@@ -208,6 +208,11 @@ def work_area() -> Optional[Tuple[int, int, int, int]]:
     return rect.left, rect.top, rect.right, rect.bottom
 
 
+def screen_size() -> Tuple[int, int]:
+    """(Breite, Höhe) des Hauptbildschirms."""
+    return _GetSystemMetrics(0), _GetSystemMetrics(1)   # SM_CXSCREEN, SM_CYSCREEN
+
+
 def virtual_screen_rect() -> Tuple[int, int, int, int]:
     """(x, y, Breite, Höhe) des gesamten Desktops über alle Monitore."""
     return (_GetSystemMetrics(76), _GetSystemMetrics(77),   # SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN

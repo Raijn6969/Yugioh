@@ -56,7 +56,7 @@ class CalibrationCancelTest(unittest.TestCase):
         try:
             config = {"SEARCH_BAR": [1, 2], "DECK_COUNT": [5, 6]}
             wizard = CalibrationWizard(root, config, lambda c: None, lambda: None)
-            with mock.patch("calibration.pyautogui.position", return_value=(999, 999)):
+            with mock.patch("calibration.win_api.get_cursor_pos", return_value=(999, 999)):
                 wizard.capture_point()   # Suchleiste neu erfasst …
             wizard.cancel_wizard()       # … dann abgebrochen
             self.assertEqual(config, {"SEARCH_BAR": [1, 2], "DECK_COUNT": [5, 6]})

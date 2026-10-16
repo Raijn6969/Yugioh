@@ -151,7 +151,7 @@ class FocusTest(unittest.TestCase):
                 mock.patch.object(self.iu.win_api, "set_foreground_window"), \
                 mock.patch.object(self.iu, "FOCUS_TIMEOUT", 0.05), \
                 mock.patch.object(self.iu, "pyperclip"), \
-                mock.patch.object(self.iu.pyautogui, "hotkey") as hotkey:
+                mock.patch("pyautogui.hotkey") as hotkey:
             with self.assertRaises(self.iu.FocusLostError):
                 self.iu.type_card_name(automator, "bonfire", {"SEARCH_BAR": [10, 20]})
         automator.iron_grip_click.assert_called_once_with(10, 20)
