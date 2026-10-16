@@ -57,9 +57,9 @@ class SidePanel:
         body.pack(fill=tk.BOTH, expand=True)
         if self.deck_name:  # Side gehört zu einem Deck
             tk.Label(body, text=self.deck_name, fg=TEXT, bg=BG, font=self.font_bold, anchor="w", justify=tk.LEFT,
-                     wraplength=int(480 * s)).pack(fill=tk.X)
+                     wraplength=int(520 * s)).pack(fill=tk.X)
         self.info_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
-                                   justify=tk.LEFT, wraplength=int(480 * s))
+                                   justify=tk.LEFT, wraplength=int(520 * s))
         self.info_label.pack(fill=tk.X)
         self._section(body, "DEINE PROFILE")
         self.profiles_frame = tk.Frame(body, bg=BG)
@@ -80,7 +80,7 @@ class SidePanel:
         RoundedButton(name_row, text="Leeren", command=self.clear, bg=NEUTRAL, font=self.font_small,
                       padx=int(9 * s), pady=int(3 * s), radius=int(6 * s)).pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.feedback = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
-                                 justify=tk.LEFT, wraplength=int(480 * s))
+                                 justify=tk.LEFT, wraplength=int(520 * s))
         self.feedback.pack(fill=tk.X)
 
         columns = tk.Frame(body, bg=BG)

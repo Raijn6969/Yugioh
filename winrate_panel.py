@@ -222,7 +222,7 @@ class WinratePanel:
             button.pack(side=tk.LEFT, padx=(0, int(4 * s)))
             self.period_buttons[key] = button
         self.info_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w",
-                                   justify=tk.LEFT, wraplength=int(500 * s))
+                                   justify=tk.LEFT, wraplength=int(520 * s))
         self.info_label.pack(fill=tk.X)
 
         self.tiles = {}
@@ -254,7 +254,7 @@ class WinratePanel:
         self._tile_row(coin_tiles, (("coin", "GEWONNEN"), ("coin_won", "SIEGE WENN GEWONNEN"),
                                     ("coin_lost", "SIEGE WENN VERLOREN")))
         self.coin_label = tk.Label(self.coin_body, text="", fg=TEXT, bg=BG, font=self.font_small, anchor="w",
-                                   justify=tk.LEFT, wraplength=int(500 * s))
+                                   justify=tk.LEFT, wraplength=int(520 * s))
         self.coin_label.pack(fill=tk.X, pady=(int(2 * s), 0))
 
         self.filter_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_small, anchor="w")

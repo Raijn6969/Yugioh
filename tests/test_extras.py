@@ -706,8 +706,10 @@ class ExtrasPanelTest(unittest.TestCase):
     def test_opens_over_card_list_and_shows_deck(self):
         self.panel.set_scan(self.scan)
         self.root.update()
-        area = FRAME.region(*md_layout.CLICK_AREAS["die Kartenliste"])
+        area = FRAME.region(1320, 180, 1880, 1070)  # deckt Kartenliste und Scrollleiste von Master Duel
         self.assertEqual((self.panel.win.winfo_x(), self.panel.win.winfo_y()), (area["left"], area["top"]))
+        self.assertEqual((self.panel.win.winfo_width(), self.panel.win.winfo_height()),
+                         (area["width"], area["height"]))
         self.assertEqual(len(self.panel._rows), 1 + 1 + 35 + 1)  # Lukias, Ash, 35 andere, Arthalion
         self.assertEqual(self.panel.tiles["main"].cget("text"), "40")
         self.assertEqual(self.panel.tiles["starter"].cget("text"), "3")
@@ -724,10 +726,10 @@ class ExtrasPanelTest(unittest.TestCase):
         self.root.update()
         entry = self.panel.analysis.entry_at("Main", 10)  # eine Karte weiter unten
         row = self.panel._rows[entry.key]
-        self.panel.list_canvas.yview_moveto(0.5)
+        self.panel.list_canvas.yview_moveto(0.3)
         self.panel._toggle_starter(entry)
         self.assertIs(self.panel._rows[entry.key], row)  # dieselbe Zeile, kein Neuaufbau
-        self.assertAlmostEqual(self.panel.list_canvas.yview()[0], 0.5, places=1)  # kein Sprung nach oben
+        self.assertAlmostEqual(self.panel.list_canvas.yview()[0], 0.3, places=1)  # kein Sprung nach oben
         self.assertEqual(row.winfo_children()[-4].cget("text"), "Ja")
         self.assertEqual(self.panel.tiles["starter"].cget("text"), "4")  # Lukias ×3 + diese Karte
         self.panel._reset_starter(entry)

@@ -101,7 +101,7 @@ class MatchupPanel:
             button.pack(side=tk.LEFT, padx=(0, int(4 * s)))
             self.filter_buttons[key] = button
         self.info_label = tk.Label(body, text="Werte die Duelle aus …", fg=MUTED, bg=BG, font=self.font_small,
-                                   anchor="w", justify=tk.LEFT, wraplength=int(490 * s))
+                                   anchor="w", justify=tk.LEFT, wraplength=int(520 * s))
         self.info_label.pack(fill=tk.X, pady=(int(4 * s), 0))
 
         self.tiles_frame = tiles = tk.Frame(body, bg=BG)
@@ -121,7 +121,7 @@ class MatchupPanel:
                                           "diese Decks (rot = deutlich schlechter als sonst). Wenige Matches = nur "
                                           "eine grobe Richtung.",
                                fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
-                               wraplength=int(480 * s))
+                               wraplength=int(520 * s))
         self.footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
         self.grid = CardGrid(body, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
                              self.font_small)

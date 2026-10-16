@@ -229,7 +229,7 @@ class ExtrasPanel:
         self.back_btn = RoundedButton(body, text="← Übersicht", command=self._back_to_history, role="active",
                                       font=self.font_bold, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s))
         self.status_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_bold, anchor="w",
-                                     justify=tk.LEFT, wraplength=int(480 * s))
+                                     justify=tk.LEFT, wraplength=int(520 * s))
         self.status_label.pack(fill=tk.X)
 
         # Kacheln: Main / Extra / Starter / Handtraps
@@ -838,10 +838,11 @@ class ExtrasPanel:
         s = self.s
         frame = md_layout.md_frame()
         if frame is not None:
-            area = frame.region(*md_layout.CLICK_AREAS["die Kartenliste"])
+            # Kartenliste (bis 990) plus die halbe Reihe darunter und die Scrollleiste (x 1856–1867) von Master Duel
+            area = frame.region(1320, 180, 1880, 1070)
             x, y, w, h = area["left"], area["top"], area["width"], area["height"]
         else:
-            w, h = int(540 * s), int(810 * s)
+            w, h = int(560 * s), int(890 * s)
             x, y = self.master.winfo_screenwidth() - w - int(60 * s), int(180 * s)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
         self._width = w
