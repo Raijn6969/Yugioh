@@ -86,6 +86,7 @@ class ReplayRecorder:
         self._t0 = 0.0
         self._log_pos = 0          # so viele Protokollzeilen des Spiels sind schon gelesen
         self._log_failed = False   # Fehler beim Protokoll wurde schon ins Log geschrieben
+        self._unsaved = None       # (info, Schritte), wenn das Speichern scheiterte: nächster finish() versucht es neu
         self._stop = threading.Event()
 
     @property
@@ -98,7 +99,7 @@ class ReplayRecorder:
     def stop(self) -> None:
         """Beenden (auch Neustart): ein laufender Mitschnitt wird noch gespeichert (zu kurze verwirft finish)."""
         self._stop.set()
-        if self.recording:
+        if self.recording or self._unsaved:
             # shortcut: läuft im aufrufenden Thread, evtl. parallel zu einem Durchgang des Rekorder-Threads – im
             # schlimmsten Fall wird derselbe Mitschnitt zweimal gespeichert (INSERT OR REPLACE), ausbauen mit Sperre
             try:
@@ -160,11 +161,19 @@ class ReplayRecorder:
         """Mitschnitt beenden und speichern (zu kurze verwerfen)."""
         info, frames = self.info, self.frames
         self.info, self.frames, self._last, self._log_pos = None, [], None, 0
+        if info is None:
+            info, frames = self._unsaved or (None, [])
+        self._unsaved = None
         if info is None or len(frames) < MIN_STEPS:
             return
-        db = self.get_db()
-        if db is None:
-            return
-        if db.save_replay(info, frames):
+        try:
+            db = self.get_db()
+            saved = None if db is None else db.save_replay(info, frames)
+        except Exception:  # Datenbank gesperrt o. Ä.: der Mitschnitt darf nicht verloren gehen
+            self._unsaved = (info, frames)
+            raise
+        if saved is None:
+            self._unsaved = (info, frames)
+        elif saved:
             dlog(f"[REPLAY] Mitschnitt gespeichert: {len(frames)} Schritte.")
             self.on_saved(info, len(frames))

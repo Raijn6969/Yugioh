@@ -1,6 +1,7 @@
 """Replay-Mitschnitt: nur während eines Replays aus der Match History lesen, Schritte speichern, abspielen."""
 
 import os
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -148,6 +149,26 @@ class RecorderTest(unittest.TestCase):
         self.step(REPLAY, lp={0: 8000, 1: 5500})
         self.rec.get_db = lambda: (_ for _ in ()).throw(OSError("gesperrt"))
         self.rec.stop()                                  # Fehler beim Speichern bricht das Beenden nicht ab
+
+    def test_failed_save_is_retried_until_it_works(self):
+        for kid in (22116, 22117, 22118):
+            self.step(REPLAY, [card(1, 0, rr.HAND, kid=kid)])
+        real, tries = self.db.save_replay, []
+
+        def flaky(info, frames):
+            tries.append(1)
+            if len(tries) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return real(info, frames)
+        self.db.save_replay = flaky
+        with self.assertRaises(sqlite3.OperationalError):
+            self.step(["HomeViewController"])                # Replay zu Ende, Speichern scheitert
+        self.assertEqual(self.saved, [])
+        self.step(["HomeViewController"])                    # nächster Durchgang versucht es noch einmal
+        self.step(["HomeViewController"])                    # und nur einmal
+        self.assertEqual(len(tries), 2)
+        self.assertEqual([steps for _, steps in self.saved], [3])
+        self.assertEqual(len(self.db.replay_at(1791623726).frames), 3)
 
     def test_protocol_entries_land_in_the_frame_they_were_read_in(self):
         act = {"k": "act", "a": 11, "c": 22116, "t": 0, "f": 13, "z": 0, "cost": 0}
