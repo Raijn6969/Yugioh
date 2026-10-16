@@ -49,7 +49,8 @@ from dark_menu import DarkMenu
 from debug_log import append, dlog, dlog_changed, start_run
 from editor_watch import EditorWatcher
 from hang_watch import HangWatch
-from window_style import BAD, BG, DANGER, GOOD, INFO, MUTED, NEUTRAL, PRIMARY, TEXT, WARN, apply_frame, no_activate
+from window_style import (BAD, BG, DANGER, GOOD, INFO, MUTED, NEUTRAL, PRIMARY, SIZE_SMALL, SIZE_TEXT, TEXT, WARN,
+                          apply_frame, font, no_activate)
 from rounded_button import RoundedButton
 from tray import TrayIcon
 from utils import DeckCodeError, parse_clipboard
@@ -476,9 +477,9 @@ class MasterDuelImporter:
         self.root.bind("<B1-Motion>", self.do_move)
         self.root.bind("<ButtonRelease-1>", self.end_move)
 
-        font_main = ("Helvetica", int(10 * scale), "bold")
-        font_sub = ("Helvetica", int(10 * scale))
-        font_x = ("Helvetica", int(9 * scale), "bold")
+        font_main = font(SIZE_TEXT, scale, bold=True)
+        font_sub = font(SIZE_TEXT, scale)
+        font_x = font(SIZE_SMALL, scale, bold=True)
 
         self.status_label = tk.Label(self.root, text="Bereit für Import", fg=GOOD, bg=BG,
                                      font=font_main)
@@ -539,7 +540,7 @@ class MasterDuelImporter:
 
         # Import-Dauer, dezent oben links (leer bis zum ersten Import)
         self.timer_label = tk.Label(self.root, text="", fg=MUTED, bg=BG,
-                                    font=("Helvetica", int(8 * scale)))
+                                    font=font(SIZE_SMALL, scale))
         self.timer_label.place(x=int(10 * scale), y=int(6 * scale), anchor="nw")
 
         # Fenstergröße nach Inhalt: mindestens wie bisher, breiter falls die Buttons mehr brauchen

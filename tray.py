@@ -18,6 +18,7 @@ from typing import Callable, Optional
 import win_api
 from app_icon import create_icon_image
 from dark_menu import DarkMenu
+from window_style import SIZE_TEXT, font
 
 try:
     import pystray
@@ -72,7 +73,7 @@ class TrayIcon:
         """Dunkles Tray-Menü mit der unteren rechten Ecke bei (x, y). Nur im Tk-Thread aufrufen."""
         if self._menu is not None:
             self._menu.close()
-        menu = self._menu = DarkMenu(master, font=("Segoe UI", 10), row_pady=8)
+        menu = self._menu = DarkMenu(master, font=font(SIZE_TEXT), row_pady=8)
         menu.add_label(self._title)
         if self._update_version is not None and self._on_update:
             menu.add_command(f"Update auf {self._update_version} installieren", self._on_update)

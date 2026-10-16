@@ -35,7 +35,8 @@ from dark_scrollbar import DarkScrollbar
 from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, WIN, mode_name
 from rounded_button import RoundedButton
-from window_style import BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN, BAD, apply_frame, no_activate
+from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN, BAD,
+                          apply_frame, no_activate)
 
 POLL_MS = 100
 OPP_HAND = 0.62          # Gegnerhand: so hoch (und breit) wie eine Karte, wie in der Factory
@@ -431,12 +432,12 @@ class DuelView:
         self._loaded = None               # Index, dessen Bilder der Hintergrund-Thread fertig geladen hat
         self._poll_job = None
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
-        self.font = ("Helvetica", int(10 * s))
-        self.font_bold = ("Helvetica", int(10 * s), "bold")
-        self.font_small = ("Helvetica", int(8 * s))
-        self.font_small_bold = ("Helvetica", int(8 * s), "bold")
-        self.font_head = ("Helvetica", int(12 * s), "bold")
-        self.font_result = ("Helvetica", int(20 * s), "bold")
+        self.font = font(SIZE_TEXT, s)
+        self.font_bold = font(SIZE_TEXT, s, bold=True)
+        self.font_small = font(SIZE_SMALL, s)
+        self.font_small_bold = font(SIZE_SMALL, s, bold=True)
+        self.font_head = font(SIZE_TITLE, s, bold=True)
+        self.font_result = font(20, s, bold=True)
         self.folder = image_folder
         self.photos: Dict[float, card_images.PhotoCache] = {}  # je Kartengröße ein Cache
         self.replay: Optional[Replay] = None
@@ -483,7 +484,7 @@ class DuelView:
         self.title_label = tk.Label(header, text="", fg=MUTED, bg=PANEL, font=self.font)
         self.title_label.pack(side=tk.LEFT)
         RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.newer_btn = RoundedButton(header, text="neuer ▶", command=lambda: self.step(-1), **small)
@@ -1590,7 +1591,7 @@ class DuelView:
         tk.Label(header, text=f"◆ {title.upper()} ({len(card_list)})  ·  {team_name}",
                  fg=GOLD, bg=PANEL, font=self.font_head).pack(side=tk.LEFT)
         RoundedButton(header, text="✕", command=self._close_inspector, bg="#cc0000", border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT)
 
         body = tk.Frame(win, bg=FIELD)

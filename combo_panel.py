@@ -27,8 +27,8 @@ from card_stats import name_key
 from dark_scrollbar import DarkScrollbar
 from history_panel import when
 from rounded_button import RoundedButton
-from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, PRIMARY, NEUTRAL, DANGER,
-                          apply_frame, no_activate, place_in_work_area)
+from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
+                          ROW_ALT, PRIMARY, NEUTRAL, DANGER, apply_frame, no_activate, place_in_work_area)
 
 POLL_MS = 100
 COLUMNS = 6             # Startkarten pro Reihe in der Detailansicht
@@ -153,11 +153,11 @@ class ComboPanel:
         self._thread: Optional[threading.Thread] = None
         self._poll_job = None
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
-        self.font = ("Helvetica", int(10 * s))
-        self.font_bold = ("Helvetica", int(10 * s), "bold")
-        self.font_small = ("Helvetica", int(8 * s))
-        self.font_small_bold = ("Helvetica", int(8 * s), "bold")
-        self.font_head = ("Helvetica", int(12 * s), "bold")
+        self.font = font(SIZE_TEXT, s)
+        self.font_bold = font(SIZE_TEXT, s, bold=True)
+        self.font_small = font(SIZE_SMALL, s)
+        self.font_small_bold = font(SIZE_SMALL, s, bold=True)
+        self.font_head = font(SIZE_TITLE, s, bold=True)
         self.photos, self.small, self.step_photos = (
             card_images.PhotoCache(master, (int(w * s), int(h * s)), image_folder)
             for w, h in (CARD_SIZE, LIST_SIZE, STEP_SIZE))
@@ -184,7 +184,7 @@ class ComboPanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="von Master Duel Meta", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
         RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         self.refresh_btn = RoundedButton(header, text="Aktualisieren", command=lambda: self.load(refresh=True),
                                          bg=NEUTRAL, font=self.font_small, padx=int(8 * s), pady=int(3 * s),
@@ -537,7 +537,7 @@ class ComboPanel:
         left = int(24 * s) if number else 0
         total = int(460 * s) - indent
         gap = int(6 * s)
-        font_joint = ("Helvetica", int(13 * s), "bold")
+        font_joint = font(13, s, bold=True)
         canvas = tk.Canvas(self.inner, bg=BG, highlightthickness=0, bd=0, width=total, height=1)
         canvas.pack(fill=tk.X, padx=(indent, 0), pady=(0, int(4 * s)))
         if number:

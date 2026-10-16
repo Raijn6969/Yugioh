@@ -10,8 +10,8 @@ from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from dark_scrollbar import DarkScrollbar
 from rounded_button import RoundedButton
-from window_style import BAD, BG, GOOD, INFO, MUTED, NEUTRAL, PANEL, PRIMARY, TEXT, WARN, apply_frame, \
-    no_activate
+from window_style import (SIZE_TEXT, SIZE_TITLE, font, BAD, BG, GOOD, INFO, MUTED, NEUTRAL, PANEL, PRIMARY, TEXT, WARN,
+                          apply_frame, no_activate)
 import win_api
 
 
@@ -114,7 +114,7 @@ def show_toast(master: tk.Misc, text: str, duration_ms: int = TOAST_MS) -> tk.To
     win.overrideredirect(True)
     win.wm_attributes("-topmost", True)
     win.wm_attributes("-alpha", 0.95)
-    label = tk.Label(win, text=text, fg=KINDS["info"][0], bg=BG, font=("Helvetica", int(10 * scale), "bold"),
+    label = tk.Label(win, text=text, fg=KINDS["info"][0], bg=BG, font=font(SIZE_TEXT, scale, bold=True),
                      padx=int(16 * scale), pady=int(6 * scale))
     label.pack()
     win.update_idletasks()
@@ -134,8 +134,8 @@ def _window(master: tk.Misc, title: str, message: str, kind: str):
     """Fenster mit Kopfzeile (Farbleiste, Symbol, Titel) und Text. Returns: win, body, scale, Schriften, Umbruch."""
     accent, symbol = KINDS.get(kind, KINDS["info"])
     scale = max(1.0, master.winfo_screenheight() / 1080.0)
-    font = ("Helvetica", int(10 * scale))
-    font_bold = ("Helvetica", int(11 * scale), "bold")
+    text_font = font(SIZE_TEXT, scale)
+    font_bold = font(SIZE_TITLE, scale, bold=True)
     wrap = int(440 * scale)
 
     win = tk.Toplevel(master, bg=BG)
@@ -154,9 +154,9 @@ def _window(master: tk.Misc, title: str, message: str, kind: str):
 
     body = tk.Frame(win, bg=BG, padx=int(16 * scale), pady=int(12 * scale))
     body.pack(fill=tk.BOTH, expand=True)
-    tk.Label(body, text=message, fg=TEXT, bg=BG, font=font, wraplength=wrap,
+    tk.Label(body, text=message, fg=TEXT, bg=BG, font=text_font, wraplength=wrap,
              justify=tk.LEFT, anchor="w").pack(fill=tk.X)
-    return win, body, scale, font, font_bold, wrap
+    return win, body, scale, text_font, font_bold, wrap
 
 
 def _show(master: tk.Misc, win: tk.Toplevel, wait: bool) -> None:

@@ -22,8 +22,9 @@ from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
 from rounded_button import RoundedButton
 from season_review import DAY_START_HOUR  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im Tag
-from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL,
-                          DANGER, apply_frame, no_activate, place_in_work_area)
+from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
+                          WARN, BAD, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL, DANGER, apply_frame, no_activate,
+                          place_in_work_area)
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
@@ -127,12 +128,12 @@ class WinratePanel:
         self._shown_matches: List[MatchEntry] = []
         self.selected: Optional[str] = None   # gewähltes Deck, None = alle
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
-        self.font = ("Helvetica", int(10 * s))
-        self.font_bold = ("Helvetica", int(10 * s), "bold")
-        self.font_small = ("Helvetica", int(8 * s))
-        self.font_small_bold = ("Helvetica", int(8 * s), "bold")
-        self.font_head = ("Helvetica", int(12 * s), "bold")
-        self.font_big = ("Consolas", int(18 * s), "bold")
+        self.font = font(SIZE_TEXT, s)
+        self.font_bold = font(SIZE_TEXT, s, bold=True)
+        self.font_small = font(SIZE_SMALL, s)
+        self.font_small_bold = font(SIZE_SMALL, s, bold=True)
+        self.font_head = font(SIZE_TITLE, s, bold=True)
+        self.font_big = font(SIZE_NUM, s, bold=True, mono=True)
         self._section_headers = {}   # key -> (header_frame, arrow_label)
         self._section_items = {}     # key -> [(widget, pack_kwargs), ...]
 
@@ -215,7 +216,7 @@ class WinratePanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="deine Duelle", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
         RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
         self.review_btn = RoundedButton(header, text="Rückblick", command=self.toggle_review, bg="#5e35b1", **small)

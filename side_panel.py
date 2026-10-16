@@ -13,8 +13,9 @@ from card_stats import SideProfile
 from dark_scrollbar import DarkScrollbar
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
-from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL,
-                          DANGER, allow_typing, apply_frame, no_activate, place_in_work_area)
+from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
+                          ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL, DANGER, allow_typing, apply_frame, no_activate,
+                          place_in_work_area)
 
 DEFAULT_NAME = "Zweiter"
 SEARCH_RESULTS = 8
@@ -40,11 +41,11 @@ class SidePanel:
         self.cards_in: Dict[str, int] = {}
         self._out_rows: Dict[str, tuple] = {}  # Passcode -> (Zeile, Minus-Anzeige, Grundfarbe)
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
-        self.font = ("Helvetica", int(10 * s))
-        self.font_bold = ("Helvetica", int(10 * s), "bold")
-        self.font_small = ("Helvetica", int(8 * s))
-        self.font_small_bold = ("Helvetica", int(8 * s), "bold")
-        self.font_head = ("Helvetica", int(12 * s), "bold")
+        self.font = font(SIZE_TEXT, s)
+        self.font_bold = font(SIZE_TEXT, s, bold=True)
+        self.font_small = font(SIZE_SMALL, s)
+        self.font_small_bold = font(SIZE_SMALL, s, bold=True)
+        self.font_head = font(SIZE_TITLE, s, bold=True)
 
         if anchor is not None:
             anchor.update_idletasks()  # vor dem Anlegen: sonst blitzt das Fenster oben links auf (siehe Winrate)
@@ -67,7 +68,7 @@ class SidePanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text=self.deck_name, fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
         RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))

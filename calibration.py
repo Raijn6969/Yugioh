@@ -6,7 +6,7 @@ import tkinter as tk
 
 import win_api
 from rounded_button import RoundedButton
-from window_style import BAD, BG, DANGER, GOOD, MUTED, NEUTRAL, PRIMARY, apply_frame
+from window_style import SIZE_SMALL, SIZE_TEXT, font, BAD, BG, DANGER, GOOD, MUTED, NEUTRAL, PRIMARY, apply_frame
 
 
 class CalibrationWizard:
@@ -47,7 +47,7 @@ class CalibrationWizard:
         header = tk.Frame(self.top, bg=PRIMARY, height=35)
         header.pack(fill=tk.X)
         tk.Label(header, text="Kalibrierungs-Assistent", fg="white", bg=PRIMARY,
-                 font=("Helvetica", 11, "bold")).pack(pady=8)
+                 font=font(11, bold=True)).pack(pady=8)
 
         list_frame = tk.Frame(self.top, bg=BG, padx=15, pady=10)
         list_frame.pack(fill=tk.BOTH, expand=True)
@@ -55,32 +55,32 @@ class CalibrationWizard:
         for key, desc in self.steps:
             suffix = "  (optional)" if key in self.optional else ""
             lbl = tk.Label(list_frame, text=f"✗  {desc}{suffix}", fg=BAD, bg=BG,
-                           font=("Helvetica", 11), wraplength=260, justify="left")
+                           font=font(11), wraplength=260, justify="left")
             lbl.pack(anchor="w", pady=3)
             self.labels.append(lbl)
 
         self.info_lbl = tk.Label(self.top, text="Klicke Start und zeige mit der Maus\nauf das Ziel. (3s Timer)",
-                                 fg=MUTED, bg=BG, font=("Helvetica", 10))
+                                 fg=MUTED, bg=BG, font=font(SIZE_TEXT))
         self.info_lbl.pack(pady=2)
 
         self.action_btn = RoundedButton(self.top, text="Start: Suchleiste", bg=PRIMARY,
-                                        font=("Helvetica", 11, "bold"), command=self.start_timer, padx=12, pady=6)
+                                        font=font(11, bold=True), command=self.start_timer, padx=12, pady=6)
         self.action_btn.pack(pady=8)
 
         # Nur bei optionalen Schritten sichtbar
         self.skip_btn = RoundedButton(self.top, text="Überspringen", bg=NEUTRAL,
-                                      font=("Helvetica", 9), command=self.skip_step, padx=12, pady=3)
+                                      font=font(SIZE_SMALL), command=self.skip_step, padx=12, pady=3)
 
-        RoundedButton(self.top, text="Abbrechen", bg=DANGER, border="#ff8a80", font=("Helvetica", 9),
+        RoundedButton(self.top, text="Abbrechen", bg=DANGER, border="#ff8a80", font=font(SIZE_SMALL),
                       command=self.cancel_wizard, padx=12, pady=3).pack(pady=5)
         self._highlight_current_step()
 
     def _highlight_current_step(self):
         for i, lbl in enumerate(self.labels):
             if i == self.current_step:
-                lbl.config(fg="white", font=("Helvetica", 11, "bold"))
+                lbl.config(fg="white", font=font(11, bold=True))
             elif i > self.current_step:
-                lbl.config(fg=BAD, font=("Helvetica", 11))
+                lbl.config(fg=BAD, font=font(11))
         self._update_skip_button()
 
     def _update_skip_button(self):
@@ -108,14 +108,14 @@ class CalibrationWizard:
         x, y = win_api.get_cursor_pos()
         key, desc = self.steps[self.current_step]
         self.config[key] = [x, y]
-        self.labels[self.current_step].config(text=f"✓  {desc}", fg=GOOD, font=("Helvetica", 11))
+        self.labels[self.current_step].config(text=f"✓  {desc}", fg=GOOD, font=font(11))
         self._next_step()
 
     def skip_step(self):
         key, desc = self.steps[self.current_step]
         self.config.pop(key, None)
         self.labels[self.current_step].config(text=f"–  {desc} (übersprungen)", fg=MUTED,
-                                              font=("Helvetica", 11))
+                                              font=font(11))
         self._next_step()
 
     def _next_step(self):

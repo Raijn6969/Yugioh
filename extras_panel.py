@@ -40,8 +40,8 @@ from deck_export import DeckScan
 from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
 from hover_card import ANALYSIS_TIME, HoverCard, HoverContent, HoverRow
 from rounded_button import RoundedButton
-from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD, ROW_ALT, HIGHLIGHT, NEUTRAL, DANGER,
-                          allow_typing, apply_frame, no_activate)
+from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
+                          WARN, BAD, ROW_ALT, HIGHLIGHT, NEUTRAL, DANGER, allow_typing, apply_frame, no_activate)
 
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
@@ -111,12 +111,12 @@ class ExtrasPanel:
         self.on_auto_calibrate = on_auto_calibrate      # Optionen: Kalibrierung automatisch
         self.on_calibrate_manual = on_calibrate_manual  # Optionen: Kalibrierungs-Assistent
         self.s = scale = max(1.0, master.winfo_screenheight() / 1080.0)
-        self.font = ("Helvetica", int(10 * scale))
-        self.font_bold = ("Helvetica", int(10 * scale), "bold")
-        self.font_small = ("Helvetica", int(8 * scale))
-        self.font_head = ("Helvetica", int(12 * scale), "bold")
-        self.font_num = ("Consolas", int(10 * scale), "bold")
-        self.font_big = ("Consolas", int(18 * scale), "bold")
+        self.font = font(SIZE_TEXT, scale)
+        self.font_bold = font(SIZE_TEXT, scale, bold=True)
+        self.font_small = font(SIZE_SMALL, scale)
+        self.font_head = font(SIZE_TITLE, scale, bold=True)
+        self.font_num = font(SIZE_TEXT, scale, bold=True, mono=True)
+        self.font_big = font(SIZE_NUM, scale, bold=True, mono=True)
 
         self.analysis: Optional[DeckAnalysis] = None
         self.watcher: Optional[DeckWatcher] = None
@@ -172,7 +172,7 @@ class ExtrasPanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         # Rechts: ✕, Optionen, Verlauf, Winrate, Staples, Matchup – ohne Untertitel, sonst passen sie nicht
         RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         # Optionen links neben ✕
         self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, bg=NEUTRAL,

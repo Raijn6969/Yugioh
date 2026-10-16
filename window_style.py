@@ -28,6 +28,19 @@ PRIMARY = "#007acc"     # Knopffüllungen: Hauptaktion, neutral, Gefahr/Schließ
 NEUTRAL = "#444444"
 DANGER = "#cc0000"
 
+# Schrift: eine Familie, Kennzahlen Consolas; Größen in pt bei 1080p (mit font() × Maßstab s)
+FONT = "Segoe UI"
+FONT_MONO = "Consolas"
+SIZE_TITLE = 12
+SIZE_TEXT = 10
+SIZE_SMALL = 9         # nie kleiner
+SIZE_NUM = 18          # Kennzahl
+
+
+def font(size: int, scale: float = 1.0, bold: bool = False, mono: bool = False) -> tuple:
+    """Tk-Schrift (Familie, Größe, [fett]); die Größe wird wie bisher mit int(Basis * Maßstab) gerundet."""
+    return (FONT_MONO if mono else FONT, int(size * scale)) + (("bold",) if bold else ())
+
 
 def _colorref(hex_color: str) -> int:
     """'#RRGGBB' → Windows-COLORREF (0x00BBGGRR)."""

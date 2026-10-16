@@ -19,8 +19,9 @@ from deck_export import DeckScan, ExportedCard
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from utils import parse_deck_code
-from window_style import (BG, PANEL, TEXT, MUTED, GOLD, INFO, WARN, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL, DANGER,
-                          allow_typing, apply_frame, no_activate, place_in_work_area)
+from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, WARN, ROW_ALT,
+                          HIGHLIGHT, PRIMARY, NEUTRAL, DANGER, allow_typing, apply_frame, no_activate,
+                          place_in_work_area)
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
 SEARCH_DELAY_MS = 150  # Erst suchen, wenn kurz nicht getippt wurde
@@ -72,10 +73,10 @@ class HistoryPanel:
         self.entries: List[HistoryEntry] = []
         self._search_job = None
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
-        self.font = ("Helvetica", int(10 * s))
-        self.font_bold = ("Helvetica", int(10 * s), "bold")
-        self.font_small = ("Helvetica", int(8 * s))
-        self.font_head = ("Helvetica", int(12 * s), "bold")
+        self.font = font(SIZE_TEXT, s)
+        self.font_bold = font(SIZE_TEXT, s, bold=True)
+        self.font_small = font(SIZE_SMALL, s)
+        self.font_head = font(SIZE_TITLE, s, bold=True)
 
         if anchor is not None:
             # Lage des Buttons jetzt bestimmen: Ein update_idletasks() nach dem Anlegen würde das neue Fenster schon
@@ -101,7 +102,7 @@ class HistoryPanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Importierte Decks", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
         RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
@@ -203,7 +204,7 @@ class HistoryPanel:
         top = tk.Frame(text, bg=bg)
         top.pack(fill=tk.X)
         if latest:
-            tk.Label(top, text="ZULETZT", fg=BG, bg=GOLD, font=("Helvetica", int(7 * s), "bold"),
+            tk.Label(top, text="ZULETZT", fg=BG, bg=GOLD, font=font(SIZE_SMALL, s, bold=True),
                      padx=int(4 * s)).pack(side=tk.LEFT, padx=(0, int(6 * s)))
         tk.Label(top, text=entry.name, fg=TEXT, bg=bg, font=self.font_bold, anchor="w").pack(side=tk.LEFT)
         details = [when(entry.imported_at), f"{entry.main} Main · {entry.extra} Extra"]
@@ -211,7 +212,7 @@ class HistoryPanel:
             details.append(f"{entry.times}× importiert")
         if entry.result != "ok":
             details.append("⚠ mit Lücken")
-        tk.Label(text, text="  ·  ".join(details), fg=WARN if entry.result != "ok" else MUTED, bg=bg,
+        tk.Label(text, text=" · ".join(details), fg=WARN if entry.result != "ok" else MUTED, bg=bg,
                  font=self.font_small, anchor="w").pack(fill=tk.X)
         # Klick auf das Deck (nicht auf die Buttons) → im Deck-Fenster anzeigen
         clickable = [row, text, top] + [w for w in (*text.winfo_children(), *top.winfo_children())

@@ -19,8 +19,8 @@ from bug_report import reveal
 from dark_scrollbar import DarkScrollbar
 from match_history import RANKED
 from rounded_button import RoundedButton
-from window_style import (BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN, BAD, ROW_ALT, NEUTRAL, DANGER, apply_frame,
-                          no_activate)
+from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
+                          BAD, ROW_ALT, NEUTRAL, DANGER, apply_frame, no_activate)
 
 MODE_KEY = "WINRATE_MODE"  # wie im Winrate-Fenster: "ranked" oder "all"
 POLL_MS = 100
@@ -45,12 +45,12 @@ class ReviewPanel:
         self._export_result = None
         self._exporting = False
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
-        self.font = ("Helvetica", int(10 * s))
-        self.font_bold = ("Helvetica", int(10 * s), "bold")
-        self.font_small = ("Helvetica", int(8 * s))
-        self.font_small_bold = ("Helvetica", int(8 * s), "bold")
-        self.font_head = ("Helvetica", int(12 * s), "bold")
-        self.font_big = ("Consolas", int(18 * s), "bold")
+        self.font = font(SIZE_TEXT, s)
+        self.font_bold = font(SIZE_TEXT, s, bold=True)
+        self.font_small = font(SIZE_SMALL, s)
+        self.font_small_bold = font(SIZE_SMALL, s, bold=True)
+        self.font_head = font(SIZE_TITLE, s, bold=True)
+        self.font_big = font(SIZE_NUM, s, bold=True, mono=True)
 
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
@@ -79,7 +79,7 @@ class ReviewPanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Season = ein Kalendermonat", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
         RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=("Helvetica", int(9 * s), "bold"), padx=int(9 * s), pady=int(2 * s),
+                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
                       radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.export_btn = RoundedButton(header, text="Als HTML", command=self.export_html, bg="#00796b", **small)
