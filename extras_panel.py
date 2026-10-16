@@ -59,6 +59,7 @@ GUIDE_MIN_COPIES = 3   # … mit mindestens so vielen Karten
 POLL_MS = 50          # Wie oft die Maus geprüft wird
 SHOW_DELAY = 0.12     # So lange muss die Maus auf einer Karte liegen, bevor das Info-Fenster kommt/wechselt
 HIDE_DELAY = 0.3      # Lücken zwischen Karten überbrücken: erst nach so langer Zeit ohne Karte ausblenden
+MIN_WIDTH = 560       # Mindestbreite des Fensters bei 1080p (der Inhalt braucht sie)
 FRAME_REFRESH = 0.5   # Sekunden, bis die Fensterposition von Master Duel neu abgefragt wird
 
 SPELL_KINDS = {"Normal": "Normal", "Quick-Play": "Schnell", "Field": "Feld", "Continuous": "Permanent",
@@ -847,8 +848,15 @@ class ExtrasPanel:
             if (bar.winfo_viewable() and bar.winfo_rootx() < x + w and bar.winfo_rootx() + bar.winfo_width() > x
                     and y < bar.winfo_rooty() < y + h):
                 h = bar.winfo_rooty() - int(6 * s) - y
+            # Die Schrift wächst nicht mit dem Spiel-Fenster (kleines Fenster, z. B. 1600×900): Der Inhalt braucht
+            # seine Breite, das Fenster ragt dann rechts über die Kartenliste hinaus (bleibt im Arbeitsbereich)
+            if w < MIN_WIDTH * s:
+                w = int(MIN_WIDTH * s)
+                work = win_api.monitor_work_area(x, y)
+                if work:
+                    x = max(work[0], min(x, work[2] - w))
         else:
-            w, h = int(560 * s), int(890 * s)
+            w, h = int(MIN_WIDTH * s), int(890 * s)
             x, y = self.master.winfo_screenwidth() - w - int(60 * s), int(180 * s)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
         self._width = w

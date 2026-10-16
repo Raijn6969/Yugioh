@@ -546,8 +546,11 @@ class MasterDuelImporter:
         win_h = self.root.winfo_reqheight()
 
         # Position: Mittig auf der X-Achse, 0 Pixel Abstand zum unteren Rand
-        x_pos = int((screen_w - win_w) / 2) + int(screen_w * 0.25)
-        y_pos = int(screen_h - win_h)
+        # (bezogen auf das Master-Duel-Fenster, falls es läuft: im Fenstermodus nicht am Bildschirmrand darunter)
+        frame = md_layout.md_frame()
+        left, top, width, height = tuple(frame) if frame else (0, 0, screen_w, screen_h)
+        x_pos = min(int((width - win_w) / 2) + int(width * 0.25) + left, screen_w - win_w)
+        y_pos = min(int(top + height - win_h), screen_h - win_h)
 
         # Zuletzt gemerkte Position verwenden, sofern sie noch auf einem Bildschirm liegt
         saved_pos = self.config.get("WINDOW_POS")

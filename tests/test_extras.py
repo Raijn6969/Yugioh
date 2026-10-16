@@ -703,6 +703,19 @@ class ExtrasPanelTest(unittest.TestCase):
             self.root.update()
             time.sleep(0.01)
 
+    def test_small_game_window_keeps_min_width_inside_work_area(self):
+        import extras_panel
+        small = md_layout.Frame(160, 100, 1600, 900)  # Master Duel im Fenstermodus
+        with mock.patch.object(extras_panel.md_layout, "md_frame", return_value=small),                 mock.patch.object(extras_panel.win_api, "monitor_work_area", return_value=(0, 0, 1920, 1040)):
+            self.panel._place_over_card_list()
+        self.root.update()
+        area = small.region(1320, 180, 1880, 1070)
+        self.assertEqual((self.panel.win.winfo_x(), self.panel.win.winfo_width()), (area["left"], 560))
+        with mock.patch.object(extras_panel.md_layout, "md_frame", return_value=md_layout.Frame(312, 140, 1600, 900)),                 mock.patch.object(extras_panel.win_api, "monitor_work_area", return_value=(0, 0, 1920, 1040)):
+            self.panel._place_over_card_list()  # am rechten Rand: bleibt im Arbeitsbereich
+        self.root.update()
+        self.assertEqual(self.panel.win.winfo_x() + self.panel.win.winfo_width(), 1920)
+
     def test_opens_over_card_list_and_shows_deck(self):
         self.panel.set_scan(self.scan)
         self.root.update()

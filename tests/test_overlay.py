@@ -235,6 +235,14 @@ class OverlayTest(unittest.TestCase):
             widths = [b.winfo_width() for b in (app.start_btn, app.export_btn, app.extras_btn)]
             self.assertLessEqual(max(widths) - min(widths), 2, widths)
 
+    def test_default_position_follows_game_window(self):
+        # Fenstermodus: ohne gemerkte Position sitzt die Leiste am unteren Rand von Master Duel, nicht des Bildschirms
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        with mock.patch.object(Overlay.md_layout, "md_frame", return_value=Overlay.md_layout.Frame(100, 50, 800, 450)):
+            root, app = self.open_app()
+        self.assertEqual(root.winfo_y() + root.winfo_height(), 500)
+        self.assertGreaterEqual(root.winfo_x(), 100)
+
     def test_window_position_remembered(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
