@@ -274,8 +274,17 @@ class AnimationTest(unittest.TestCase):
     def test_step_forward_starts_exactly_one_job_and_ends_in_the_final_state(self):
         view = self.view()
         before = self.jobs()
-        view.manual(2)                      # kein "ein Schritt vor": springt
+        view.manual(4)                      # kein "ein Schritt vor": springt
         self.assertIsNone(view._anim)
+        view.manual(0)
+        view.manual(2)                      # Schritt 1 ist still: zählt nicht, also doch ein Schritt vor
+        self.assertIsNotNone(view._anim)
+        view._finish_anim(draw=False)
+        view.steps[4] = view.steps[4]._replace(since=2)   # zusammengefasster Schritt gleitet ab Frame 2
+        view.manual(3)
+        view.manual(4)
+        self.assertEqual(view._anim["prev"], 2)
+        view._finish_anim(draw=False)
         view.manual(1)
         view.manual(2)                      # ein Schritt vor: gleitet
         self.assertIsNotNone(view._anim)
@@ -574,12 +583,10 @@ class AnimationTest(unittest.TestCase):
 
     def test_keys(self):
         view = self.view()
-        view.key("Right")                                 # Schritt 1: ohne sichtbare Änderung, springt
-        self.assertEqual(view.frame_no, 1)
-        view.key("Right")
+        view.key("Right")                                 # Schritt 1 ohne sichtbare Änderung wird übersprungen
         self.assertEqual((view.frame_no, view._anim is not None), (2, True))     # ein Schritt vor gleitet
         view.key("Left")
-        self.assertEqual((view.frame_no, view._anim), (1, None))
+        self.assertEqual((view.frame_no, view._anim), (0, None))
         view.key("End")
         self.assertEqual(view.frame_no, 4)
         view.key("Home")

@@ -29,7 +29,9 @@ ORDER = ("beschworen", "gesetzt", "umgedreht", "friedhof", "verbannt", "hand", "
 SUMMON = (("link", "Linkbeschwörung"), ("xyz", "Xyz-Beschwörung"), ("synchro", "Synchrobeschwörung"),
           ("fusion", "Fusionsbeschwörung"), ("ritual", "Ritualbeschwörung"))
 # Aktionscodes des Duell-Protokolls (aus echten Replays entschlüsselt); unbekannte Codes sind neutral, nie ein Fehler
-CODE_SUMMON = (2, 3, 5, 7, 9)  # Normal-, Spezial-, Extra-Deck-, Xyz-, Linkbeschwörung (die Art kommt vom Kartentyp)
+CODE_SUMMON = (2, 3, 5, 6, 7, 9)  # Normal-, Spezial-, Fusion-, Synchro-, Xyz-, Linkbeschwörung (Art vom Kartentyp)
+CODE_EXTRA_SUMMON = (5, 6, 7, 9)  # aus dem Extra Deck: ihre Materialien gehen gemeinsam (ein Schritt)
+PILE_WHERE = {rr.GRAVE: "im Friedhof", rr.BANISHED: "(verbannt)"}   # Aktivierung außerhalb von Hand/Feld
 CODE_DESTROY = {20: "durch Kampf", 21: "durch Effekt"}
 CODE_COST = {46: ("verbannst", "verbannt", "als Kosten"), 49: ("schickst", "schickt", "als Kosten auf den Friedhof"),
              51: ("wirfst", "wirft", "als Kosten ab"), 31: ("zeigst", "zeigt", "als Kosten vor"),
@@ -65,6 +67,7 @@ class Step(NamedTuple):
     dur: float                     # Animation in Sekunden bei 1×
     marks: tuple = ()              # Mark: Kosten, Ziel, Negation, Zerstörung, Angriff (nur mit Protokoll)
     chain: Optional[dict] = None   # {"links": [{"cl", "uid", "card", "team"}], "res": auflösendes Glied} (Protokoll)
+    since: Optional[int] = None    # zusammengefasster Schritt: Animation ab diesem Frame (die Frames dazwischen still)
 
 
 class Mark(NamedTuple):
@@ -119,6 +122,8 @@ def _kind_of(m: Move, state: Optional[dict], prev_state: Optional[dict]) -> Opti
     hidden = (rr.DECK, rr.EXTRA_DECK)
     if src == dst:   # an Ort und Stelle: nur Aufdecken/Umdrehen ist zu sehen
         return "umgedreht" if dst in FIELD and m.face_before != m.face_after else None
+    if src is None and dst in (rr.GRAVE, rr.BANISHED) and _dest(m.uid, None, m.team, prev_state) == dst:
+        return None   # verschwand kurz aus dem Bild und taucht im selben Stapel wieder auf: keine neue Bewegung
     if src in (None, *hidden) and dst in (None, *hidden):
         return None
     if dst in MONSTER and src not in MONSTER:
@@ -315,7 +320,9 @@ def describe_event(kind_: str, e: dict, name_of: Callable[[int], Optional[str]],
         return f"{name} greift {name_of(e['rc']) or 'eine Karte'} an"
     focus = Move(-1, team, 0 if code == 1 else e.get("c", 0), None, None, None, None, None, None)
     text = describe(focus, kind_, name_of, my_id, "" if code != 1 else "Draw", type_of)
-    if kind_ == "aktiviert":   # Gliednummer ab dem zweiten Glied: "(Kette 2)"
+    if kind_ == "aktiviert":   # Effekt im Friedhof/verbannt; Gliednummer ab dem zweiten Glied: "(Kette 2)"
+        if e.get("f") in PILE_WHERE:
+            text += f" {PILE_WHERE[e['f']]}"
         nums = [x["cl"] for x in (chain or {}).get("links", ()) if x["card"] == e.get("c") and x["team"] == team]
         if nums and max(nums) >= 2:
             text += f" (Kette {max(nums)})"
@@ -416,4 +423,31 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
                                          for k, os_ in near for o in os_):
             out[i] = s._replace(kind="still", text="", focus=None, label="", marks=(),
                                 dur=duration("still", bool(s.lp)))
+    _merge_materials(out, frames)
     return out
+
+
+def _merge_materials(out: List[Step], frames: List[dict], reach: int = 6) -> None:
+    """Materialien einer Beschwörung aus dem Extra Deck gehen gemeinsam (MD meldet sie Frame für Frame): die
+    Friedhof-/Verbannt-Schritte direkt davor werden ein Schritt, der ab dem Frame vor dem ersten animiert."""
+    for i, step in enumerate(out):
+        if step.kind != "beschworen" or not any(e.get("k") == "act" and e.get("a") in CODE_EXTRA_SUMMON
+                                                for e in frames[i].get("log") or ()):
+            continue
+        run, j = [], i - 1
+        while j > max(0, i - reach) and out[j].kind in ("friedhof", "verbannt", "still"):
+            if out[j].kind != "still":
+                run.insert(0, j)
+            elif out[j].dur:   # LP-Änderung o. Ä. dazwischen: nicht zusammenfassen
+                break
+            j -= 1
+        if len(run) < 2:
+            continue
+        first, last = run[0], run[-1]
+        texts = [out[k].text for k in run]
+        who = texts[0].split(": ", 1)[0] + ": "
+        text = texts[0] + "".join(" · " + (t[len(who):] if t.startswith(who) else t) for t in texts[1:])
+        merged = tuple(m for k in range(first, last + 1) for m in out[k].moves)
+        for k in range(first, last):
+            out[k] = out[k]._replace(kind="still", text="", focus=None, label="", marks=(), dur=0.0)
+        out[last] = out[last]._replace(text=text, moves=merged, since=first - 1)

@@ -495,9 +495,9 @@ class DuelView:
         self.controls = tk.Frame(self.win, bg=PANEL)
         self.ctrl_buttons = {}
         for key, text, command in (("first", "⏮", lambda: self.manual(0, False)),
-                                   ("back", "◀", lambda: self.manual(self.frame_no - 1)),
+                                   ("back", "◀", lambda: self.manual(self._neighbour(-1))),
                                    ("play", "▶ Abspielen", self.toggle_play),
-                                   ("next", "▶", lambda: self.manual(self.frame_no + 1)),
+                                   ("next", "▶", lambda: self.manual(self._neighbour(1))),
                                    ("last", "⏭", lambda: self.manual(len(self.replay.frames) - 1, False)),
                                    ("speed", f"{self.speed:g}×".replace(".", ","), self._cycle_speed)):
             button = RoundedButton(self.controls, text=text, command=command, **small)
@@ -653,8 +653,12 @@ class DuelView:
             return
         self._finish_anim(draw=False)
         before, self.frame_no = self.frame_no, frame_no
-        if animate and self.mode == "replay" and frame_no == before + 1 and self.steps[frame_no].dur > 0:
-            self._anim = {"prev": before, "t0": time.perf_counter(), "dur": self.steps[frame_no].dur / self.speed}
+        step = self.steps[frame_no] if self.mode == "replay" else None
+        # ein Schritt vor (stille Schritte dazwischen zählen nicht); zusammengefasste Schritte gleiten ab step.since
+        if (animate and step is not None and step.dur > 0 and frame_no > before
+                and all(self.steps[k].dur == 0 for k in range(before + 1, frame_no))):
+            prev = step.since if step.since is not None else before
+            self._anim = {"prev": prev, "t0": time.perf_counter(), "dur": step.dur / self.speed}
             self._set_label(frame_no)
             self._ensure_job()
             self.draw()
@@ -670,9 +674,17 @@ class DuelView:
         if name == "space":
             self.toggle_play()
         else:
-            target = {"Left": self.frame_no - 1, "Right": self.frame_no + 1, "Home": 0,
+            target = {"Left": self._neighbour(-1), "Right": self._neighbour(1), "Home": 0,
                       "End": len(self.replay.frames) - 1}[name]
             self.manual(target, animate=name in ("Left", "Right"))
+
+    def _neighbour(self, direction: int) -> int:
+        """Nächster bzw. vorheriger sichtbarer Schritt (stille Schritte – auch die Teile eines zusammengefassten –
+        werden übersprungen); am Rand der Rand selbst."""
+        i, last = self.frame_no + direction, len(self.replay.frames) - 1 if self.replay else 0
+        while 0 < i < min(last, len(self.steps)) and self.steps[i].dur == 0:
+            i += direction
+        return i
 
     def _cycle_speed(self) -> None:
         """0,5× → 1× → 1,5× → 2× → 4× (wie Factory _cycle_speed); eine laufende Animation wird mit umgerechnet."""

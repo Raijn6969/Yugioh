@@ -365,6 +365,32 @@ class LogStepTest(unittest.TestCase):
                                name_of, type_of)
         self.assertEqual([s.kind for s in again], ["still", "aktiviert", "still"])   # Karte bleibt: unverändert
 
+    def test_activation_in_the_graveyard_says_so(self):
+        self.assertEqual(self.one(act(11, 300, 0, rr.GRAVE))[1], "Du aktivierst Triple Tactics Talent im Friedhof")
+        self.assertEqual(self.one(act(11, 100, 1, rr.BANISHED))[1], "Gegner aktiviert Ash Blossom (verbannt)")
+        self.assertEqual(self.one(act(6, 200))[0], "beschworen")                       # Synchrobeschwörung
+
+    def test_card_reappearing_in_its_pile_is_no_new_move(self):
+        entry = {"uid": 1, "card": 100}
+        self.assertIsNone(rs._kind_of(rs.Move(1, 0, 100, None, rr.BANISHED, None, 1, None, 0), state(),
+                                      state(ban=[entry])))
+        self.assertEqual(kind_of(frame(), frame(row(1, 0, rr.BANISHED, 100))), "verbannt")   # wirklich neu
+
+    def test_materials_of_an_extra_deck_summon_move_together(self):
+        hand, banished, grave, fusion = (row(1, 0, rr.HAND, 100), row(1, 0, rr.BANISHED, 100),
+                                         row(2, 0, rr.GRAVE, 300), row(3, 0, 4, 200))
+        start = (hand, row(2, 0, rr.HAND, 300), row(3, 0, rr.EXTRA_DECK, 200))
+        frames = [frame(*start), frame(banished, *start[1:]), frame(banished, grave, start[2]),
+                  dict(frame(banished, grave, fusion), log=[act(5, 200, 0, rr.EXTRA_DECK)])]
+        steps = rs.build_steps(frames, [state()] * 4, 0, name_of, type_of)
+        self.assertEqual([s.kind for s in steps], ["still", "still", "friedhof", "beschworen"])
+        self.assertEqual(steps[1].dur, 0.0)
+        self.assertEqual((steps[2].text, steps[2].since),
+                         ("Du: Ash Blossom → Verbannt · Triple Tactics Talent → Friedhof", 0))
+        self.assertEqual(len(steps[2].moves), 2)
+        alone = rs.build_steps(frames[1:], [state()] * 3, 0, name_of, type_of)    # nur ein Material: bleibt
+        self.assertIsNone(alone[1].since)
+
     def test_durations_of_the_new_kinds(self):
         kinds = ("kosten", "ziel", "negiert", "zerstoert", "angriff", "kette", "material")
         self.assertEqual([rs.duration(k) for k in kinds],
