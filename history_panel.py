@@ -15,13 +15,14 @@ from typing import Callable, List, Optional
 import md_layout
 from card_db import CardMatch
 from card_stats import CardStatsDB, HistoryEntry
+from dark_dialog import ask_choice
 from dark_scrollbar import DarkScrollbar
 from deck_export import DeckScan, ExportedCard
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from utils import parse_deck_code
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, WARN, ROW_ALT,
-                          HIGHLIGHT, LINE, NEUTRAL, allow_typing)
+                          HIGHLIGHT, LINE, NEUTRAL, DANGER, allow_typing)
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
 SHOWN = 50  # mehr Zeilen kosten spürbar Zeit; die Suche geht über alle
@@ -112,7 +113,7 @@ class HistoryPanel:
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.action_buttons = {}
         for label, role, action in (("Laden", "neutral", self._open), ("Importieren", "primary", self._import),
-                                    ("Kopieren", "neutral", self._copy), ("✕", "danger", self._delete)):
+                                    ("Kopieren", "neutral", self._copy), ("Löschen", "danger", self._delete)):
             button = RoundedButton(bar, text=label, command=lambda a=action: self._act(a), role=role, **small)
             button.pack(side=tk.LEFT, padx=(0, int(6 * s)))
             self.action_buttons[label] = button
@@ -258,6 +259,9 @@ class HistoryPanel:
         self.on_copy(entry.code)
 
     def _delete(self, entry: HistoryEntry) -> None:
+        if not ask_choice(self.master, "Deck löschen", f"„{entry.name}“ ({when(entry.imported_at)}) löschen?",
+                          [("Löschen", True, DANGER), ("Abbrechen", None, NEUTRAL)], kind="warning"):
+            return
         self.db.delete_history(entry.id)
         self.selected = None
         self.refresh()

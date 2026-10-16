@@ -865,7 +865,12 @@ class ExtrasPanelTest(unittest.TestCase):
         history.query.set("")
         history.refresh()
         history._select(first.id)
-        history.action_buttons["✕"].invoke()
+        with mock.patch("history_panel.ask_choice", return_value=None) as ask:  # Abbrechen: bleibt
+            history.action_buttons["Löschen"].invoke()
+        self.assertIn("löschen?", ask.call_args.args[2])
+        self.assertEqual(len(history.entries), 2)
+        with mock.patch("history_panel.ask_choice", return_value=True):
+            history.action_buttons["Löschen"].invoke()
         self.assertEqual([e.id for e in history.entries], [second.id])
         self.assertIsNone(history.selected)
 
