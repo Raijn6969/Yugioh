@@ -713,6 +713,8 @@ class ExtrasPanel:
         if self._history_result is None:
             return
         result, self._history_result = self._history_result, None
+        if self.scanning:  # inzwischen läuft ein Scan des Decks im Spiel: der hat Vorrang
+            return
         if isinstance(result, str):
             self.set_status(result, RED)
             return

@@ -729,6 +729,16 @@ class ExtrasPanelTest(unittest.TestCase):
         self.root.update()
         self.assertFalse(self.db.handtrap("1").handtrap)
 
+    def test_late_history_result_does_not_disturb_a_running_scan(self):
+        self.panel.set_scan(self.scan)
+        analysis = self.panel.analysis
+        self.panel.set_scanning()
+        self.panel._history_result = (self.scan, mock.Mock(), 0)
+        self.panel._show_history_result()
+        self.assertTrue(self.panel.scanning)
+        self.assertIs(self.panel.analysis, analysis)
+        self.assertEqual(str(self.panel.rescan_btn.cget("state")), "disabled")
+
     def test_history_button_left_of_options_opens_deck_without_game(self):
         import extras_panel
         imported = []
