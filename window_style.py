@@ -30,8 +30,8 @@ SUCCESS = "#2e7d32"
 DANGER = "#cc0000"
 # Knopfrollen für RoundedButton(role=…): (Füllung, Schrift, Rand). "ruhig + Akzent": Navigation neutral, der aktive
 # Knopf gold, Farbe nur für Hauptaktion (primary/success) und Gefahr.
-ROLES = {"primary": (PRIMARY, "white", GOLD), "neutral": (NEUTRAL, "white", GOLD),
-         "success": (SUCCESS, "white", GOLD), "danger": (DANGER, "white", BAD),
+ROLES = {"primary": (PRIMARY, "white", LINE), "neutral": (NEUTRAL, "white", LINE),
+         "success": (SUCCESS, "white", LINE), "danger": (DANGER, "white", BAD),
          "active": (GOLD_HOVER, TEXT, GOLD)}
 
 # Schrift: eine Familie, Kennzahlen Consolas; Größen in pt bei 1080p (mit font() × Maßstab s)

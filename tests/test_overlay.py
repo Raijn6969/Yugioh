@@ -1019,7 +1019,7 @@ class RoundedButtonTest(unittest.TestCase):
 
     def test_roles_set_fill_and_text_color_and_stay_readable(self):
         from rounded_button import RoundedButton, _shade
-        from window_style import ROLES
+        from window_style import GOLD, ROLES
 
         def contrast(a, b):
             def lum(h):
@@ -1029,8 +1029,9 @@ class RoundedButtonTest(unittest.TestCase):
             hi, lo = sorted((lum(a), lum(b)), reverse=True)
             return (hi + 0.05) / (lo + 0.05)
 
-        for role, (fill, fg, _) in ROLES.items():
+        for role, (fill, fg, border) in ROLES.items():
             fg = "#ffffff" if fg == "white" else fg
+            self.assertEqual(border == GOLD, role == "active", role)  # nur der aktive Knopf hat Goldrand
             button = RoundedButton(self.root, text="X", role=role)
             self.assertEqual(button.cget("bg"), fill)
             self.assertGreaterEqual(contrast(fill, fg), 4.5, role)
