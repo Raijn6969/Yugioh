@@ -52,6 +52,9 @@ DUEL_CLIENT_CLASS = ("YgomGame.Duel", "DuelClient")
 # Duell-Protokoll (nur Replays): YgomGame.Duel.DuelLogController hält die Zeitleiste m_LogBaseItemList (je Eintrag
 # Bezeichnung + Index) und je Bezeichnung eine Liste m_DataList_<Bezeichnung> mit den Daten (Il2Cpp-Structs)
 LOG_CLASS = ("YgomGame.Duel", "DuelLogController")
+# Namen, die der Importer in den Metadaten braucht (Klassen + Schlüsselfelder); fehlt einer: Spiel-Update
+REQUIRED_NAMES = [c[1] for c in (MANAGER_CLASS, EDITOR_CLASS, CLIENT_WORK_CLASS, DUEL_CLIENT_CLASS, LOG_CLASS)] + [
+    "viewStack", "s_data", "m_DataCount", "m_ScrollRect", "entityPoolController", "m_LogBaseItemList"]
 ARRAY_ELEMENT_SIZE = 0x104   # Il2CppClass eines Arrays: Größe eines Elements (Struct-Listen)
 LOG_MAX = 50000              # Schutz vor kaputten Längen
 LOG_SEARCH_PAUSE = 10.0      # Sekunden Pause nach erfolgloser Suche nach dem Controller (die Suche dauert ~8 s)
@@ -140,6 +143,14 @@ def log_entry(label: str, rec: bytes) -> Optional[dict]:
 
 class MemoryUnavailable(RuntimeError):
     """Speicher-Modus nicht möglich (Spiel nicht offen, Deck-Editor zu, Spiel-Update hat Namen geändert …)."""
+
+
+class MemoryStructureChanged(MemoryUnavailable):
+    """Master Duel ist lesbar, aber Klassen/Felder, die der Importer braucht, gibt es nicht mehr (Spiel-Update)."""
+
+    def __init__(self, missing: List[str]):
+        super().__init__("Von Master Duel fehlen: " + ", ".join(missing))
+        self.missing = missing
 
 
 class _MBI(ctypes.Structure):
@@ -258,7 +269,7 @@ class Il2Cpp:
             raw = f.read()
         header = struct.unpack_from("<8i", raw, 0)
         if header[0] != -89056337:  # 0xFAB11BAF
-            raise MemoryUnavailable("Unbekanntes Metadaten-Format (Spiel-Update?).")
+            raise MemoryStructureChanged(["Metadaten-Format"])
         self.str_offset, self.strings = header[6], raw[header[6]:header[6] + header[7]]
         self.base = self._find_loaded(raw[:64])
         self._fields: Dict[int, Dict[str, int]] = {}
@@ -271,6 +282,10 @@ class Il2Cpp:
             except OSError:
                 continue
         raise MemoryUnavailable("Metadaten von Master Duel nicht im Speicher gefunden.")
+
+    def missing(self, names) -> List[str]:
+        """Welche Namen kommen in den Metadaten (Datei, kein Speicherzugriff) nicht mehr vor?"""
+        return [n for n in names if b"\0" + n.encode() + b"\0" not in self.strings]
 
     def find_class(self, namespace: str, name: str) -> int:
         start = 0
@@ -340,6 +355,8 @@ class DeckEditorMemory:
         reader = ProcessReader(pid)
         try:
             il = Il2Cpp(reader, metadata)
+            if missing := il.missing(REQUIRED_NAMES):  # Struktur passt nicht mehr: gleich melden statt scannen
+                raise MemoryStructureChanged(missing)
             return cls(reader, il, il.find_class(*MANAGER_CLASS))
         except Exception:
             reader.close()
@@ -765,15 +782,19 @@ def is_ready() -> bool:
 
 _preload_failures = 0              # Fehlversuche seit der letzten Verbindung (z.B. nach einem Spiel-Update)
 _last_error: Optional[str] = None
+_structure_missing: Optional[List[str]] = None   # gesetzt, wenn Namen fehlen (bis Master Duel neu startet sinnlos)
 
 
 def preload() -> Optional[str]:
     """Im Hintergrund aufrufen, sobald Master Duel läuft. Returns: Fehlergrund oder None."""
-    global _preload_failures, _last_error
+    global _preload_failures, _last_error, _structure_missing
     try:
         shared()
-        _preload_failures, _last_error = 0, None
+        _preload_failures, _last_error, _structure_missing = 0, None, None
         return None
+    except MemoryStructureChanged as e:
+        _preload_failures, _last_error, _structure_missing = _preload_failures + 1, str(e), e.missing
+        return str(e)
     except Exception as e:  # Spiel noch im Ladebildschirm o.Ä. – später erneut versuchen
         _preload_failures, _last_error = _preload_failures + 1, str(e)
         return str(e)
@@ -781,8 +802,13 @@ def preload() -> Optional[str]:
 
 def reset_preload_failures() -> None:
     """Master Duel wurde neu gestartet: Fehlversuche des alten Spiels zählen nicht mehr."""
-    global _preload_failures
-    _preload_failures = 0
+    global _preload_failures, _structure_missing
+    _preload_failures, _structure_missing = 0, None
+
+
+def structure_missing() -> Optional[List[str]]:
+    """Fehlende Namen nach einem Spiel-Update (Fall a), sonst None."""
+    return _structure_missing
 
 
 def preload_failures() -> int:

@@ -324,6 +324,29 @@ class MemoryImportTest(unittest.TestCase):
         self.assertTrue(core.memory_fallback)
 
 
+class StructureChangeTest(unittest.TestCase):
+    """Fall (a): MD lesbar, aber Namen fehlen (Spiel-Update) gegen Fall (b): sonstiger Fehler."""
+
+    def tearDown(self):
+        md_memory.reset_preload_failures()
+
+    def test_missing_names_are_found_in_the_metadata_strings(self):
+        il = md_memory.Il2Cpp.__new__(md_memory.Il2Cpp)
+        il.strings = b"\0Foo\0Bar\0"
+        self.assertEqual(il.missing(["Foo", "Baz", "Bar", "Ba"]), ["Baz", "Ba"])
+
+    def test_preload_remembers_missing_names_only_for_structure_changes(self):
+        with mock.patch.object(md_memory, "shared", side_effect=md_memory.MemoryStructureChanged(["Foo"])):
+            self.assertIn("Foo", md_memory.preload())
+        self.assertEqual(md_memory.structure_missing(), ["Foo"])
+        md_memory.reset_preload_failures()  # neuer Spiel-Prozess
+        self.assertIsNone(md_memory.structure_missing())
+        with mock.patch.object(md_memory, "shared", side_effect=md_memory.MemoryUnavailable("lädt noch")):
+            md_memory.preload()
+        self.assertIsNone(md_memory.structure_missing())
+        self.assertEqual(md_memory.preload_failures(), 1)
+
+
 class FakeGame:
     """
     Master Duel im Speicher-Modus: Tippen → (erst beim Abschicken) Ergebnisliste, Klick → Detail-Panel,

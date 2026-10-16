@@ -1339,5 +1339,26 @@ class MemoryWarningTest(unittest.TestCase):
         self.assertEqual(app.shown[2], "popup")
 
 
+class MemoryChangedWarningTest(unittest.TestCase):
+    """Fall (a): fehlende Namen nach einem Spiel-Update – einmal pro Spiel-Prozess melden, nicht weiter scannen."""
+
+    def test_warns_once_per_process_and_does_not_scan(self):
+        from types import SimpleNamespace
+        app = SimpleNamespace(_memory_thread=None, _memory_preload_at=0.0, _memory_warned=False, _memory_pid=0,
+                              _memory_structure_pid=0, warned=[])
+        app._warn_memory_changed = app.warned.append
+        pids = iter([100, 100, 200])
+        with mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                mock.patch.object(Overlay.md_memory, "master_duel_pid", side_effect=lambda: next(pids)), \
+                mock.patch.object(Overlay.md_memory, "structure_missing", return_value=["Foo"]), \
+                mock.patch.object(Overlay.md_memory, "reset_preload_failures"), \
+                mock.patch.object(Overlay.md_memory, "preload") as preload:
+            for _ in range(3):
+                Overlay.MasterDuelImporter._preload_memory(app)
+        self.assertEqual(app.warned, [["Foo"], ["Foo"]])  # Prozess 100 einmal, neuer Prozess 200 wieder
+        preload.assert_not_called()
+        self.assertFalse(app._memory_warned)  # der allgemeine Hinweis (Fall b) bleibt unberührt
+
+
 if __name__ == "__main__":
     unittest.main()
