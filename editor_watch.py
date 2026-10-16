@@ -5,8 +5,9 @@ Das Overlay soll nur dort zu sehen sein. Erkannt wird der Editor wie bei der aut
 Überschrift "Main Deck" über dem Deck (Texterkennung) – für beide Lesemethoden gleich, ohne Zugriff aufs Spiel.
 Damit das im Hintergrund kaum Rechenzeit kostet, merkt sich der Wächter, wie der Ausschnitt aussah
 (kleines Graustufen-Abbild): Sieht er aus wie ein schon gelesener, gilt dessen Ergebnis; gelesen wird nur bei
-einem neuen Bild und höchstens alle OCR_INTERVAL Sekunden. Erst nach NEGATIVE_CONFIRM Treffern "kein Editor"
-hintereinander wird ausgeblendet (kurze Störungen wie Einblendungen lassen das Overlay nicht flackern).
+einem neuen Bild, das beim nächsten Prüfen noch genauso aussieht (ein bewegtes Bild – Duell, Animation – wird nicht
+gelesen, sondern zählt als "kein Editor"), und höchstens alle OCR_INTERVAL Sekunden. Erst nach NEGATIVE_CONFIRM
+Treffern "kein Editor" hintereinander wird ausgeblendet (kurze Störungen lassen das Overlay nicht flackern).
 """
 
 import threading
@@ -46,25 +47,34 @@ class EditorDetector:
         self.visible: Optional[bool] = None   # None = noch unbekannt (bzw. nicht prüfbar) → Overlay zeigen
         self._negatives = 0
         self._last_ocr = -OCR_INTERVAL
+        self._previous: Optional[bytes] = None  # Abbild der letzten Prüfung (nur wenn es unbekannt war)
 
     def update(self, image: Optional[Image.Image]) -> Optional[bool]:
         """Neues Bild des Ausschnitts (None = nicht prüfbar, z.B. kein 16:9). Returns: Editor sichtbar?"""
         if image is None:
-            self.visible, self._negatives = None, 0
+            self.visible, self._negatives, self._previous = None, 0, None
             return None
         signature = header_signature(image)
         known = next((result for sig, result in self.cache if signature_distance(sig, signature) <= SAME_IMAGE),
                      None)
         if known is None:
-            if self.clock() - self._last_ocr < OCR_INTERVAL:
-                return self.visible  # neues Bild, aber gerade erst gelesen → beim nächsten Mal
-            self._last_ocr = self.clock()
-            try:
-                known = bool(self.read_text())
-            except Exception:  # Texterkennung nicht verfügbar → nicht ausblenden
-                self.visible, self._negatives = None, 0
-                return None
-            self.cache = [(signature, known)] + self.cache[:CACHE_SIZE - 1]
+            previous, self._previous = self._previous, signature
+            if previous is None:
+                return self.visible  # erstes unbekanntes Bild: erst sehen, ob es stillsteht
+            if signature_distance(previous, signature) > SAME_IMAGE:
+                known = False  # bewegt sich (Duell, Animation): kein Editor, aber nicht lesen
+            elif self.clock() - self._last_ocr < OCR_INTERVAL:
+                return self.visible  # steht still, aber gerade erst gelesen → beim nächsten Mal
+            else:
+                self._last_ocr, self._previous = self.clock(), None
+                try:
+                    known = bool(self.read_text())
+                except Exception:  # Texterkennung nicht verfügbar → nicht ausblenden
+                    self.visible, self._negatives = None, 0
+                    return None
+                self.cache = [(signature, known)] + self.cache[:CACHE_SIZE - 1]
+        else:
+            self._previous = None
         if known:
             self.visible, self._negatives = True, 0
         else:

@@ -31,6 +31,7 @@ class EditorDetectorTest(unittest.TestCase):
 
     def test_editor_is_read_once_then_recognised_by_image(self):
         self.answers = [True]
+        self.assertIsNone(self.tick(header("Main Deck")))  # neues Bild: erst sehen, ob es stillsteht
         self.assertTrue(self.tick(header("Main Deck")))
         for _ in range(20):
             self.assertTrue(self.tick(header("Main Deck")))
@@ -39,7 +40,9 @@ class EditorDetectorTest(unittest.TestCase):
     def test_leaving_the_editor_hides_after_two_checks(self):
         self.answers = [True, False]
         self.tick(header("Main Deck"))
-        self.assertTrue(self.tick(header("Duel Pass", shade=90), seconds=1.0))  # einmal "nein" → noch nicht weg
+        self.tick(header("Main Deck"))
+        self.tick(header("Duel Pass", shade=90), seconds=1.0)  # neues Bild, noch nicht gelesen
+        self.assertTrue(self.tick(header("Duel Pass", shade=90)))  # gelesen: einmal "nein" → noch nicht weg
         self.assertFalse(self.tick(header("Duel Pass", shade=90)))  # bestätigt (aus dem Zwischenspeicher)
         self.assertEqual(self.reads, 2)
         self.assertTrue(self.tick(header("Main Deck")))  # zurück im Editor → sofort wieder da, ohne Lesen
@@ -47,19 +50,35 @@ class EditorDetectorTest(unittest.TestCase):
 
     def test_start_outside_the_editor_hides_at_once(self):
         self.answers = [False]
+        self.tick(header("Home"))
         self.assertFalse(self.tick(header("Home")))
 
-    def test_text_recognition_is_throttled_for_changing_screens(self):
+    def test_moving_image_is_never_read_but_counts_as_no_editor(self):
+        self.answers = [True] * 10
+        for i in range(30):  # Duell: jedes Bild anders
+            self.tick(header("Duel", shade=8 * (i % 30)), seconds=0.4)
+        self.assertEqual(self.reads, 0)
+        self.assertFalse(self.detector.visible)
+
+    def test_still_image_is_read_exactly_once(self):
+        self.answers = [False]
+        for _ in range(10):
+            self.tick(header("Home"), seconds=0.4)
+        self.assertEqual(self.reads, 1)
+
+    def test_text_recognition_is_throttled_for_screens_that_keep_changing_and_stopping(self):
         self.answers = [False] * 10
-        for i in range(10):  # animierter Hintergrund: jedes Bild neu
-            self.tick(header("Home", shade=20 * i), seconds=0.4)
-        self.assertLessEqual(self.reads, 4)  # 4 s → höchstens etwa einmal pro Sekunde
+        for i in range(10):  # je zwei gleiche Bilder hintereinander, dann ein neues
+            self.tick(header("Home", shade=20 * (i // 2)), seconds=0.4)
+        self.assertLessEqual(self.reads, 3)  # 4 s → höchstens etwa einmal pro Sekunde
 
     def test_not_checkable_means_show(self):
         self.answers = [False]
         self.tick(header("Home"))
+        self.tick(header("Home"))
         self.assertIsNone(self.tick(None))  # z.B. Master Duel nicht im 16:9-Format
         self.detector.read_text = lambda: (_ for _ in ()).throw(OSError("Tesseract fehlt"))
+        self.tick(header("Neu", shade=200), seconds=2)
         self.assertIsNone(self.tick(header("Neu", shade=200), seconds=2))
 
 
@@ -73,6 +92,7 @@ class GraceAfterFocusTest(unittest.TestCase):
         self.assertFalse(watcher._should_check(now))  # erste Sekunden nach dem Start: Schonzeit
         now += editor_watch.GRACE_AFTER_FOCUS
         self.assertTrue(watcher._should_check(now))
+        watcher.detector.update(header("Main Deck"))
         self.assertTrue(watcher.detector.update(header("Main Deck")))
         watcher.md_front = False                       # Alt-Tab weg
         self.assertFalse(watcher._should_check(now + 60))
