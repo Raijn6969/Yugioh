@@ -83,10 +83,6 @@ class TrayIcon:
         menu.add_command("Beenden", self._on_quit, hover=QUIT_HOVER)
         menu.popup_at(x, y)
 
-    @property
-    def available(self) -> bool:
-        return self._icon is not None
-
     def set_update(self, version: str) -> None:
         """Menüpunkt "Update auf <version> installieren" einblenden."""
         self._update_version = version

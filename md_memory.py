@@ -315,9 +315,6 @@ class Il2Cpp:
             raise MemoryUnavailable(f"Feld {name} nicht gefunden (Spiel-Update?).")
         return offsets[name]
 
-    def object_class(self, obj: int) -> str:
-        return self.class_name(self.r.u64(obj)) if obj else ""
-
 
 class DeckEditorMemory:
     """Liest im offenen Deck-Editor: angezeigte Karte, Suchergebnisse, Deck (Konami-IDs)."""

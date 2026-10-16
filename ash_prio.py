@@ -64,11 +64,6 @@ def snapshot_file() -> str:
     return os.path.join(BUNDLE_DIR, SNAPSHOT_NAME)
 
 
-def available(path: str = FACTORY_DB) -> bool:
-    """Gibt es auf diesem PC eine Factory?"""
-    return os.path.exists(path)
-
-
 def connect(path: str = FACTORY_DB) -> sqlite3.Connection:
     """Factory-Datenbank nur lesend öffnen (die Factory läuft evtl. gerade und schreibt)."""
     uri = "file:" + pathname2url(os.path.abspath(path)) + "?mode=ro"

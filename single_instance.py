@@ -53,14 +53,6 @@ def acquire(name: str = MUTEX_NAME, wait: Optional[float] = None) -> bool:
         time.sleep(0.2)
 
 
-def release() -> None:
-    """Mutex sofort freigeben (beim Neustart, damit die neue Instanz nicht warten muss)."""
-    global _handle
-    if _handle:
-        ctypes.WinDLL("kernel32").CloseHandle(ctypes.c_void_p(_handle))
-    _handle = None
-
-
 def restart_env() -> dict:
     """Umgebung für den Neustart: die neue Instanz wartet auf das Ende dieser."""
     return {**os.environ, RESTART_ENV: "1"}

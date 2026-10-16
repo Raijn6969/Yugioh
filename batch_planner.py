@@ -35,11 +35,6 @@ def normalize_word(w: str) -> str:
     return w[:-1] if (w.endswith('s') and len(w) > 4) else w
 
 
-def name_words(name: str) -> List[str]:
-    """Wörter eines Namens (klein); Teile in spitzen Klammern bleiben als eigenes Token ("<p>")."""
-    return re.findall(r"<[^>]*>|[^\W\d_]+", name.lower())
-
-
 def common_prefix_len(target: str, ocr: str) -> Tuple[int, int]:
     """
     Wie viele Zeichen am Anfang stimmen überein? Ein führendes 'l' in der OCR ist ein

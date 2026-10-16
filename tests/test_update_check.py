@@ -471,7 +471,6 @@ class TrayMenuTest(unittest.TestCase):
         with mock.patch.object(tray, "pystray", None):
             icon = tray.TrayIcon("x", on_restart=lambda: None, on_quit=lambda: None)
             icon.set_update("9.3")   # kein Absturz
-        self.assertFalse(icon.available)
 
 
 if __name__ == "__main__":

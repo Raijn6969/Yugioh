@@ -1,5 +1,6 @@
 """Nur ein Importer gleichzeitig (benannter Mutex); beim Neustart wartet die neue Instanz auf die alte."""
 
+import ctypes
 import os
 import threading
 import time
@@ -10,25 +11,30 @@ from unittest import mock
 import single_instance as si
 
 
+def release():
+    """Den Mutex des Tests wieder freigeben (das Programm selbst gibt ihn erst beim Beenden frei)."""
+    if si._handle:
+        ctypes.WinDLL("kernel32").CloseHandle(ctypes.c_void_p(si._handle))
+    si._handle = None
+
+
 @unittest.skipUnless(os.name == "nt", "nur Windows")
 class SingleInstanceTest(unittest.TestCase):
     def setUp(self):
         self.name = f"Local\\MD_Importer_test_{uuid.uuid4().hex}"  # nie der Mutex des echten Importers
-        self.addCleanup(si.release)
+        self.addCleanup(release)
 
     def test_second_start_is_refused_until_the_first_ends(self):
         self.assertTrue(si.acquire(self.name, wait=0))
         self.assertIsNone(si._create(self.name))  # zweiter Importer
-        si.release()
+        release()
         other = si._create(self.name)  # nach dem Beenden geht es wieder
         self.assertTrue(other)
         self.assertFalse(si.acquire(self.name, wait=0))  # jetzt läuft "der andere"
-        import ctypes
         ctypes.WinDLL("kernel32").CloseHandle(ctypes.c_void_p(other))
 
     def test_restart_waits_for_the_old_instance(self):
         other = si._create(self.name)  # alte Instanz schließt noch
-        import ctypes
 
         def old_instance_ends():
             time.sleep(0.5)

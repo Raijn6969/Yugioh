@@ -1,8 +1,8 @@
 """
 Dunkles Auswahlmenü mit Goldrand (statt des nativen Windows-Menüs, dessen Rahmen Tk nicht färben kann).
 Gleiche Schnittstelle wie tk.Menu für das, was das Overlay braucht: add_command, add_radiobutton,
-add_checkbutton, invoke(index). RoundedButton(menu=…) klappt es über dem Button auf, popup_below darunter,
-popup_at(x, y) mit der unteren rechten Ecke an einem Punkt (Tray-Menü). Zusätzlich: add_label (ausgegraut, nicht
+add_checkbutton, invoke(index). RoundedButton(menu=…) klappt es über dem Button auf, popup_at(x, y) mit der unteren rechten Ecke an einem
+Punkt (Tray-Menü). Zusätzlich: add_label (ausgegraut, nicht
 klickbar) und add_separator. Die Zeile unter der Maus bekommt eine abgerundete, dunkelgoldene Fläche.
 """
 
@@ -71,13 +71,6 @@ class DarkMenu:
 
     def popup_above(self, widget: tk.Widget) -> None:
         """Öffnet das Menü bündig über `widget` (das Overlay sitzt am unteren Bildschirmrand)."""
-        self._popup(widget, above=True)
-
-    def popup_below(self, widget: tk.Widget) -> None:
-        """Öffnet das Menü bündig unter `widget` (z.B. Optionen oben im Deck-Fenster)."""
-        self._popup(widget, above=False)
-
-    def _popup(self, widget: tk.Widget, above: bool) -> None:
         if self.is_open:
             self.close()  # zweiter Klick auf den Button schließt
             return
@@ -85,9 +78,7 @@ class DarkMenu:
         def place(win: tk.Toplevel) -> Tuple[int, int]:
             # Breiter als der Button → rechtsbündig, damit es nicht über den Bildschirmrand hinausragt
             x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - win.winfo_reqwidth())
-            if above:
-                return x, widget.winfo_rooty() - win.winfo_reqheight() - self.gap
-            return x, widget.winfo_rooty() + widget.winfo_height() + self.gap
+            return x, widget.winfo_rooty() - win.winfo_reqheight() - self.gap
         self._open(place, widget)
 
     def popup_at(self, x: int, y: int) -> None:
