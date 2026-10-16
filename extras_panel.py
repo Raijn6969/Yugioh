@@ -127,6 +127,8 @@ class ExtrasPanel:
         self.closed = False
         self.offline = False                   # True = Deck aus dem Verlauf (nicht das Deck im Spiel)
         self.history = None                    # Verlauf-Fenster, None = zu
+        self._history_state: Optional[dict] = None  # Auswahl/Suche/Scrollstand des zuletzt geschlossenen Verlaufs
+        self._from_history = False             # Deck wurde über "Laden" im Verlauf geöffnet ("← Übersicht")
         self.winrate = None                    # Winrate-Fenster, None = zu
         self.staples = None                    # Staples-Fenster, None = zu
         self.combos = None                     # Combos-Fenster, None = zu
@@ -224,6 +226,8 @@ class ExtrasPanel:
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
         self.deck_body = body
+        self.back_btn = RoundedButton(body, text="← Übersicht", command=self._back_to_history, role="active",
+                                      font=self.font_bold, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s))
         self.status_label = tk.Label(body, text="", fg=INFO, bg=BG, font=self.font_bold, anchor="w",
                                      justify=tk.LEFT, wraplength=int(480 * s))
         self.status_label.pack(fill=tk.X)
@@ -464,22 +468,31 @@ class ExtrasPanel:
         self.set_status(text, color)
 
     # ── Verlauf der importierten Decks ──
-    def toggle_history(self) -> None:
+    def toggle_history(self, state: Optional[dict] = None) -> None:
         if self.history is not None:
             self._close_history()
             return
         from history_panel import HistoryPanel  # importiert die Farben von hier
         self._close_side_panels()  # lägen an derselben Stelle
         self.history = HistoryPanel(self.win, self.stats_db, on_import=self._import_code, on_copy=self._copy_code,
-                                    on_close=self._on_history_closed, on_open=self.load_history_deck)
+                                    on_close=self._on_history_closed, on_open=self._open_history_entry, state=state)
         self._refresh_nav()
+
+    def _open_history_entry(self, entry) -> None:
+        """"Laden" im Verlauf: Deck hier anzeigen, "← Übersicht" führt zurück (Auswahl und Scrollstand bleiben)."""
+        self.load_history_deck(entry)
+        self._from_history = True
+
+    def _back_to_history(self) -> None:
+        self.back_btn.pack_forget()
+        self.toggle_history(self._history_state)
 
     def _close_history(self) -> None:
         if self.history is not None:
             self.history.close()  # ruft _on_history_closed
 
     def _on_history_closed(self) -> None:
-        self.history = None
+        self._history_state, self.history = self.history.state, None
         self._refresh_nav()
 
     # ── Winrate (Match History von Master Duel) ──
@@ -779,6 +792,7 @@ class ExtrasPanel:
         """Deck aus dem Verlauf hier anzeigen (Analyse aus dem Deck-Code, im Hintergrund – evtl. Stats online)."""
         if self.scanning:
             return
+        self._from_history = False
         self.set_status(f"Lade „{entry.name}“ aus dem Verlauf …", INFO)
         threading.Thread(target=self._history_worker, args=(entry,), daemon=True).start()
 
@@ -855,6 +869,11 @@ class ExtrasPanel:
         """live=False: Deck aus dem Verlauf – kein Mouseover über dem Spiel und keine Prüfung auf Änderungen."""
         self.scanning = False
         self.offline = not live
+        if self.offline and self._from_history:
+            self.back_btn.pack(side=tk.TOP, anchor="w", before=self.status_label, pady=(0, int(4 * self.s)))
+        else:
+            self._from_history = False
+            self.back_btn.pack_forget()
         self._set_hover(None)
         self.rescan_btn.config(state=tk.NORMAL)
         self.analysis = DeckAnalysis(scan, self.stats_db)

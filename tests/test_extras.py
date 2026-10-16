@@ -19,7 +19,7 @@ from card_stats import CardInfo, CardStatsDB, HandtrapInfo, StarterInfo
 from draw_odds import p_at_least, p_exactly
 from handtrap_rules import classify_handtrap
 from starter_rules import classify
-from window_style import ROLES
+from window_style import GOLD, ROLES
 
 try:
     import tkinter as tk
@@ -813,7 +813,12 @@ class ExtrasPanelTest(unittest.TestCase):
         history = self.panel.history
         self.assertEqual([e.name for e in history.entries], ["lukias"])
         with mock.patch.object(extras_panel.threading, "Thread", ImmediateThread):
-            history._open(history.entries[0])  # Klick auf das Deck
+            history.action_buttons["Laden"].invoke()
+            self.assertIn("Bitte Deck auswählen", history.count_label.cget("text"))  # nichts gewählt
+            self.assertIsNotNone(self.panel.history)
+            history._select(history.entries[0].id)  # Klick auf die Zeile
+            self.assertIsNotNone(self.panel.history)  # wählt nur aus
+            history.action_buttons["Laden"].invoke()
         self.pump(0.1)
         self.assertIsNone(self.panel.history)
         analysis = self.panel.analysis
@@ -829,11 +834,60 @@ class ExtrasPanelTest(unittest.TestCase):
         # Importieren aus dem Verlauf
         self.panel.toggle_history()
         self.panel.history._import(self.panel.history.entries[0])
+        self.assertTrue(self.panel.offline)
         self.assertEqual(imported, [ydk.strip()])
         # Neu scannen → wieder das Deck im Spiel
         self.panel.set_scan(self.scan)
         self.assertFalse(self.panel.offline)
         self.assertIsNotNone(self.panel.watcher)
+
+    def test_history_buttons_act_on_selected_deck_and_search_clears_selection(self):
+        copied, ids = [], []
+        self.panel.on_copy_code = copied.append
+        for i, name in enumerate(("Alpha", "Beta")):
+            ids.append(self.db.add_history(f"#main\n{i + 1}\n", [str(i + 1)], names=[name], now=i + 1))
+        self.panel.history_btn.invoke()
+        history = self.panel.history
+        self.pump(0.1)
+        history.action_buttons["Kopieren"].invoke()
+        self.assertEqual(copied, [])
+        self.assertEqual((history.count_label.cget("text"), history.selected), ("Bitte Deck auswählen", None))
+        first, second = history.entries
+        history._select(second.id)
+        self.assertIn("Deck", history.count_label.cget("text"))  # Meldung weg
+        self.assertEqual(history._rows_by_id[second.id][0].cget("highlightbackground"), GOLD)  # sichtbar gewählt
+        self.assertNotEqual(history._rows_by_id[first.id][0].cget("highlightbackground"), GOLD)
+        history.action_buttons["Kopieren"].invoke()
+        self.assertEqual(copied, [second.code])
+        history.query.set("zzz")  # Suche: gewähltes Deck nicht mehr sichtbar
+        history.refresh()
+        self.assertIsNone(history.selected)
+        history.query.set("")
+        history.refresh()
+        history._select(first.id)
+        history.action_buttons["✕"].invoke()
+        self.assertEqual([e.id for e in history.entries], [second.id])
+        self.assertIsNone(history.selected)
+
+    def test_back_button_returns_to_history_with_selection(self):
+        import extras_panel
+        for i in range(30):
+            self.db.add_history(f"#main\n{i + 1}\n", [str(i + 1)], now=i + 1)
+        self.panel.history_btn.invoke()
+        history = self.panel.history
+        self.pump(0.1)
+        chosen = history.entries[20].id
+        history._select(chosen)
+        with mock.patch.object(extras_panel.threading, "Thread", ImmediateThread):
+            history.action_buttons["Laden"].invoke()
+        self.pump(0.2)
+        self.assertEqual(self.panel.back_btn.winfo_manager(), "pack")
+        self.panel.back_btn.invoke()
+        self.pump(0.2)
+        self.assertEqual(self.panel.back_btn.winfo_manager(), "")
+        self.assertEqual(self.panel.history.selected, chosen)
+        self.panel.set_scan(self.scan)  # Deck im Spiel: kein Zurück-Knopf mehr
+        self.assertEqual(self.panel.back_btn.winfo_manager(), "")
 
     def test_staples_need_a_scan_and_share_the_place_with_winrate(self):
         self.panel.toggle_staples()
