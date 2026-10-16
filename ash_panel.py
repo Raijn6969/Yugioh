@@ -183,16 +183,15 @@ class AshPrioPanel:
         self.variant, self.sheets, hint = self._result
         if self.variant is None and self.text_rows:
             self.info_label.config(
-                text=f"{hint} Einschätzung aus den Kartentexten: welche deiner Karten die gewählte Handtrap treffen "
-                     f"kann, Starter zuerst. Die Reihenfolge der Combo kennt das nicht.", fg=MUTED)
+                text=f"{hint} Einschätzung aus den Kartentexten: welche Karten die Handtrap treffen kann.",
+                fg=MUTED)
         elif self.variant is None:
             self.info_label.config(text=hint, fg=WARN)
         else:
             source = f" · {hint}" if hint else ""
             self.info_label.config(
-                text=f"Aus der Factory: „{self.variant.name}“ ({self.variant.overlap * 100:.0f} % gleiche Karten"
-                     f"{source}), {len(self.sheets)} Starthände, die stärksten zuerst. Board = Unterbrechungen am "
-                     f"Ende des Zuges. Klick auf eine Hand zeigt die ganze Linie.", fg=MUTED)
+                text=f"„{self.variant.name}“ ({self.variant.overlap * 100:.0f} % gleiche Karten{source}) · "
+                     f"{len(self.sheets)} Starthände, stärkste zuerst · Klick = ganze Linie", fg=MUTED)
         self.render()
 
     # ── Anzeige ──

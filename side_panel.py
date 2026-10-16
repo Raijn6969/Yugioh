@@ -140,7 +140,8 @@ class SidePanel:
             self.info_label.config(text="Tipp: Mit „Speicher lesen“ (Optionen) tauscht die Kontrolle am Ende "
                                         "zuverlässiger.", fg=WARN)
         else:
-            self.info_label.config(text="Tauschen ändert das Deck wie ein kleiner Import, „Zurück“ macht es rückgängig.", fg=MUTED)
+            self.info_label.config(text="Tauschen ändert das Deck wie ein kleiner Import, „Zurück“ macht es "
+                                        "rückgängig.", fg=MUTED)
         self._show_profiles()
         self._show_out()
         self._show_in()
