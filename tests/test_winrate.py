@@ -614,6 +614,19 @@ class WinratePanelTest(unittest.TestCase):
         self.panel._set_period("all")
         self.assertEqual(self.panel.match_limit, 20)
 
+    def test_replay_button_full_size(self):
+        from rounded_button import RoundedButton
+        match = self.db.matches(None, None, 5)[0]
+        self.panel._replay_by_match = {match.did: 1}
+        row = self.panel._match_row(match, "#000000", 0)
+        row.pack()
+        self.root.update()
+        slot = row.winfo_children()[2]
+        button = slot.winfo_children()[0]
+        self.assertIsInstance(button, RoundedButton)
+        self.assertGreaterEqual(button.winfo_width(), button.winfo_reqwidth())
+        self.assertGreaterEqual(button.winfo_height(), button.winfo_reqheight())
+
     def test_coin_toss_line_and_match_details(self):
         self.assertIn("nicht erfasst", self.panel.coin_label.cget("text"))  # Matches aus der Match History
         self.assertEqual(self.panel.tiles["coin"][0].cget("text"), "–")

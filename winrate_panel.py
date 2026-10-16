@@ -557,13 +557,14 @@ class WinratePanel:
         # feste Spalte rechts für den Knopf (auch ohne Replay), der Text läuft nie darunter
         slot = tk.Frame(row, bg=bg, width=tkfont.Font(font=self.font_small).measure("▶ Replay") + int(28 * s),
                         height=1)
-        slot.pack(side=tk.RIGHT)
+        slot.pack(side=tk.RIGHT, fill=tk.Y)
         slot.pack_propagate(False)
         if self._has_replay(match):
             replay_btn = RoundedButton(slot, text="▶ Replay", command=lambda i=index: self.view_duel(i, replay=True),
                                        font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s),
                                        role="success")
-            replay_btn.pack(side=tk.RIGHT)
+            replay_btn.pack(expand=True)  # mittig in der Spalte
+            slot.config(height=replay_btn.winfo_reqheight())  # sonst wird der Knopf abgeschnitten
         text = tk.Frame(row, bg=bg)
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
         title = match.deck_name or match.md_deck or UNKNOWN_DECK
