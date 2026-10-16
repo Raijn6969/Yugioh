@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw, ImageTk
 from window_style import GOLD
 
 SUPERSAMPLE = 4  # Zeichen-Vergrößerung für glatte Rundungen
+SHARED_MAX = 300  # so viele verschiedene Körper (Größe/Farbe) hält der gemeinsame Zwischenspeicher je Fenster-Wurzel
 
 
 def _shade(hex_color: str, factor: float) -> str:
@@ -123,8 +124,15 @@ class RoundedButton(tk.Label):
         height = font.metrics("linespace") + 2 * self._pady
         key = (width, height, fill, border)
         if key not in self._images:
-            body = render_body(width, height, self._radius, fill, border, self._background)
-            self._images[key] = ImageTk.PhotoImage(body, master=self)
+            # Gleich aussehende Knöpfe teilen sich ein Bild (Listen mit hunderten Knöpfen); der eigene Verweis hält es
+            shared = self._root().__dict__.setdefault("_rounded_bodies", {})
+            shared_key = key + (self._radius, self._background)
+            if shared_key not in shared:
+                if len(shared) >= SHARED_MAX:
+                    shared.clear()
+                shared[shared_key] = ImageTk.PhotoImage(
+                    render_body(width, height, self._radius, fill, border, self._background), master=self)
+            self._images[key] = shared[shared_key]
         super().configure(image=self._images[key], text=self._opts["text"], fg=fg,
                           width=width, height=height, cursor="arrow" if self._opts["state"] == "disabled" else "hand2")
 

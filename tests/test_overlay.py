@@ -880,6 +880,21 @@ class RoundedButtonTest(unittest.TestCase):
         self.assertGreater(int(button.cget("width")), 200)
         self.assertEqual(button.cget("text"), "Ein deutlich längerer Button-Text als vorher")
 
+    def test_equal_buttons_share_one_image(self):
+        from rounded_button import RoundedButton
+        first, second = RoundedButton(self.root, text="Start"), RoundedButton(self.root, text="Start")
+        other = RoundedButton(self.root, text="Start", bg="#cc0000")
+        self.assertEqual(str(first.cget("image")), str(second.cget("image")))
+        self.assertNotEqual(str(first.cget("image")), str(other.cget("image")))
+
+    def test_images_in_use_survive_clearing_the_shared_cache(self):
+        import rounded_button
+        from rounded_button import RoundedButton
+        with mock.patch.object(rounded_button, "SHARED_MAX", 1):
+            first = RoundedButton(self.root, text="Eins")
+            RoundedButton(self.root, text="Zwei, deutlich länger")  # leert den gemeinsamen Speicher
+        self.assertEqual(self.root.tk.call("image", "type", str(first.cget("image"))), "photo")
+
     def test_body_has_gold_border_and_parent_background_in_corner(self):
         from rounded_button import render_body
         from window_style import GOLD
