@@ -399,6 +399,25 @@ class AnimationTest(unittest.TestCase):
         self.assertNotIn("BESCHWOREN", after)
         self.assertIn("Du beschwörst eine Karte", after)             # Schritt-Text bleibt stehen
 
+    def sideways(self, frames):
+        """Beschwörung (Schritt 1) mitten im Gleiten."""
+        from unittest import mock
+        view = self.view(frames, {100: "123"})
+        with mock.patch.object(view, "_card_image", return_value=None) as image:
+            self.animate(view, 1, 0.3)
+        return view, image.call_args.args[3]          # Drehwinkel des zuletzt (Gleit-Bild) gemalten Kartenbilds
+
+    def test_summon_in_defense_glides_sideways_without_a_turn_step(self):
+        hand, moving, arrived = row(1, rr.HAND), row(1, rr.MOVING), row(1, 0)
+        for name, later in (("Flag wechselt nach der Ankunft", [1, 0]), ("gleich in Verteidigung", [0, 0])):
+            with self.subTest(name):
+                moving[6], arrived[6] = later
+                view, angles = self.sideways([frame(hand), frame(moving), frame(arrived)])
+                self.assertEqual((view.steps[1].kind, view.steps[2].kind), ("beschworen", "still"))  # kein Dreh-Schritt
+                self.assertEqual(angles, 90)
+        moving[6] = arrived[6] = 1                                        # Angriffsposition bleibt aufrecht
+        self.assertEqual(self.sideways([frame(hand), frame(moving), frame(arrived)])[1], 0)
+
     def test_activation_effect_and_step_text(self):
         view = self.view([frame(row(1, rr.HAND)), frame(row(1, rr.MOVING))])
         self.assertEqual(view.steps[1].kind, "aktiviert")

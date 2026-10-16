@@ -1117,6 +1117,14 @@ class DuelView:
         # Nur Monster, die tatsächlich aus der Hand kommen und nicht abgeworfen/zerstört werden, bleiben in der Hand
         return rr.HAND if prev_z == rr.HAND and not is_extra else None
 
+    def _arrival_attack(self, card: dict, n: int) -> int:
+        """Angriffs-Flag einer unterwegs gemeldeten Karte: Master Duel dreht sie oft erst nach der Ankunft."""
+        for later in self.replay.frames[n + 1:n + 4]:  # shortcut: nur 3 Frames voraus, bei längerem Zwischenstand
+            nxt = next((r for r in later["cards"] if r[0] == card["uid"] and r[2] != rr.MOVING), None)
+            if nxt is not None:
+                return nxt[6] if nxt[2] == card["zone"] else card["attack"]
+        return card["attack"]
+
     def _scene(self, n: int) -> Tuple[Dict[int, Item], Dict[Tuple[int, int], List[int]]]:
         """Schritt n: ({uid: Item} – wo jede Karte liegt, {(x, y): [uid]} – Stapel von unten nach oben)."""
         if n in self._scenes:
@@ -1140,6 +1148,8 @@ class DuelView:
             if zone == rr.MOVING:
                 zone = self._moving_zone(card, state)
                 card = dict(card, zone=zone)
+                if zone in rs.MONSTER:  # Beschwörung: gleich so ausgerichtet gleiten, wie die Karte ankommt
+                    card["attack"] = self._arrival_attack(card, n)
             if zone is None or zone in (rr.GRAVE, rr.BANISHED):  # Friedhof/Verbannt kommen kumulativ vom Tracker
                 continue
             if zone == rr.HAND:
