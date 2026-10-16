@@ -402,6 +402,23 @@ class MatchWatcherTest(unittest.TestCase):
         self.memory.reads.clear()
         return self.watcher.check()
 
+    def test_history_completing_live_match_reports_update_once(self):
+        now = time.time()
+        live = mh.MatchRecord("5", now - 60, mh.RANKED, mh.WIN, True, 0, 0, [], [], [], [], "", "live", False)
+        mh.store_matches(self.db, [live])
+        updated = []
+        history = mh.parse_history({"58": {"5": entry(5, now - 60, mh.WIN)}})
+        self.assertEqual(mh.store_matches(self.db, history, updated=updated), [])  # nicht neu …
+        self.assertEqual([r.did for r in updated], ["5"])  # … aber ergänzt
+        calls = []
+        self.watcher.on_updated = lambda: calls.append(1)
+        self.db.add_matches([(r, "", "", "", "") for r in [live._replace(did="6", played_at=now - 30)]])
+        self.memory.data["DuelHistory"] = {"58": {"6": entry(6, now - 30, mh.WIN)}}
+        self.step(["HomeViewController", mh.HISTORY_VIEW])
+        self.assertEqual(calls, [1])
+        self.step(["HomeViewController", mh.HISTORY_VIEW])  # nichts mehr zu ergänzen
+        self.assertEqual((calls, self.new), ([1], []))
+
     def test_persistent_read_error_is_logged_once(self):
         self.watcher._stop = mock.Mock(wait=mock.Mock(side_effect=[False, False, False, True]))
         with mock.patch.object(self.watcher, "check", side_effect=RuntimeError("MD lädt")), \
@@ -841,6 +858,16 @@ class WinratePanelTest(unittest.TestCase):
         self.assertEqual(arrow.cget("fg"), HIGHLIGHT)
         self.panel._hover_header(arrow, title, False)
         self.assertEqual(arrow.cget("fg"), GOLD)
+
+
+class RefreshWinrateTest(unittest.TestCase):
+    def test_refresh_winrate_redraws_open_winrate_and_matchup(self):
+        from types import SimpleNamespace
+        import extras_panel
+        fake = SimpleNamespace(closed=False, winrate=mock.Mock(), matchup=mock.Mock(), _show_deck_winrate=mock.Mock())
+        extras_panel.ExtrasPanel.refresh_winrate(fake)
+        fake.winrate.refresh.assert_called_once()
+        fake.matchup.refresh.assert_called_once()
 
 
 if __name__ == "__main__":

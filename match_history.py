@@ -176,12 +176,13 @@ def history_reminder(unconfirmed: int) -> str:
     return ""
 
 
-def store_matches(db, records: List[MatchRecord], ensure: Optional[Callable[[list], object]] = None
-                  ) -> List[MatchRecord]:
+def store_matches(db, records: List[MatchRecord], ensure: Optional[Callable[[list], object]] = None,
+                  updated: Optional[list] = None) -> List[MatchRecord]:
     """
     Matches speichern (Decks als Passcodes, benannt nach ihren Archetypen). Neue Duell-IDs kommen dazu; ein
     Live-Eintrag wird durch denselben Eintrag aus der Match History ersetzt. Returns: die neuen Duelle.
     ensure: Karten nachschlagen (Standard db.ensure); fehlt die Info, werden die Matches trotzdem gespeichert.
+    updated: bekommt die Live-Einträge, die durch die Match History ergänzt wurden (nicht in der Rückgabe).
     """
     from deck_export import build_ydk  # erst hier: zieht Bildschirm-Module nach
     unique: Dict[str, MatchRecord] = {}
@@ -206,6 +207,8 @@ def store_matches(db, records: List[MatchRecord], ensure: Optional[Callable[[lis
 
     rows = [(r, *describe(r.my_main, r.my_extra), *describe(r.opp_main, r.opp_extra)) for r in todo]
     db.add_matches(rows)
+    if updated is not None:
+        updated += [r for r in todo if r.did in known]
     return [r for r in todo if r.did not in known]
 
 
@@ -217,9 +220,11 @@ class MatchWatcher:
     """
 
     def __init__(self, get_db: Callable[[], object], on_new: Callable[[List[MatchRecord]], None],
-                 connected: Callable[[], bool], memory: Callable[[], object], clock: Callable[[], float] = time.time):
+                 connected: Callable[[], bool], memory: Callable[[], object], clock: Callable[[], float] = time.time,
+                 on_updated: Optional[Callable[[], None]] = None):
         self.get_db = get_db
         self.on_new = on_new
+        self.on_updated = on_updated  # Live-Matches durch die Match History ergänzt (auch aus dem Thread)
         self.connected = connected   # Speicher-Verbindung steht (md_memory.is_ready)
         self.memory = memory         # md_memory.shared
         self.clock = clock
@@ -293,14 +298,18 @@ class MatchWatcher:
             self._last_history = now
             records += parse_history(memory.client_work("DuelHistory"))
         self._started = True
+        updated: list = []
         try:
-            new = store_matches(db, records, lambda ids: self._ensure(db, ids)) if records else []
+            new = store_matches(db, records, lambda ids: self._ensure(db, ids), updated) if records else []
         except Exception:  # z.B. Datenbank gesperrt: im nächsten Durchgang mit derselben Münzwurf-Info nochmal
             self._pending, self._pending_deck = saved
             raise
         if new:
             dlog(f"[MATCHES] {len(new)} neue(s) Match(es) erfasst.")
-            self.on_new(new)
+            self.on_new(new)  # aktualisiert die Ansichten ohnehin
+        elif updated and self.on_updated:
+            dlog(f"[MATCHES] {len(updated)} Match(es) aus der Match History ergänzt.")
+            self.on_updated()
         return len(new)
 
     def _ensure(self, db, ids) -> None:

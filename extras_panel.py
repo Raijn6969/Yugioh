@@ -751,6 +751,8 @@ class ExtrasPanel:
             return
         if self.winrate is not None:
             self.winrate.refresh()
+        if self.matchup is not None:
+            self.matchup.refresh()
         self._show_deck_winrate()
 
     def _show_deck_winrate(self) -> None:

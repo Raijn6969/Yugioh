@@ -162,7 +162,8 @@ class MasterDuelImporter:
                                            on_saved=lambda info, steps: self._run_on_ui(self._on_replay_saved, info,
                                                                                         steps))
         self.match_watch = MatchWatcher(self._stats_db, lambda new: self._run_on_ui(self._on_new_matches, new),
-                                        connected=md_memory.is_ready, memory=md_memory.shared)
+                                        connected=md_memory.is_ready, memory=md_memory.shared,
+                                        on_updated=lambda: self._run_on_ui(self._on_matches_updated))
         # IDs der wiederkehrenden Tk-Timer, damit sie beim Schließen gestoppt werden können
         self._after_ids = {}
         self._focus_errors = set()  # Fehlertypen der Fokus-Schleife, die schon im Log stehen
@@ -1278,6 +1279,11 @@ class MasterDuelImporter:
             if self.tray:
                 self.tray.notify(reminder, "MD Importer")
             self._after_ids["reminder"] = self.root.after(REMINDER_DELAY_MS, self._show_history_reminder)
+        if self.extras:
+            self.extras.refresh_winrate()
+
+    def _on_matches_updated(self):
+        """Live-Matches bekamen ihre History-Daten → offene Winrate-/Matchup-Ansicht neu zeichnen."""
         if self.extras:
             self.extras.refresh_winrate()
 
