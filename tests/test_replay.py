@@ -3,6 +3,7 @@
 import os
 import sqlite3
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -279,6 +280,21 @@ class PlaybackTest(unittest.TestCase):
         self.assertEqual(DuelView.place(rr.GRAVE, True), ("my_m", 6))
         self.assertEqual(DuelView.place(rr.GRAVE, False), ("opp_m", 0))
         self.assertIsNone(DuelView.place(rr.MOVING, True))
+
+    def test_slow_image_loader_of_an_older_match_does_not_overwrite_the_newer(self):
+        import duel_view as dv
+        match = MatchEntry("8385", 1791623727, 3, 1, True, 3, 1, "Elfnote", "", "Sky Striker", "", "Zwölfnote", True)
+        with mock.patch.object(dv.card_images, "download", return_value=0):
+            view = dv.DuelView(self.root, make_db(), [match, match], 1, image_folder=tempfile.mkdtemp())
+            self.addCleanup(view.close)
+            for thread in threading.enumerate():   # der Lader von show() ist fertig, bevor wir prüfen
+                if thread.name == "duel-images":
+                    thread.join()
+            view._loaded = None
+            view._load_images(0, [])          # fertig, nachdem man schon zum Match 1 geblättert hat
+            self.assertIsNone(view._loaded)
+            view._load_images(1, [])
+            self.assertEqual(view._loaded, 1)
 
     def test_view_plays_recording(self):
         import duel_view as dv

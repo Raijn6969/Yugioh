@@ -600,7 +600,8 @@ class DuelView:
             card_images.download(ids, folder=self.folder)
         except Exception:
             pass
-        self._loaded = index
+        if index == self.index:   # ein langsamerer Lader eines früheren Matches darf den neueren nicht überschreiben
+            self._loaded = index
 
     def _poll(self) -> None:
         if self.closed:
