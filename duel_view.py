@@ -1644,6 +1644,8 @@ class DuelView:
     # ── Zustand von außen ──
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
+            if not visible:
+                self._stop_play()             # Master Duel nicht mehr vorne: pausieren, kein automatisches Weiter
             alpha = 1.0 if visible else 0.0
             self.win.wm_attributes("-alpha", alpha)
             if self._pile_inspector is not None:

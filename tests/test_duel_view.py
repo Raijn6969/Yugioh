@@ -342,6 +342,16 @@ class AnimationTest(unittest.TestCase):
         self.assertEqual(seen[0], 2)
         self.assertIn(3, seen)              # LP-Schritt wird gezeigt
 
+    def test_hiding_pauses_playing_and_showing_does_not_resume(self):
+        view = self.view()
+        view.toggle_play()
+        self.assertTrue(view.playing)
+        view.set_visible(False)
+        self.assertEqual((view.playing, view._job, view.ctrl_buttons["play"].cget("text")),
+                         (False, None, "▶ Abspielen"))
+        view.set_visible(True)
+        self.assertEqual((view.playing, view._job), (False, None))
+
     def animate(self, view, step, frac):
         """Schritt vor und die Animation auf frac (0…1) des Weges stellen; Uhr ist gesteuert."""
         from unittest import mock
