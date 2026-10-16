@@ -98,7 +98,9 @@ class ExtrasPanel:
                  save_settings: Callable[[], None] = lambda: None,
                  on_import_code: Optional[Callable[[str], None]] = None,
                  on_copy_code: Optional[Callable[[str], None]] = None,
-                 on_side_swap: Optional[Callable[[List[str], str], None]] = None):
+                 on_side_swap: Optional[Callable[[List[str], str], None]] = None,
+                 on_auto_calibrate: Optional[Callable[[], None]] = None,
+                 on_calibrate_manual: Optional[Callable[[], None]] = None):
         self.master = master
         self.settings = settings if settings is not None else {}  # Config des Overlays (Optionen)
         self.save_settings = save_settings
@@ -110,6 +112,8 @@ class ExtrasPanel:
         self.on_import_code = on_import_code  # Verlauf: Deck erneut importieren
         self.on_copy_code = on_copy_code      # Verlauf: Deck-Code kopieren
         self.on_side_swap = on_side_swap      # Side-Profil: (Ziel-Deck, Name) im Deck-Editor tauschen
+        self.on_auto_calibrate = on_auto_calibrate      # Optionen: Kalibrierung automatisch
+        self.on_calibrate_manual = on_calibrate_manual  # Optionen: Kalibrierungs-Assistent
         self.s = scale = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = ("Helvetica", int(10 * scale))
         self.font_bold = ("Helvetica", int(10 * scale), "bold")
@@ -211,6 +215,9 @@ class ExtrasPanel:
                                       command=self._on_option_changed)
         self.options_menu.add_section("Starter", "Einstufung aus den Deck-Guides von Master Duel Meta")
         self.options_menu.add_buttons([("Aus Guides nachladen (online)", self.load_guides)])
+        self.options_menu.add_section("Kalibrierung", "nur nötig, wenn Klicks danebengehen")
+        self.options_menu.add_buttons([("Automatisch kalibrieren", lambda: self._calibrate(self.on_auto_calibrate)),
+                                       ("Assistent (von Hand)", lambda: self._calibrate(self.on_calibrate_manual))])
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
@@ -338,6 +345,11 @@ class ExtrasPanel:
         width = label.winfo_reqwidth()
         label.destroy()
         return width
+
+    @staticmethod
+    def _calibrate(callback):
+        if callback is not None:
+            callback()
 
     def _open_options(self) -> None:
         self.options_menu.popup_below(self.options_btn)

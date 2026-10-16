@@ -471,17 +471,14 @@ class MasterDuelImporter:
                                         bg="#2e7d32", font=font_main, **btn_size)
         self.export_btn.pack(**btn_pack)
 
-        self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras,
-                                        bg="#5e35b1", font=font_main, **btn_size)
+        # Kalibrieren steht in den Optionen des Deck-Fensters; der Deck-Knopf nimmt dafür den Platz des
+        # früheren Kalibrieren-Knopfs ein (Breite: beide Knöpfe samt Abstand), die Leiste bleibt gleich breit
+        deck_w = tkfont.Font(font=font_main).measure("Deck") + 2 * btn_size["padx"]
+        calib_w = tkfont.Font(font=font_sub).measure("Kalibrieren ▾") + 2 * btn_size["padx"]
+        self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras, bg="#5e35b1",
+                                        font=font_main, min_width=deck_w + calib_w + 2 * btn_pack["padx"],
+                                        **btn_size)
         self.extras_btn.pack(**btn_pack)
-
-        # Kalibrieren: automatisch (ein Klick) oder von Hand mit dem Assistenten
-        self.calib_btn = RoundedButton(btn_frame, text="Kalibrieren ▾", bg="#444444", font=font_sub, **btn_size)
-        self.calib_menu = DarkMenu(self.root, font=font_sub)
-        self.calib_menu.add_command(label="Automatisch", command=self.start_auto_calibration)
-        self.calib_menu.add_command(label="Manuell (Assistent)", command=self.open_calibration)
-        self.calib_btn.config(menu=self.calib_menu)
-        self.calib_btn.pack(**btn_pack)
 
         # Tempo-Auswahl ganz rechts: Button mit ▾, öffnet ein Auswahlmenü (nach oben, da das
         # Fenster am unteren Bildschirmrand sitzt). Die aktuelle Wahl ist im Menü markiert.
@@ -896,7 +893,7 @@ class MasterDuelImporter:
             pass
 
     def _set_buttons(self, state):
-        for button in (self.start_btn, self.export_btn, self.extras_btn, self.calib_btn, self.speed_btn):
+        for button in (self.start_btn, self.export_btn, self.extras_btn, self.speed_btn):
             button.config(state=state)
 
     # --- AUTOMATISCHE KALIBRIERUNG ---
@@ -1272,7 +1269,9 @@ class MasterDuelImporter:
                                   on_close=self._on_extras_closed, is_active=lambda: self.is_visible,
                                   settings=self.config, save_settings=self._on_settings_changed,
                                   on_import_code=self._import_from_history, on_copy_code=self._copy_from_history,
-                                  on_side_swap=self.start_side_swap)
+                                  on_side_swap=self.start_side_swap,
+                                  on_auto_calibrate=self.start_auto_calibration,
+                                  on_calibrate_manual=self.open_calibration)
         if not (self._last_scan and self.extras.try_reuse(self._last_scan)):
             self._start_extras_scan()
 

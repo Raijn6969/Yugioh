@@ -986,7 +986,8 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(menu.is_open)
         self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Karten-Hover-Scan",
                                              "Spalte „2. Zug“", "Analyse-Animation",
-                                             "Aus Guides nachladen (online)"})
+                                             "Aus Guides nachladen (online)", "Automatisch kalibrieren",
+                                             "Assistent (von Hand)"})
         # Buttons einer Reihe nebeneinander
         self.assertIs(menu.buttons["Speicher lesen"].master, menu.buttons["Texterkennung"].master)
         menu.invoke("Speicher lesen")
@@ -996,6 +997,21 @@ class ExtrasPanelTest(unittest.TestCase):
         menu.invoke("Analyse-Animation")  # war an → aus
         self.assertEqual(menu.buttons["Analyse-Animation"]._opts["fill"], options_popup.OFF)
         menu.close()
+        self.assertFalse(menu.is_open)
+
+    def test_calibration_buttons_in_options_call_overlay_and_close_menu(self):
+        auto, manual = mock.Mock(), mock.Mock()
+        self.panel.on_auto_calibrate, self.panel.on_calibrate_manual = auto, manual
+        menu = self.panel.options_menu
+        self.panel._open_options()
+        self.root.update()
+        menu.invoke("Automatisch kalibrieren")
+        auto.assert_called_once_with()
+        self.assertFalse(menu.is_open)  # schließt sich vor der Kalibrierung
+        self.panel._open_options()
+        self.root.update()
+        menu.invoke("Assistent (von Hand)")
+        manual.assert_called_once_with()
         self.assertFalse(menu.is_open)
 
     def test_speed_option_only_when_reading_memory(self):

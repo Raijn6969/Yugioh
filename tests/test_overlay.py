@@ -132,6 +132,19 @@ class OverlayTest(unittest.TestCase):
         with open(self.config_file, encoding="utf-8") as f:
             self.assertEqual(json.load(f)["SPEED_PROFILE"], "slow")
 
+    def test_calibration_lives_in_deck_options(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        root, app = self.open_app()
+        self.assertFalse(hasattr(app, "calib_btn"))
+        with mock.patch.object(Overlay.md_layout, "md_frame", return_value=None), \
+                mock.patch.object(Overlay.MasterDuelImporter, "start_auto_calibration") as auto, \
+                mock.patch.object(Overlay.MasterDuelImporter, "open_calibration") as manual:
+            self.open_extras(app, root, None)
+            app.extras.on_auto_calibrate()
+            app.extras.on_calibrate_manual()
+        auto.assert_called_once_with()
+        manual.assert_called_once_with()
+
     def test_window_position_remembered(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
