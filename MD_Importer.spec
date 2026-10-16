@@ -24,7 +24,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['cv2'],  # nur optional von pyscreeze (locateOnScreen mit confidence), nie genutzt
     noarchive=False,
     optimize=0,
 )
