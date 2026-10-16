@@ -22,6 +22,7 @@ Kacheln steht die Winrate des angezeigten Decks (Decks mit denselben Archetypen 
 import threading
 import time
 import tkinter as tk
+import traceback
 from collections import Counter
 from types import SimpleNamespace
 import tkinter.font as tkfont
@@ -34,6 +35,7 @@ from card_stats import CardInfo, CardStatsDB
 from dark_scrollbar import DarkScrollbar
 from options_popup import OptionsPopup
 from deck_analysis import DeckAnalysis, DeckEntry, DeckWatcher, current_changes, slot_at, slot_rect
+from debug_log import clear_changed, dlog_changed
 from deck_export import DeckScan
 from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
 from hover_card import ANALYSIS_TIME, AMBER, GREEN, NEON, RED, HoverCard, HoverContent, HoverRow
@@ -989,6 +991,9 @@ class ExtrasPanel:
             self._update_change_warning()
             self._show_guide_result()
             self._show_history_result()
+            clear_changed("extras-poll")
+        except Exception:  # sonst schriebe ein Dauerfehler 20× je Sekunde einen Traceback ins Log
+            dlog_changed("extras-poll", "[DECK-FENSTER] Fehler im Takt:\n" + traceback.format_exc())
         finally:
             if not self.closed:
                 self._poll_job = self.win.after(POLL_MS, self._poll)

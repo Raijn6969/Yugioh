@@ -729,6 +729,21 @@ class ExtrasPanelTest(unittest.TestCase):
         self.root.update()
         self.assertFalse(self.db.handtrap("1").handtrap)
 
+    def test_error_in_the_poll_is_logged_once_and_the_poll_goes_on(self):
+        import debug_log
+        debug_log.clear_changed("extras-poll")
+
+        def broken():
+            raise RuntimeError("kaputt")
+
+        with mock.patch.object(self.panel, "_update_hover", broken), \
+                mock.patch.object(debug_log.logger, "info") as log:
+            self.panel._poll()  # wirft nicht (sonst kein nächster Takt und ein Traceback je Takt im Log)
+            self.assertIsNotNone(self.panel._poll_job)
+            self.panel._poll()
+        self.assertEqual(log.call_count, 1)
+        self.assertIn("RuntimeError: kaputt", log.call_args[0][0])
+
     def test_late_history_result_does_not_disturb_a_running_scan(self):
         self.panel.set_scan(self.scan)
         analysis = self.panel.analysis
