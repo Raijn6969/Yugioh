@@ -28,11 +28,12 @@ PRIMARY = "#0070b8"     # Knopffüllungen: Hauptaktion, neutral, Export, Gefahr/
 NEUTRAL = "#444444"
 SUCCESS = "#2e7d32"
 DANGER = "#cc0000"
+DECK = "#5e35b1"        # Deck-Knopf der Hauptleiste (weiß darauf 8:1)
 # Knopfrollen für RoundedButton(role=…): (Füllung, Schrift, Rand). "ruhig + Akzent": Navigation neutral, der aktive
 # Knopf gold, Farbe nur für Hauptaktion (primary/success) und Gefahr.
 ROLES = {"primary": (PRIMARY, "white", LINE), "neutral": (NEUTRAL, "white", LINE),
          "success": (SUCCESS, "white", LINE), "danger": (DANGER, "white", BAD),
-         "active": (GOLD_HOVER, TEXT, GOLD)}
+         "active": (GOLD_HOVER, TEXT, GOLD), "deck": (DECK, "white", LINE)}
 
 # Schrift: eine Familie, Kennzahlen Consolas; Größen in pt bei 1080p (mit font() × Maßstab s)
 FONT = "Segoe UI"

@@ -508,7 +508,7 @@ class MasterDuelImporter:
                                         role="success", font=font_main, min_width=same_w, **btn_size)
         self.export_btn.pack(**btn_pack)
 
-        self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras, role="neutral",
+        self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras, role="deck",
                                         font=font_main, min_width=same_w, **btn_size)
         self.extras_btn.pack(**btn_pack)
 
