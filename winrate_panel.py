@@ -381,6 +381,7 @@ class WinratePanel:
         if matches:
             count = f"{len(matches)} von {len(period_matches)}" if len(period_matches) > len(matches) else ""
             self._section("matches", f"LETZTE MATCHES ({count})" if count else "LETZTE MATCHES")
+            self._pending = self.db.unconfirmed_dids()
             for i, match in enumerate(matches):
                 row = self._match_row(match, ROW_ALT if i % 2 else BG, i)
                 self._register_item("matches", row, {"fill": tk.X})
@@ -567,10 +568,12 @@ class WinratePanel:
             slot.config(height=replay_btn.winfo_reqheight())  # sonst wird der Knopf abgeschnitten
         text = tk.Frame(row, bg=bg)
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        title = match.deck_name or match.md_deck or UNKNOWN_DECK
+        pending = match.did in getattr(self, "_pending", ())  # dieselbe Regel wie unconfirmed_matches
+        title = match.deck_name or match.md_deck or ("Details folgen" if pending else UNKNOWN_DECK)
         if match.opp_name:  # bei gewähltem Deck steht es schon oben
             title = f"vs  {match.opp_name}" if self.selected else f"{title}  vs  {match.opp_name}"
-        tk.Label(text, text=title, fg=TEXT, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
+        tk.Label(text, text=title, fg=MUTED if pending and title == "Details folgen" else TEXT, bg=bg,
+                 font=self.font_small, anchor="w").pack(fill=tk.X)
         details = [when(match.played_at, short=True)]
         if match.coin is not None:
             details.append("Münze ✓" if match.coin else "Münze ✗")
@@ -578,6 +581,8 @@ class WinratePanel:
             details.append(f"{match.turns} Züge" if match.turns != 1 else "1 Zug")
         if match.finish == FINISH_SURRENDER:
             details.append("Aufgabe")
+        if pending:
+            details.append("Match History öffnen")
         info = tk.Label(text, text="  ·  ".join(details), fg=MUTED, bg=bg, font=self.font_small, anchor="w",
                         justify=tk.LEFT)
         info.pack(fill=tk.X)

@@ -614,6 +614,19 @@ class WinratePanelTest(unittest.TestCase):
         self.panel._set_period("all")
         self.assertEqual(self.panel.match_limit, 20)
 
+    def test_pending_live_match_shows_hint(self):
+        record = mh.MatchRecord("77", time.time() + 5, mh.RANKED, mh.LOSS, False, 0, 0, [], [], [], [], "", "live",
+                                False)
+        self.db.add_matches([(record, "", "#main", "", "")])
+        self.panel._pending = self.db.unconfirmed_dids()
+        match = next(m for m in self.db.matches(None, None, 5) if m.did == "77")
+        texts = self.texts(self.panel._match_row(match, "#000000", 0))
+        self.assertIn("Details folgen", texts)
+        self.assertTrue(any(t.endswith("Münze ✗  ·  Match History öffnen") for t in texts), texts)
+        old = next(m for m in self.db.matches(None, None, 5) if m.did != "77")  # aus der History: kein Hinweis
+        texts = self.texts(self.panel._match_row(old, "#000000", 0))
+        self.assertFalse(any("Match History öffnen" in t or t == "Details folgen" for t in texts))
+
     def test_replay_button_full_size(self):
         from rounded_button import RoundedButton
         match = self.db.matches(None, None, 5)[0]

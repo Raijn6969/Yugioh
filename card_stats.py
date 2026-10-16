@@ -715,13 +715,16 @@ class CardStatsDB:
         return self._describe([str(c) for c in card_ids])[0]
 
     # ── Matches (Winrate-Tracker) ──
+    def unconfirmed_dids(self) -> set:
+        """Duell-IDs der live erfassten Duelle seit dem letzten Blick in die Match History."""
+        with self._connect() as con:
+            return {r[0] for r in con.execute("""SELECT did FROM matches WHERE source = 'live' AND played_at >
+                                      COALESCE((SELECT MAX(played_at) FROM matches WHERE source = 'history'), 0)""")}
+
     def unconfirmed_matches(self) -> int:
         """Live erfasste Duelle seit dem letzten Blick in die Match History (ohne Gegner-Deck und Zugzahl). Die Match
         History zeigt nur die letzten Duelle (match_history.HISTORY_SIZE) – was darüber hinausgeht, bleibt ohne."""
-        with self._connect() as con:
-            return con.execute("""SELECT COUNT(*) FROM matches WHERE source = 'live' AND played_at >
-                                      COALESCE((SELECT MAX(played_at) FROM matches WHERE source = 'history'), 0)"""
-                               ).fetchone()[0]
+        return len(self.unconfirmed_dids())
 
     def match_sources(self, dids: Iterable[str]) -> Dict[str, str]:
         """{Duell-ID: "live"/"history"} der schon gespeicherten Matches."""
