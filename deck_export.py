@@ -246,6 +246,7 @@ class DeckExporter:
                 dlog(f"[SPEICHER] Deck nicht lesbar ({e}) → Texterkennung.")
                 self.status_callback("Speicher nicht lesbar – Texterkennung", WARN)
                 self.memory_fallback = True
+                self.reader.apply_saved_speed()
         problem = vision_engine.check_tesseract(self.tesseract_cmd, "eng")
         if problem:
             raise RuntimeError(problem)

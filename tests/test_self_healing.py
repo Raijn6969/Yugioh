@@ -99,6 +99,17 @@ class AdaptiveTempoTest(unittest.TestCase):
         core._report_trouble("Test")
         self.assertEqual(core.speed_mult, 1.5)  # Selbstheilung bleibt aktiv
 
+    def test_memory_fallback_applies_saved_speed(self):
+        args = ("", lambda *a: None, lambda **k: None)
+        core = ie.DeckImporterCore({"SPEED_PROFILE": "slow"}, *args, memory=True)
+        self.assertEqual(core.speed_mult, 1.0)
+        core.apply_saved_speed()
+        self.assertEqual(core.speed_mult, 1.5)
+        core = ie.DeckImporterCore({"SPEED_PROFILE": "fast"}, *args, memory=True)
+        core.speed_mult = 1.5  # Selbstheilung war schon langsamer
+        core.apply_saved_speed()
+        self.assertEqual(core.speed_mult, 1.5)
+
     def test_single_hiccup_does_not_slow_down(self):
         core = make_core("normal")
         core._report_trouble("Test")

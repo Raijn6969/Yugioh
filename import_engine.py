@@ -1480,6 +1480,13 @@ class DeckImporterCore:
             dlog(f"[SPEICHER] Nicht möglich ({e}) → Import mit Texterkennung.")
             self.notes.append(f"Speicher-Modus nicht möglich ({e}) – der Import lief mit Texterkennung.")
             self.memory_fallback = True
+            self.apply_saved_speed()
+
+    def apply_saved_speed(self):
+        """Speicher-Modus fiel aus → ab jetzt das gespeicherte Tempo (nie schneller als die Selbstheilung)."""
+        saved = SPEED_MULTIPLIERS.get(self.config.get("SPEED_PROFILE", "normal"), 1.0)
+        self.speed_mult = max(self.speed_mult, saved)
+        dlog(f"[TEMPO] Texterkennung statt Speicher → gespeichertes Tempo, ×{self.speed_mult:.2f}")
 
     def _memory_deck(self) -> Optional[Tuple[List[int], List[int]]]:
         """(Main, Extra) als Konami-IDs aus dem Speicher; None = Speicher-Modus nicht (mehr) verfügbar."""
