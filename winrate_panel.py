@@ -24,7 +24,7 @@ from hover_card import AMBER, GREEN, NEON, RED
 from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
 from rounded_button import RoundedButton
 from season_review import DAY_START_HOUR  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im Tag
-from window_style import apply_frame, no_activate
+from window_style import apply_frame, no_activate, place_in_work_area
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
@@ -315,8 +315,7 @@ class WinratePanel:
             y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
         else:
             x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x = min(max(0, x), screen_w - w)
-        y = min(max(0, y), screen_h - h)
+        x, y = place_in_work_area(x, y, w, h, anchor)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Inhalt ──

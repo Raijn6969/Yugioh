@@ -208,6 +208,27 @@ def work_area() -> Optional[Tuple[int, int, int, int]]:
     return rect.left, rect.top, rect.right, rect.bottom
 
 
+class _MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                ("dwFlags", wintypes.DWORD)]
+
+
+_MonitorFromPoint = _sig(_user32.MonitorFromPoint, [wintypes.POINT, wintypes.DWORD], wintypes.HANDLE)
+_GetMonitorInfoW = _sig(_user32.GetMonitorInfoW, [wintypes.HANDLE, ctypes.POINTER(_MONITORINFO)], wintypes.BOOL)
+_MONITOR_DEFAULTTONEAREST = 2
+
+
+def monitor_work_area(x: int, y: int) -> Optional[Tuple[int, int, int, int]]:
+    """(links, oben, rechts, unten) des Monitors, auf dem der Punkt liegt (sonst der nächste), ohne Taskleiste."""
+    monitor = _MonitorFromPoint(wintypes.POINT(int(x), int(y)), _MONITOR_DEFAULTTONEAREST)
+    info = _MONITORINFO()
+    info.cbSize = ctypes.sizeof(_MONITORINFO)
+    if not monitor or not _GetMonitorInfoW(monitor, ctypes.byref(info)):
+        return None
+    rect = info.rcWork
+    return rect.left, rect.top, rect.right, rect.bottom
+
+
 def screen_size() -> Tuple[int, int]:
     """(Breite, Höhe) des Hauptbildschirms."""
     return _GetSystemMetrics(0), _GetSystemMetrics(1)   # SM_CXSCREEN, SM_CYSCREEN

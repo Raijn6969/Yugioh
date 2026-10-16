@@ -29,7 +29,7 @@ from extras_panel import BG, GOLD, MUTED, PANEL, ROW_ALT, TEXT
 from history_panel import when
 from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate
+from window_style import apply_frame, no_activate, place_in_work_area
 
 POLL_MS = 100
 COLUMNS = 6             # Startkarten pro Reihe in der Detailansicht
@@ -229,8 +229,7 @@ class ComboPanel:
             y = top.winfo_rooty() + int(40 * s)
         else:
             x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x = min(max(0, x), screen_w - w)
-        y = min(max(0, y), screen_h - h)
+        x, y = place_in_work_area(x, y, w, h, anchor)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Laden (Hintergrund) ──

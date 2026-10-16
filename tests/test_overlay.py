@@ -853,6 +853,59 @@ class WindowFrameTest(unittest.TestCase):
             root.destroy()
 
 
+MONITORS = [(0, 0, 1920, 1040), (1920, 0, 3840, 1080)]  # Hauptmonitor mit Taskleiste, Monitor 2 rechts daneben
+
+
+def work_area_of(x, y):
+    return next((m for m in MONITORS if m[0] <= x < m[2] and m[1] <= y < m[3]), MONITORS[0])
+
+
+class WorkAreaTest(unittest.TestCase):
+    def test_real_monitor_has_a_work_area(self):
+        import win_api
+        left, top, right, bottom = win_api.monitor_work_area(0, 0)
+        self.assertTrue(right > left and bottom > top)
+
+    def test_window_next_to_the_anchor_stays_on_monitor_2(self):
+        import window_style
+        anchor = mock.Mock()
+        anchor.winfo_toplevel.return_value = mock.Mock(winfo_rootx=lambda: 2400, winfo_rooty=lambda: 180,
+                                                       winfo_width=lambda: 540, winfo_height=lambda: 810)
+        with mock.patch.object(window_style.win_api, "monitor_work_area", side_effect=work_area_of):
+            self.assertEqual(window_style.place_in_work_area(2452, 200, 480, 460, anchor), (2452, 200))
+            # am rechten Rand von Monitor 2: an dessen Rand geklemmt, nicht an den Hauptmonitor
+            self.assertEqual(window_style.place_in_work_area(3700, 900, 480, 460, anchor), (3360, 620))
+
+    def test_monitor_left_of_the_main_monitor_with_negative_coordinates(self):
+        import window_style
+        left_monitor = (-1920, 0, 0, 1080)
+        with mock.patch.object(window_style.win_api, "monitor_work_area", return_value=left_monitor):
+            self.assertEqual(window_style.place_in_work_area(-1000, -50, 520, 660), (-1000, 0))
+            self.assertEqual(window_style.place_in_work_area(-100, 700, 520, 660), (-520, 420))
+
+    def test_panel_is_placed_next_to_the_deck_window_on_monitor_2(self):
+        import history_panel
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            deck = tk.Toplevel(root)
+            deck.geometry("540x810+2400+180")
+            button = tk.Button(deck, text="Verlauf")
+            button.pack()
+            root.update()
+            db = mock.Mock()
+            db.history.return_value = []
+            with mock.patch("window_style.win_api.monitor_work_area", side_effect=work_area_of), \
+                    mock.patch.object(root, "winfo_screenwidth", return_value=1920, create=True):
+                panel = history_panel.HistoryPanel(root, db, lambda c: None, lambda c: None, lambda: None,
+                                                   anchor=button)
+            root.update()
+            self.assertGreaterEqual(panel.win.winfo_x(), 1920)  # bleibt auf Monitor 2
+            panel.close()
+        finally:
+            root.destroy()
+
+
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
 class RoundedButtonTest(unittest.TestCase):
     def setUp(self):

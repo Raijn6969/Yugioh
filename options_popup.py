@@ -14,7 +14,7 @@ import tkinter.font as tkfont
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from rounded_button import RoundedButton
-from window_style import GOLD, ClickOutside, apply_frame, no_activate
+from window_style import GOLD, ClickOutside, apply_frame, no_activate, place_in_work_area
 
 BG = "#2b2b2b"
 MUTED = "#9e9e9e"
@@ -90,7 +90,8 @@ class OptionsPopup:
         win.update_idletasks()
         x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - win.winfo_reqwidth())
         y = widget.winfo_rooty() + widget.winfo_height() + self.gap
-        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        x, y = place_in_work_area(x, y, win.winfo_reqwidth(), win.winfo_reqheight(), widget)
+        win.geometry(f"+{x}+{y}")
         win.deiconify()
         apply_frame(win)
         no_activate(win)  # Master Duel bleibt aktiv (sonst Taskleiste über dem Spiel)
@@ -106,7 +107,9 @@ class OptionsPopup:
         self.window.update_idletasks()
         widget = self._anchor
         x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - self.window.winfo_reqwidth())
-        self.window.geometry(f"+{max(0, x)}+{self.window.winfo_rooty()}")
+        x, y = place_in_work_area(x, self.window.winfo_rooty(), self.window.winfo_reqwidth(),
+                                  self.window.winfo_reqheight(), widget)
+        self.window.geometry(f"+{x}+{y}")
 
     def _build_body(self) -> None:
         s = self.s

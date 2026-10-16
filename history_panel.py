@@ -21,7 +21,7 @@ from hover_card import AMBER, NEON
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from utils import parse_deck_code
-from window_style import allow_typing, apply_frame, no_activate
+from window_style import allow_typing, apply_frame, no_activate, place_in_work_area
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
 SEARCH_DELAY_MS = 150  # Erst suchen, wenn kurz nicht getippt wurde
@@ -147,8 +147,7 @@ class HistoryPanel:
             y = anchor.winfo_rooty() + anchor.winfo_height() + int(6 * s)
         else:
             x, y = screen_w - w - int(60 * s), screen_h - h - int(120 * s)
-        x = min(max(0, x), screen_w - w)
-        y = min(max(0, y), screen_h - h)
+        x, y = place_in_work_area(x, y, w, h, anchor)
         self.win.geometry(f"{w}x{h}+{x}+{y}")
 
     # ── Liste ──

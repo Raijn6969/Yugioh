@@ -6,6 +6,7 @@ es keine runden Ecken; dann zeichnet Tk einen gleichfarbigen 1-px-Rand.
 """
 
 import tkinter as tk
+from typing import Optional, Tuple
 
 import win_api
 
@@ -34,6 +35,23 @@ def apply_frame(window: tk.Misc, color: str = GOLD) -> bool:
     if not native:
         window.configure(highlightthickness=1, highlightbackground=color, highlightcolor=color)
     return native
+
+
+def place_in_work_area(x: int, y: int, width: int, height: int, anchor: Optional[tk.Misc] = None) -> Tuple[int, int]:
+    """
+    Fensterposition so klemmen, dass das Fenster im Arbeitsbereich (ohne Taskleiste) des Monitors liegt, auf dem der
+    Anker (Mitte seines Fensters, sonst x/y) liegt – nicht nur auf dem Hauptmonitor, auch bei Monitoren links davon.
+    """
+    if anchor is not None:
+        top = anchor.winfo_toplevel()
+        point = top.winfo_rootx() + top.winfo_width() // 2, top.winfo_rooty() + top.winfo_height() // 2
+    else:
+        point = x, y
+    area = win_api.monitor_work_area(*point)
+    if area is None:
+        return x, y
+    left, top_edge, right, bottom = area
+    return min(max(left, x), right - width), min(max(top_edge, y), bottom - height)
 
 
 def no_activate(window: tk.Misc) -> None:
