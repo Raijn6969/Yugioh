@@ -224,7 +224,7 @@ class OverlayHookTest(unittest.TestCase):
         opened.assert_called_once_with(release.page)
         labels = [label for label, _, _ in ask.call_args.args[3]]
         self.assertEqual(labels, ["Jetzt aktualisieren", "Was ist neu?", "Später"])
-        self.assertIn("deine Daten bleiben erhalten", ask.call_args.args[2])
+        self.assertIn("deine Daten bleiben", ask.call_args.args[2])
 
     def test_later_does_nothing(self):
         self.one_click_env()

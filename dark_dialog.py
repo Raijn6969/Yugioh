@@ -154,8 +154,9 @@ def _window(master: tk.Misc, title: str, message: str, kind: str):
 
     body = tk.Frame(win, bg=BG, padx=int(16 * scale), pady=int(12 * scale))
     body.pack(fill=tk.BOTH, expand=True)
-    tk.Label(body, text=message, fg=TEXT, bg=BG, font=text_font, wraplength=wrap,
-             justify=tk.LEFT, anchor="w").pack(fill=tk.X)
+    if message:
+        tk.Label(body, text=message, fg=TEXT, bg=BG, font=text_font, wraplength=wrap,
+                 justify=tk.LEFT, anchor="w").pack(fill=tk.X)
     return win, body, scale, text_font, font_bold, wrap
 
 

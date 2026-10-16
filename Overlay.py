@@ -241,8 +241,7 @@ class MasterDuelImporter:
         if self._can_self_update(release):
             choices = [("Jetzt aktualisieren", "install", PRIMARY), ("Was ist neu?", "page", NEUTRAL),
                        ("Später", None, NEUTRAL)]
-            text += ("Jetzt aktualisieren? Der Importer lädt die neue Version, ersetzt sich selbst und startet neu "
-                     "– deine Daten bleiben erhalten.")
+            text += "Der Importer lädt die neue Version, ersetzt sich selbst und startet neu – deine Daten bleiben."
         else:
             choices = [("Release-Seite öffnen", "page", PRIMARY), ("Später", None, NEUTRAL)]
             text += "Neue Version auf der Release-Seite herunterladen."
@@ -348,8 +347,7 @@ class MasterDuelImporter:
             return
         dlog(f"[UPDATE] Letztes Update unvollständig ({code}).")
         show_message(self.root, "Update unvollständig",
-                     "Das letzte Update konnte nicht alle Dateien kopieren (eine Datei war gesperrt).\n\n"
-                     "Bitte die zip von GitHub neu herunterladen und entpacken.\n\n"
+                     "Update unvollständig (Datei gesperrt). Bitte die zip von GitHub neu laden und entpacken.\n"
                      f"({code})", kind="warning", wait=False,
                      actions=[("Release-Seite öffnen", self._open_project_page)])
 
@@ -675,12 +673,11 @@ class MasterDuelImporter:
             return
         choice = ask_choice(
             self.root, "Wie sollen Karten gelesen werden?",
-            "Speicher lesen (empfohlen): Der Importer liest die Karten-IDs direkt aus Master Duel – schneller "
-            "und ohne Lesefehler. Es wird nur gelesen, am Spiel wird nichts verändert. Konami erlaubt so etwas "
-            "nicht ausdrücklich (wie bei Trackern, z.B. untapped.gg) – Nutzung auf eigenes Risiko.\n\n"
-            "Texterkennung: Der Importer liest die Kartennamen vom Bildschirm – langsamer, aber ganz ohne "
-            "Zugriff auf das Spiel.\n\n"
-            "Gilt für Import, Deck-Scan und Export. Umschalten: Deck → Optionen.",
+            "Speicher lesen (empfohlen): liest die Karten-IDs direkt aus Master Duel – schneller, ohne Lesefehler, "
+            "nur lesend. Konami erlaubt das nicht ausdrücklich (wie bei Trackern, z. B. untapped.gg) – auf eigenes "
+            "Risiko.\n\n"
+            "Texterkennung: liest Kartennamen vom Bildschirm – langsamer, ganz ohne Zugriff aufs Spiel.\n\n"
+            "Umschalten: Deck → Optionen.",
             [("Speicher lesen", "memory", PRIMARY), ("Texterkennung", "ocr", NEUTRAL)])
         if choice is None:
             return  # nichts gewählt: Texterkennung, beim nächsten Start wird wieder gefragt
@@ -1033,11 +1030,10 @@ class MasterDuelImporter:
             if resume and card_ids is None:
                 answer = ask_choice(
                     self.root, "Import fortsetzen?",
-                    f"Der letzte Import mit diesem Deck wurde abgebrochen "
-                    f"({len(resume['done'])} Karten waren schon eingefügt, {resume['saved_at']}).\n\n"
-                    "Fortsetzen: dort weitermachen – das Deck wird NICHT geleert (es darf seit dem Abbruch "
-                    "nicht verändert worden sein).\n"
-                    "Neu starten: Deck wird geleert und komplett neu importiert.",
+                    f"Letzter Import mit diesem Deck abgebrochen "
+                    f"({len(resume['done'])} Karten eingefügt, {resume['saved_at']}).\n"
+                    "Fortsetzen: dort weitermachen, ohne das Deck zu leeren (seitdem nicht ändern).\n"
+                    "Neu starten: Deck leeren, alles neu.",
                     [("Fortsetzen", True, PRIMARY), ("Neu starten", False, NEUTRAL),
                      ("Abbrechen", None, NEUTRAL)])
                 if answer is None:
@@ -1098,14 +1094,13 @@ class MasterDuelImporter:
             if failed_cards or has_errors:
                 self.update_status("Mit Lücken fertig!", WARN)
                 show_message(self.root, "Deck-Audit – bitte prüfen",
-                             "Der Import ist abgeschlossen, aber bei diesen Karten stimmt die Anzahl "
-                             "nicht oder ist unsicher. Bitte im Deck prüfen und von Hand korrigieren:",
+                             "Import fertig, aber bei diesen Karten stimmt die Anzahl nicht oder ist unsicher – "
+                             "bitte im Deck prüfen:",
                              kind="warning", items=failed_cards, notes=notes)
             else:
                 self.update_status("Import Erfolgreich!", GOOD)
                 if notes:
-                    show_message(self.root, "Import erfolgreich", "Alle Karten wurden importiert.",
-                                 kind="info", notes=notes)
+                    show_message(self.root, "Import erfolgreich", "", kind="info", notes=notes)
         else:
             self.update_status("Abbruch / Fehler", BAD)
             if message:
@@ -1124,8 +1119,8 @@ class MasterDuelImporter:
         elif success:
             self.update_status("Tausch mit Lücken – bitte prüfen", WARN)
             show_message(self.root, "Side-Tausch – bitte prüfen",
-                         f"„{label}“ ist durchgelaufen, aber bei diesen Karten stimmt die Anzahl nicht oder ist "
-                         "unsicher. Bitte im Deck prüfen und von Hand korrigieren:",
+                         f"„{label}“ fertig, aber bei diesen Karten stimmt die Anzahl nicht oder ist unsicher – "
+                         "bitte im Deck prüfen:",
                          kind="warning", items=failed_cards, notes=notes)
         else:
             self.update_status("Side-Tausch abgebrochen", BAD)
@@ -1224,9 +1219,8 @@ class MasterDuelImporter:
         else:
             outcome = "Es gab keine Sicherung – die Datenbank wurde leer neu angelegt (Winrate, Verlauf, Replays weg)."
         show_message(self.root, "Datenbank beschädigt",
-                     f"Die Datenbank mit Winrate, Verlauf und Replays war beschädigt.\n\n{outcome}\n\n"
-                     f"Die beschädigte Datei wurde nicht gelöscht, sondern liegt als\n{os.path.basename(broken)}\n"
-                     "neben der Datenbank.", kind="warning", wait=False)
+                     f"Datenbank (Winrate, Verlauf, Replays) war beschädigt.\n{outcome}\n"
+                     f"Die defekte Datei liegt als {os.path.basename(broken)} daneben.", kind="warning", wait=False)
 
     def _add_to_history(self, result):
         card_ids = getattr(self._core, "_card_ids", None)

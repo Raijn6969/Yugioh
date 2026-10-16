@@ -6,7 +6,7 @@ import tkinter as tk
 
 import win_api
 from rounded_button import RoundedButton
-from window_style import SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, TEXT, font, BAD, BG, GOOD, MUTED, PRIMARY, apply_frame
+from window_style import SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, TEXT, font, BAD, BG, GOLD, GOOD, MUTED, PANEL, apply_frame
 
 
 class CalibrationWizard:
@@ -28,8 +28,6 @@ class CalibrationWizard:
         self.top.wm_attributes("-topmost", True)
 
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
-        w, h = int(300 * s), int(420 * s)
-        self.top.geometry(f"{w}x{h}+{master.winfo_x()}+{max(0, master.winfo_y() - h - 10)}")
         self.top.configure(bg=BG)
 
         # Auf einer Kopie arbeiten: Bei "Abbrechen" bleibt die alte Kalibrierung unverändert
@@ -42,15 +40,19 @@ class CalibrationWizard:
         self.optional = {key for key, _, optional in self.STEPS if optional}
         self.labels = []
         self._build_ui()
+        self.top.update_idletasks()  # Höhe = Inhalt; die Breite bleibt fest
+        w, h = int(300 * s), self.top.winfo_reqheight()
+        self.top.geometry(f"{w}x{h}+{master.winfo_x()}+{max(0, master.winfo_y() - h - 10)}")
         apply_frame(self.top)  # runde Ecken + Goldrand wie das Overlay
 
     def _build_ui(self):
-        header = tk.Frame(self.top, bg=PRIMARY, height=35)
+        s = self.s
+        header = tk.Frame(self.top, bg=PANEL)  # Kopf wie die Deck-Fenster: Fläche + Gold-◆
         header.pack(fill=tk.X)
-        tk.Label(header, text="Kalibrierungs-Assistent", fg="white", bg=PRIMARY,
-                 font=font(SIZE_TITLE, self.s, bold=True)).pack(pady=8)
+        tk.Label(header, text="◆ KALIBRIERUNG", fg=GOLD, bg=PANEL, font=font(SIZE_TITLE, s, bold=True)).pack(
+            side=tk.LEFT, padx=int(12 * s), pady=int(8 * s))
 
-        list_frame = tk.Frame(self.top, bg=BG, padx=15, pady=10)
+        list_frame = tk.Frame(self.top, bg=BG, padx=int(15 * s), pady=int(10 * s))
         list_frame.pack(fill=tk.BOTH, expand=True)
 
         for key, desc in self.steps:
@@ -60,21 +62,22 @@ class CalibrationWizard:
             lbl.pack(anchor="w", pady=3)
             self.labels.append(lbl)
 
-        self.info_lbl = tk.Label(self.top, text="Klicke Start und zeige mit der Maus\nauf das Ziel. (3s Timer)",
+        self.info_lbl = tk.Label(self.top, text="Start klicken, dann 3 s auf das Ziel zeigen.",
                                  fg=MUTED, bg=BG, font=font(SIZE_TEXT, self.s))
         self.info_lbl.pack(pady=2)
 
-        self.action_btn = RoundedButton(self.top, text="Start: Suchleiste", role="primary",
+        self.action_btn = RoundedButton(self.top, text="Start", role="primary",
                                         font=font(SIZE_TEXT, self.s, bold=True), command=self.start_timer,
-                                        padx=12, pady=6)
-        self.action_btn.pack(pady=8)
+                                        padx=int(12 * s), pady=int(6 * s))
+        self.action_btn.pack(pady=int(8 * s))
 
         # Nur bei optionalen Schritten sichtbar
         self.skip_btn = RoundedButton(self.top, text="Überspringen", role="neutral",
-                                      font=font(SIZE_SMALL, self.s), command=self.skip_step, padx=12, pady=3)
+                                      font=font(SIZE_SMALL, self.s), command=self.skip_step,
+                                      padx=int(12 * s), pady=int(3 * s))
 
         RoundedButton(self.top, text="Abbrechen", role="danger", font=font(SIZE_SMALL, self.s),
-                      command=self.cancel_wizard, padx=12, pady=3).pack(pady=5)
+                      command=self.cancel_wizard, padx=int(12 * s), pady=int(3 * s)).pack(pady=int(5 * s))
         self._highlight_current_step()
 
     def _highlight_current_step(self):
@@ -124,9 +127,8 @@ class CalibrationWizard:
         self.current_step += 1
         self.skip_btn.config(state=tk.NORMAL)
         if self.current_step < len(self.steps):
-            next_desc = self.steps[self.current_step][1]
             self._highlight_current_step()
-            self.action_btn.config(text=f"Start: {next_desc}", role="primary", state=tk.NORMAL)
+            self.action_btn.config(text="Start", role="primary", state=tk.NORMAL)
         else:
             self.skip_btn.pack_forget()
             self.action_btn.config(text="Speichern & Beenden", role="success", state=tk.NORMAL,

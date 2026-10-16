@@ -73,7 +73,8 @@ class TrayIcon:
         """Dunkles Tray-Menü mit der unteren rechten Ecke bei (x, y). Nur im Tk-Thread aufrufen."""
         if self._menu is not None:
             self._menu.close()
-        menu = self._menu = DarkMenu(master, font=font(SIZE_TEXT), row_pady=8)
+        scale = max(1.0, master.winfo_screenheight() / 1080.0)
+        menu = self._menu = DarkMenu(master, font=font(SIZE_TEXT, scale), row_pady=int(8 * scale))
         menu.add_label(self._title)
         if self._update_version is not None and self._on_update:
             menu.add_command(f"Update auf {self._update_version} installieren", self._on_update)
