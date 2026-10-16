@@ -88,6 +88,17 @@ class AdaptiveTempoTest(unittest.TestCase):
         self.assertEqual(steps, [0.85, 0.85, 1.0, 1.0, 1.5, 1.5, 2.0, 2.0, 2.0])
         self.assertTrue(core._auto_slowed)
 
+    def test_saved_speed_only_applies_to_text_recognition(self):
+        cfg = {"SPEED_PROFILE": "slow"}
+        args = ("", lambda *a: None, lambda **k: None)
+        self.assertEqual(ie.DeckImporterCore(cfg, *args).speed_mult, 1.5)
+        core = ie.DeckImporterCore(cfg, *args, memory=True)
+        self.assertEqual(core.speed_mult, 1.0)
+        self.assertEqual(cfg["SPEED_PROFILE"], "slow")  # gespeicherter Wert bleibt
+        core._report_trouble("Test")
+        core._report_trouble("Test")
+        self.assertEqual(core.speed_mult, 1.5)  # Selbstheilung bleibt aktiv
+
     def test_single_hiccup_does_not_slow_down(self):
         core = make_core("normal")
         core._report_trouble("Test")

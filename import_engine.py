@@ -118,8 +118,10 @@ class DeckImporterCore:
         self._last_raw_ocr = ""
         self._last_clean_ocr = ""
 
-        # Speed-Profil skaliert kritische Wartezeiten für unterschiedliche Hardware.
-        self.speed_mult = SPEED_MULTIPLIERS.get(self.config.get("SPEED_PROFILE", "normal"), 1.0)
+        # Speed-Profil skaliert kritische Wartezeiten für unterschiedliche Hardware (nur Texterkennung;
+        # im Speicher-Modus immer Normal, die Selbstheilung regelt langsame PCs).
+        profile = "normal" if memory else self.config.get("SPEED_PROFILE", "normal")
+        self.speed_mult = SPEED_MULTIPLIERS.get(profile, 1.0)
 
         # Texterkennungs-Sprache: Deutsch nur, wenn der deutsche Sprachdatensatz vorhanden ist
         self.wants_german = self.config.get("LANGUAGE", "en") == "de"
@@ -166,7 +168,7 @@ class DeckImporterCore:
 
     def execute_import(self):
         dlog(f"\n===== Import {time.strftime('%H:%M:%S')} | MD DECK IMPORTER {APP_VERSION} =====")
-        dlog(f"=== Tempo: {self.config.get('SPEED_PROFILE', 'normal')} | "
+        dlog(f"=== Tempo: {'normal (Speicher)' if self.use_memory else self.config.get('SPEED_PROFILE', 'normal')} | "
              f"Sprache: {self.config.get('LANGUAGE', 'en')} | Texterkennung: {self.ocr_lang} ===")
         if self.wants_german and self.ocr_lang != "deu":
             dlog("[WARNUNG] Sprache Deutsch gewählt, aber Tesseract-OCR/tessdata/deu.traineddata fehlt. "

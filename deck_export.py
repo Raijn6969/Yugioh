@@ -205,7 +205,8 @@ class DeckExporter:
         self.memory = memory        # Lesemethode "Speicher": Deck aus dem Speicher statt per Texterkennung
         self.memory_fallback = False  # Speicher nicht lesbar, es lief mit Texterkennung (Hinweis danach)
         # Texterkennung und Ruckler-Erkennung genau wie beim Import
-        self.reader = reader or DeckImporterCore(config, tesseract_cmd, status_callback, lambda **kwargs: None)
+        self.reader = reader or DeckImporterCore(config, tesseract_cmd, status_callback, lambda **kwargs: None,
+                                                 memory=memory)
 
     def execute(self) -> None:
         """Deck lesen und als .ydk in die Zwischenablage. finish(result=…, error=…)"""
