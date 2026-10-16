@@ -7,10 +7,9 @@ vergrößert die Schrift und erhöht den Kontrast bei schwierigen Hintergründen
 import os
 from typing import Optional
 
-import cv2
 import numpy as np
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageFilter
 
 from debug_log import clear_changed, dlog_changed
 
@@ -41,45 +40,49 @@ def check_tesseract(tesseract_cmd: str, lang: str = "eng") -> Optional[str]:
     return None
 
 
+def _kubisch(a: np.ndarray, faktor: float) -> np.ndarray:
+    """Bikubisch vergrößern mit a = -0,75 wie OpenCV (Pillow nimmt -0,5, das gäbe andere Kantenpixel)."""
+    k = -0.75
+    for achse in (0, 1):
+        n_neu = int(a.shape[achse] * faktor)
+        pos = (np.arange(n_neu) + 0.5) * a.shape[achse] / n_neu - 0.5
+        i0 = np.floor(pos).astype(int)
+        t = pos - i0
+        gewichte = [((k * (t + 1) - 5 * k) * (t + 1) + 8 * k) * (t + 1) - 4 * k, ((k + 2) * t - (k + 3)) * t * t + 1,
+                    ((k + 2) * (1 - t) - (k + 3)) * (1 - t) * (1 - t) + 1,
+                    ((k * (2 - t) - 5 * k) * (2 - t) + 8 * k) * (2 - t) - 4 * k]
+        form = (-1, 1) if achse == 0 else (1, -1)
+        a = sum(np.take(a, np.clip(i0 + d - 1, 0, a.shape[achse] - 1), axis=achse).astype(np.float32)
+                * w.astype(np.float32).reshape(form) for d, w in enumerate(gewichte))
+    return a.clip(0, 255).round().astype(np.uint8)
+
+
+def _vorverarbeiten(image: Image.Image) -> Image.Image:
+    """Graustufen, 250 % vergrößern (Kanten weich), Median 3x3 gegen Holo-Glitzern, adaptive Binarisierung
+    (gaußgewichteter Mittelwert 31x31 minus 2; passt sich der lokalen Helligkeit an, wichtig für Synchro/Link)."""
+    gray = image.convert("L")
+    gray = Image.fromarray(_kubisch(np.asarray(gray), 2.5)).filter(ImageFilter.MedianFilter(3))
+    # Gauß-Kern wie OpenCV (Fenster 31, sigma = 0,3*((31-1)*0,5-1)+0,8 = 5), Rand wird wiederholt
+    x = np.arange(-15, 16)
+    kern = np.exp(-x * x / (2 * 5.0 ** 2))
+    kern /= kern.sum()
+    a = np.pad(np.asarray(gray, dtype=np.float32), 15, mode="edge")
+    a = sum(kern[i] * a[:, i:i + a.shape[1] - 30] for i in range(31))
+    mean = sum(kern[i] * a[i:i + a.shape[0] - 30] for i in range(31))
+    return Image.fromarray(np.where(np.asarray(gray) > np.round(mean) - 2, 255, 0).astype(np.uint8))
+
+
 def do_ocr(image: Image.Image, tesseract_cmd: str, lang: str = "eng", whitelist: Optional[str] = None) -> str:
     # Setze den Pfad zu Tesseract
     pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
-    # 1. PIL Image zu einem OpenCV NumPy Array konvertieren
-    open_cv_image = np.array(image)
-
-    # Sicherstellen, dass wir im Graustufen-Modus sind
-    if len(open_cv_image.shape) == 3:
-        gray = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2GRAY)
-    else:
-        gray = open_cv_image
-
-    # 2. UPSCALING: Das Bild um 250% vergrößern.
-    # CUBIC-Interpolation hält die Kanten der Buchstaben beim Vergrößern weich.
-    scale_percent = 250
-    width = int(gray.shape[1] * scale_percent / 100)
-    height = int(gray.shape[0] * scale_percent / 100)
-    dim = (width, height)
-    resized = cv2.resize(gray, dim, interpolation=cv2.INTER_CUBIC)
-
-    # 3. ANTI-GLARE FILTER: Median Blur gegen das Holo-Glitzern.
-    # Zerstört kleine Störpixel ("Salz und Pfeffer Rauschen"), lässt Kanten aber intakt.
-    blurred = cv2.medianBlur(resized, 3)
-
-    # 4. ADAPTIVE BINARISIERUNG: Der Gamechanger für Synchro/Link-Karten.
-    # Passt den Schwarz/Weiß-Schwellenwert dynamisch an die lokale Helligkeit an.
-    thresh = cv2.adaptiveThreshold(
-        blurred, 255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY,
-        31, 2
-    )
+    thresh = _vorverarbeiten(image)
 
     if whitelist is None:
         whitelist = _WHITELIST_DE if "deu" in lang else _WHITELIST
     custom_config = f"--oem 3 --psm 7 -c tessedit_char_whitelist={whitelist}"
 
-    # Den aufbereiteten OpenCV-Scan an Tesseract übergeben. Hängt Tesseract (PC völlig
+    # Den aufbereiteten Scan an Tesseract übergeben. Hängt Tesseract (PC völlig
     # ausgelastet, Virenscanner), zählt der Read als leer statt den Import einzufrieren.
     try:
         text = pytesseract.image_to_string(thresh, lang=lang, config=custom_config, timeout=OCR_TIMEOUT)

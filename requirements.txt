@@ -2,7 +2,6 @@
 # Installieren:  python -m pip install -r requirements.txt
 mss==10.2.0
 numpy==2.4.4
-opencv-python==4.13.0.92
 pillow==12.2.0
 PyAutoGUI==0.9.54
 pyperclip==1.11.0

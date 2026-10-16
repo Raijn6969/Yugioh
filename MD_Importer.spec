@@ -34,10 +34,10 @@ a = Analysis(
 # ordner braucht nur, was unten in WURZEL_BEHALTEN steht (Laufzeit-DLLs; libffi für _ctypes, zlib1 für Tcl – deren
 # eigene Fassungen hat PyInstaller wegen gleichem Namen durch die aus dem Tesseract-Ordner ersetzt).
 # Ausgeschlossen sind außerdem: Tesseract-Trainingswerkzeuge/Handbuch/Java, osd/eng_backup (nur --psm 7, Englisch/
-# Deutsch), ffmpeg-DLL von cv2 (kein VideoCapture), AVIF von Pillow.
+# Deutsch), AVIF von Pillow.
 AUSSCHLUSS = ['tesseract-ocr/*.exe', 'tesseract-ocr/*.html', 'tesseract-ocr/doc/*', '*.jar',
               'tesseract-ocr/tessdata/osd.*', 'tesseract-ocr/tessdata/eng_backup.*',
-              'cv2/opencv_videoio_ffmpeg*', 'pil/_avif*']
+              'pil/_avif*']
 WURZEL_BEHALTEN = ('vcruntime140.dll', 'msvcp140.dll', 'libffi-8.dll', 'zlib1.dll')
 
 
