@@ -10,7 +10,23 @@ from typing import Optional, Tuple
 
 import win_api
 
-GOLD = "#c9a02f"
+# Gemeinsame Palette (nur Konstanten); Szenenfarben von duel_view/hover_card bleiben dort.
+BG = "#1e1e1e"          # Hintergrund
+PANEL = "#2b2b2b"       # Fläche (Kopfzeile, Kachel, Menü, Popup)
+LINE = "#3d3d3d"        # Rand, Trenner, Scrollgriff
+TEXT = "#e8e8e8"
+MUTED = "#a8a8a8"       # Text gedämpft
+GOLD = "#c9a02f"        # Akzent (Titel, Fokus, aktiv)
+GOLD_HOVER = "#5a4817"  # dunkles Gold für Hover/aktive Fläche
+INFO = "#00e5ff"
+GOOD = "#39ff9f"
+WARN = "#ffb347"
+BAD = "#ff6b6b"
+ROW_ALT = "#242424"     # Zeilenton (jede zweite Zeile)
+HIGHLIGHT = "#0d3440"   # hervorgehobene Zeile
+PRIMARY = "#007acc"     # Knopffüllungen: Hauptaktion, neutral, Gefahr/Schließen
+NEUTRAL = "#444444"
+DANGER = "#cc0000"
 
 
 def _colorref(hex_color: str) -> int:

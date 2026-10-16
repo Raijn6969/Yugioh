@@ -476,7 +476,7 @@ class OverlayTest(unittest.TestCase):
                     app._memory_thread.join()
                 self.pump(root, 0.3)
         self.assertEqual(ask.call_count, 1)
-        status.assert_called_once_with("Speicher-Modus nicht verfügbar", "#ffaa00")  # beim Vorladen wie bisher
+        status.assert_called_once_with("Speicher-Modus nicht verfügbar", Overlay.WARN)  # beim Vorladen wie bisher
 
     def test_fallback_of_an_export_opens_the_popup_afterwards(self):
         root, app = self.memory_app()

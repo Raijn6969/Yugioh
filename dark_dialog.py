@@ -10,21 +10,17 @@ from typing import Any, Callable, List, Optional, Sequence, Tuple
 
 from dark_scrollbar import DarkScrollbar
 from rounded_button import RoundedButton
-from window_style import apply_frame, no_activate
+from window_style import BAD, BG, GOOD, INFO, MUTED, NEUTRAL, PANEL, PRIMARY, TEXT, WARN, apply_frame, \
+    no_activate
 import win_api
 
-BG = "#1e1e1e"
-PANEL = "#2b2b2b"
-TEXT = "#e8e8e8"
-MUTED = "#aaaaaa"
-BUTTON = "#007acc"
 
 # Art → (Akzentfarbe, Symbol)
 KINDS = {
-    "info": ("#00c853", "✓"),
-    "warning": ("#ffaa00", "!"),
-    "error": ("#e53935", "✕"),
-    "question": ("#4fc3f7", "?"),
+    "info": (GOOD, "✓"),
+    "warning": (WARN, "!"),
+    "error": (BAD, "✕"),
+    "question": (INFO, "?"),
 }
 MAX_LIST_LINES = 10  # Längere Listen bekommen eine Scrollleiste
 TOAST_MS = 5000      # so lange bleibt show_toast stehen
@@ -69,7 +65,7 @@ def show_message(master: tk.Misc, title: str, message: str, kind: str = "info",
         button.pack(side=tk.LEFT, padx=int(5 * scale))
         win.action_buttons.append(button)
     ok = RoundedButton(buttons, text="Schließen" if actions else "OK", command=win.destroy,
-                       bg=BUTTON if not actions else "#444444", **button_size)
+                       bg=PRIMARY if not actions else NEUTRAL, **button_size)
     ok.pack(side=tk.LEFT, padx=int(5 * scale))
     win.ok_button = ok  # für Tests
     win.feedback_label = feedback

@@ -49,7 +49,7 @@ from dark_menu import DarkMenu
 from debug_log import append, dlog, dlog_changed, start_run
 from editor_watch import EditorWatcher
 from hang_watch import HangWatch
-from window_style import apply_frame, no_activate
+from window_style import BAD, BG, DANGER, GOOD, INFO, MUTED, NEUTRAL, PRIMARY, TEXT, WARN, apply_frame, no_activate
 from rounded_button import RoundedButton
 from tray import TrayIcon
 from utils import DeckCodeError, parse_clipboard
@@ -80,8 +80,8 @@ REVIEW_NOTICE_DELAY_MS = STARTED_TOAST_MS + 2000  # so lange nach dem Start wird
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
 SPEED_PROFILES = [
-    ("fast", "Schnell", "#ffaa00", "Schnell"),
-    ("normal", "Normal", "#ffffff", "Normal"),
+    ("fast", "Schnell", WARN, "Schnell"),
+    ("normal", "Normal", TEXT, "Normal"),
     ("slow", "Langsam", "#66aaff", "Langsam"),
 ]
 
@@ -238,12 +238,12 @@ class MasterDuelImporter:
         release = self.update_release
         text = f"MD-Importer {release.version} ist da (installiert: {APP_VERSION}). "
         if self._can_self_update(release):
-            choices = [("Jetzt aktualisieren", "install", "#007acc"), ("Was ist neu?", "page", "#444444"),
-                       ("Später", None, "#444444")]
+            choices = [("Jetzt aktualisieren", "install", PRIMARY), ("Was ist neu?", "page", NEUTRAL),
+                       ("Später", None, NEUTRAL)]
             text += ("Jetzt aktualisieren? Der Importer lädt die neue Version, ersetzt sich selbst und startet neu "
                      "– deine Daten bleiben erhalten.")
         else:
-            choices = [("Release-Seite öffnen", "page", "#007acc"), ("Später", None, "#444444")]
+            choices = [("Release-Seite öffnen", "page", PRIMARY), ("Später", None, NEUTRAL)]
             text += "Neue Version auf der Release-Seite herunterladen."
         choice = ask_choice(self.root, "Update verfügbar", text, choices)
         if choice == "install":
@@ -261,7 +261,7 @@ class MasterDuelImporter:
             except tk.TclError:
                 pass
         self.is_visible = True
-        self.update_status("Update wird geladen … 0 %", "cyan")
+        self.update_status("Update wird geladen … 0 %", INFO)
         threading.Thread(target=self._update_install_worker, args=(release,), daemon=True,
                          name="update-install").start()
 
@@ -274,7 +274,7 @@ class MasterDuelImporter:
             if percent >= last[0] + step or done == total:
                 last[0] = percent
                 text = "Update wird entpackt …" if done == total else f"Update wird geladen … {percent} %"
-                self._run_on_ui(self.update_status, text, "cyan")
+                self._run_on_ui(self.update_status, text, INFO)
 
         try:
             temp_root = tempfile.gettempdir()
@@ -295,7 +295,7 @@ class MasterDuelImporter:
     def _on_update_failed(self, error):
         self._update_running = False
         self._set_buttons(tk.NORMAL)
-        self.update_status("Update fehlgeschlagen – Release-Seite über das Tray-Symbol", "red")
+        self.update_status("Update fehlgeschlagen – Release-Seite über das Tray-Symbol", BAD)
         show_message(self.root, "Update fehlgeschlagen",
                      f"{error}\n\nDie neue Version lässt sich von Hand laden: Tray-Symbol → Update.", kind="error")
 
@@ -369,7 +369,7 @@ class MasterDuelImporter:
         if self._report_running:
             return
         self._report_running = True
-        self.update_status("Fehlerbericht wird erstellt …", "cyan")
+        self.update_status("Fehlerbericht wird erstellt …", INFO)
         db = self._stats_db()
 
         def work():
@@ -385,11 +385,11 @@ class MasterDuelImporter:
         self._report_running = False
         if path is None:
             append(LOG_FILE, f"[BERICHT] Fehlerbericht nicht erstellt: {error}")
-            self.update_status("Fehlerbericht fehlgeschlagen", "red")
+            self.update_status("Fehlerbericht fehlgeschlagen", BAD)
             if self.tray:
                 self.tray.notify(f"Fehlerbericht nicht erstellt: {error}", "MD Importer")
             return
-        self.update_status("Fehlerbericht gespeichert", "#00ff00")
+        self.update_status("Fehlerbericht gespeichert", GOOD)
         if self.tray:
             self.tray.notify(f"Fehlerbericht gespeichert: {os.path.basename(path)} (Downloads)", "MD Importer")
         bug_report.reveal(path)
@@ -464,7 +464,7 @@ class MasterDuelImporter:
         self.root.overrideredirect(True)
         self.root.wm_attributes("-topmost", True)
         self.root.wm_attributes("-alpha", 0.95)
-        self.root.configure(bg='#1e1e1e')
+        self.root.configure(bg=BG)
 
         # --- DYNAMISCHE SKALIERUNG & 0-PIXEL POSITIONIERUNG ---
         screen_w = self.root.winfo_screenwidth()
@@ -480,11 +480,11 @@ class MasterDuelImporter:
         font_sub = ("Helvetica", int(10 * scale))
         font_x = ("Helvetica", int(9 * scale), "bold")
 
-        self.status_label = tk.Label(self.root, text="Bereit für Import", fg="#00ff00", bg="#1e1e1e",
+        self.status_label = tk.Label(self.root, text="Bereit für Import", fg=GOOD, bg=BG,
                                      font=font_main)
         self.status_label.pack(pady=(int(3 * scale), int(1 * scale)))
 
-        btn_frame = tk.Frame(self.root, bg="#1e1e1e")
+        btn_frame = tk.Frame(self.root, bg=BG)
         btn_frame.pack(pady=(0, int(7 * scale)))
 
         btn_pack = dict(side=tk.LEFT, padx=int(4 * scale))
@@ -502,7 +502,7 @@ class MasterDuelImporter:
 
         # Lesemethode (Speicher oder Texterkennung) steht in den Optionen des Deck-Fensters
         self.start_btn = RoundedButton(btn_frame, text="Importieren", command=self.start_import_thread,
-                                       bg="#007acc", font=font_main, min_width=same_w, **btn_size)
+                                       bg=PRIMARY, font=font_main, min_width=same_w, **btn_size)
         self.start_btn.pack(**btn_pack)
 
         self.export_btn = RoundedButton(btn_frame, text="Exportieren", command=self.start_export_thread,
@@ -518,7 +518,7 @@ class MasterDuelImporter:
         # Feste Breite für den längsten Eintrag, damit der Button beim Umschalten nicht springt.
         self.speed_var = tk.StringVar(value=SPEED_PROFILES[self._current_speed_index()][0])
         longest = max(tkfont.Font(font=font_sub).measure(f"Tempo: {label} ▾") for _, label, _, _ in SPEED_PROFILES)
-        self.speed_btn = RoundedButton(btn_frame, bg="#444444", font=font_sub,
+        self.speed_btn = RoundedButton(btn_frame, bg=NEUTRAL, font=font_sub,
                                        min_width=longest + 2 * btn_size["padx"], **btn_size)
         self.speed_menu = DarkMenu(self.root, font=font_sub)
         for key, _, _, menu_text in SPEED_PROFILES:
@@ -533,12 +533,12 @@ class MasterDuelImporter:
         self._btn_frame, self._scale = btn_frame, scale
 
         # Etwas eingerückt, damit der abgerundete Goldrand im Eck frei bleibt
-        RoundedButton(self.root, text="✕", command=self.close, bg="#cc0000", border="#ff8a80", font=font_x,
+        RoundedButton(self.root, text="✕", command=self.close, bg=DANGER, border="#ff8a80", font=font_x,
                       padx=int(9 * scale), pady=int(2 * scale), radius=int(6 * scale)
                       ).place(relx=1.0, x=-int(5 * scale), y=int(5 * scale), anchor="ne")
 
         # Import-Dauer, dezent oben links (leer bis zum ersten Import)
-        self.timer_label = tk.Label(self.root, text="", fg="#888888", bg="#1e1e1e",
+        self.timer_label = tk.Label(self.root, text="", fg=MUTED, bg=BG,
                                     font=("Helvetica", int(8 * scale)))
         self.timer_label.place(x=int(10 * scale), y=int(6 * scale), anchor="nw")
 
@@ -681,7 +681,7 @@ class MasterDuelImporter:
             "Texterkennung: Der Importer liest die Kartennamen vom Bildschirm – langsamer, aber ganz ohne "
             "Zugriff auf das Spiel.\n\n"
             "Gilt für Import, Deck-Scan und Export. Umschalten: Deck → Optionen.",
-            [("Speicher lesen", "memory", "#007acc"), ("Texterkennung", "ocr", "#444444")])
+            [("Speicher lesen", "memory", PRIMARY), ("Texterkennung", "ocr", NEUTRAL)])
         if choice is None:
             return  # nichts gewählt: Texterkennung, beim nächsten Start wird wieder gefragt
         self._set_read_method(choice)
@@ -690,7 +690,7 @@ class MasterDuelImporter:
         self.config[READ_METHOD_KEY] = choice
         self._save_config_safely()
         self._update_speed_button()
-        self.update_status(f"Lesemethode: {READ_METHODS[choice]}", "#00ff00")
+        self.update_status(f"Lesemethode: {READ_METHODS[choice]}", GOOD)
 
     def _preload_memory(self):
         """
@@ -722,7 +722,7 @@ class MasterDuelImporter:
                 "Duelle werden gerade nicht für die Winrate erfasst.")
         dlog(f"[MEMORY] {text} Letzter Fehler: {md_memory.last_error()}")
         if status:  # nach einem Vorgang bleibt dessen Ergebnis ("Import Erfolgreich!") in der Statuszeile stehen
-            self.update_status("Speicher-Modus nicht verfügbar", "#ffaa00")
+            self.update_status("Speicher-Modus nicht verfügbar", WARN)
         if self.tray:
             self.tray.notify(text, "MD Importer")
         self._run_on_ui(self._offer_ocr_when_idle)  # nicht im Fokus-Timer blockieren
@@ -747,7 +747,7 @@ class MasterDuelImporter:
             self.root, "Speicher-Modus nicht verfügbar",
             "Der Speicher-Modus funktioniert gerade nicht, oft nach einem Master-Duel-Update. "
             "Du kannst zur Texterkennung wechseln.",
-            [("Zur Texterkennung wechseln", "ocr", "#007acc"), ("Später", None, "#444444")], kind="warning")
+            [("Zur Texterkennung wechseln", "ocr", PRIMARY), ("Später", None, NEUTRAL)], kind="warning")
         if choice:
             self._set_read_method(choice)
 
@@ -829,16 +829,16 @@ class MasterDuelImporter:
             return
         covered = self._covered_area()
         if covered:
-            self.update_status(f"⚠ Overlay verdeckt {covered} – bitte verschieben", "#ffaa00")
+            self.update_status(f"⚠ Overlay verdeckt {covered} – bitte verschieben", WARN)
         elif self._position_warning:
-            self.update_status("Bereit für Import", "#00ff00")
+            self.update_status("Bereit für Import", GOOD)
         self._position_warning = bool(covered)
 
     def _save_config_safely(self):
         try:
             self.save_config()
         except OSError as e:
-            self.update_status("Einstellung nicht gespeichert!", "yellow")
+            self.update_status("Einstellung nicht gespeichert!", WARN)
             print(f"Config konnte nicht gespeichert werden: {e}")
 
     @staticmethod
@@ -869,7 +869,7 @@ class MasterDuelImporter:
         self._refresh_speed_button()
         self._save_config_safely()
         label = SPEED_PROFILES[self._current_speed_index()][1]
-        self.update_status(f"Tempo: {label}", "#00ff00")
+        self.update_status(f"Tempo: {label}", GOOD)
 
     # --- UI-WARTESCHLANGE (thread-sicher) ---
     def _run_on_ui(self, func, *args):
@@ -942,7 +942,7 @@ class MasterDuelImporter:
         self._after_ids.clear()
         self.root.destroy()
 
-    def update_status(self, text, color="white"):
+    def update_status(self, text, color=TEXT):
         if getattr(self, "_update_running", False) and not str(text).startswith("Update"):
             return
         self.status_label.config(text=text, fg=color)
@@ -960,7 +960,7 @@ class MasterDuelImporter:
         """Kalibriert im Hintergrund (Texterkennung dauert kurz). `then`: danach ausführen, wenn es geklappt hat."""
         self._close_extras()
         self._set_buttons(tk.DISABLED)
-        self.update_status("Kalibriere automatisch...", "cyan")
+        self.update_status("Kalibriere automatisch...", INFO)
 
         def work():
             try:
@@ -975,13 +975,13 @@ class MasterDuelImporter:
     def _on_auto_calibration_done(self, new_config, message, then):
         if new_config is None:
             # Nicht sicher genug → Assistent wie bisher
-            self.update_status("Automatisch nicht möglich", "yellow")
+            self.update_status("Automatisch nicht möglich", WARN)
             show_message(self.root, "Automatische Kalibrierung",
                          f"{message}\n\nDer Kalibrierungs-Assistent startet jetzt.", kind="warning")
             self.open_calibration()
             return
         self.on_calibration_done(new_config)
-        self.update_status(message, "#00ff00")
+        self.update_status(message, GOOD)
         if then:
             then()
 
@@ -991,7 +991,7 @@ class MasterDuelImporter:
         CalibrationWizard(self.root, self.config, self.on_calibration_done, self.on_calibration_cancel)
 
     def on_calibration_cancel(self):
-        self.update_status("Kalibrierung abgebrochen", "yellow")
+        self.update_status("Kalibrierung abgebrochen", WARN)
         self._set_buttons(tk.NORMAL)
 
     def on_calibration_done(self, new_config):
@@ -1005,7 +1005,7 @@ class MasterDuelImporter:
         if frame:
             self.config["CALIBRATED_ORIGIN"] = [frame.left, frame.top]
         self._save_config_safely()
-        self.update_status("Kalibrierung aktiv!", "#00ff00")
+        self.update_status("Kalibrierung aktiv!", GOOD)
         self._set_buttons(tk.NORMAL)
 
     def start_import_thread(self, memory=None, card_ids=None, swap_label=None):
@@ -1038,8 +1038,8 @@ class MasterDuelImporter:
                     "Fortsetzen: dort weitermachen – das Deck wird NICHT geleert (es darf seit dem Abbruch "
                     "nicht verändert worden sein).\n"
                     "Neu starten: Deck wird geleert und komplett neu importiert.",
-                    [("Fortsetzen", True, "#007acc"), ("Neu starten", False, "#ef6c00"),
-                     ("Abbrechen", None, "#444444")])
+                    [("Fortsetzen", True, PRIMARY), ("Neu starten", False, "#ef6c00"),
+                     ("Abbrechen", None, NEUTRAL)])
                 if answer is None:
                     return
                 if not answer:
@@ -1062,7 +1062,7 @@ class MasterDuelImporter:
 
             # Tkinter ist nicht thread-sicher: Alle UI-Änderungen aus dem Import-Thread
             # laufen über die UI-Warteschlange in den Haupt-Thread.
-            def status_cb(text, color="white"):
+            def status_cb(text, color=TEXT):
                 self._run_on_ui(self.update_status, text, color)
 
             def finish_cb(success, has_errors, failed_cards, message="", notes=None, scan=None):
@@ -1096,18 +1096,18 @@ class MasterDuelImporter:
         if success:
             self._add_to_history("ok" if not (failed_cards or has_errors) else "Lücken")
             if failed_cards or has_errors:
-                self.update_status("Mit Lücken fertig!", "#ffaa00")
+                self.update_status("Mit Lücken fertig!", WARN)
                 show_message(self.root, "Deck-Audit – bitte prüfen",
                              "Der Import ist abgeschlossen, aber bei diesen Karten stimmt die Anzahl "
                              "nicht oder ist unsicher. Bitte im Deck prüfen und von Hand korrigieren:",
                              kind="warning", items=failed_cards, notes=notes)
             else:
-                self.update_status("Import Erfolgreich!", "#00ff00")
+                self.update_status("Import Erfolgreich!", GOOD)
                 if notes:
                     show_message(self.root, "Import erfolgreich", "Alle Karten wurden importiert.",
                                  kind="info", notes=notes)
         else:
-            self.update_status("Abbruch / Fehler", "red")
+            self.update_status("Abbruch / Fehler", BAD)
             if message:
                 show_message(self.root, "Import abgebrochen", message, kind="error")
 
@@ -1115,20 +1115,20 @@ class MasterDuelImporter:
         """Side-Profil anwenden bzw. zurücktauschen (aus dem Deck-Fenster): card_ids = Ziel-Deck."""
         if self.is_running:
             return
-        self.update_status(f"Side-Tausch: {label}", "cyan")
+        self.update_status(f"Side-Tausch: {label}", INFO)
         self.start_import_thread(card_ids=list(card_ids), swap_label=label)
 
     def _on_swap_finished(self, label, success, has_errors, failed_cards, message, notes):
         if success and not (failed_cards or has_errors):
-            self.update_status(f"Getauscht: {label}", "#00ff00")
+            self.update_status(f"Getauscht: {label}", GOOD)
         elif success:
-            self.update_status("Tausch mit Lücken – bitte prüfen", "#ffaa00")
+            self.update_status("Tausch mit Lücken – bitte prüfen", WARN)
             show_message(self.root, "Side-Tausch – bitte prüfen",
                          f"„{label}“ ist durchgelaufen, aber bei diesen Karten stimmt die Anzahl nicht oder ist "
                          "unsicher. Bitte im Deck prüfen und von Hand korrigieren:",
                          kind="warning", items=failed_cards, notes=notes)
         else:
-            self.update_status("Side-Tausch abgebrochen", "red")
+            self.update_status("Side-Tausch abgebrochen", BAD)
             if message:
                 show_message(self.root, "Side-Tausch abgebrochen", message, kind="error")
 
@@ -1145,9 +1145,9 @@ class MasterDuelImporter:
         self.timer_label.config(text="")
         self._import_t0 = None
         if scan:
-            self.update_status("Deck unverändert – letzter Scan wird exportiert", "cyan")
+            self.update_status("Deck unverändert – letzter Scan wird exportiert", INFO)
 
-        def status_cb(text, color="white"):
+        def status_cb(text, color=TEXT):
             self._run_on_ui(self.update_status, text, color)
 
         def finish_cb(result, error=""):
@@ -1169,7 +1169,7 @@ class MasterDuelImporter:
             self.timer_label.config(text=f"⏱ {self._format_duration(time.perf_counter() - self._import_t0)}")
             self._import_t0 = None
         if result is None:
-            self.update_status("Export abgebrochen", "red")
+            self.update_status("Export abgebrochen", BAD)
             show_message(self.root, "Export abgebrochen", error, kind="error")
             return
         if result.scan is not None:
@@ -1184,9 +1184,9 @@ class MasterDuelImporter:
         problems = result.problems
         if problems:
             message += "\n\nBitte prüfen (nicht erkannte Karten fehlen in der .ydk):"
-            self.update_status("Export mit Hinweisen", "#ffaa00")
+            self.update_status("Export mit Hinweisen", WARN)
         else:
-            self.update_status("Deck exportiert!", "#00ff00")
+            self.update_status("Deck exportiert!", GOOD)
 
         def download():
             try:
@@ -1242,7 +1242,7 @@ class MasterDuelImporter:
 
     def _copy_from_history(self, code):
         pyperclip.copy(code)
-        self.update_status("Deck-Code kopiert", "#00ff00")
+        self.update_status("Deck-Code kopiert", GOOD)
 
     def _import_from_history(self, code):
         """Deck aus dem Verlauf erneut importieren: Deck-Code in die Zwischenablage, dann wie gewohnt starten."""
@@ -1277,7 +1277,7 @@ class MasterDuelImporter:
             day = self._day_summary()
             status = f"{len(new)} Matches erfasst" + (f" · {day}" if day else "")
             text = f"{len(new)} Matches erfasst: {wins} Sieg(e), {losses} Niederlage(n)"
-        self.update_status(status, "#00ff00")
+        self.update_status(status, GOOD)
         if self.tray:
             self.tray.notify(text + " – Winrate im Deck-Fenster", "MD Importer")
         reminder = self._history_reminder()
@@ -1291,7 +1291,7 @@ class MasterDuelImporter:
     def _on_replay_saved(self, info, steps):
         """Replay mitgeschnitten → kurze Meldung (ansehen: Winrate → Match anklicken)."""
         opponent = next((n for i, n in enumerate(info.names) if i != info.my_id), "")
-        self.update_status(f"Replay aufgenommen ({steps} Schritte)", "#00ff00")
+        self.update_status(f"Replay aufgenommen ({steps} Schritte)", GOOD)
         if self.tray:
             self.tray.notify(f"Replay{' gegen ' + opponent if opponent else ''} aufgenommen ({steps} Schritte) – "
                              f"ansehen: Deck-Fenster → Winrate → Match anklicken", "MD Importer")
@@ -1303,7 +1303,7 @@ class MasterDuelImporter:
         gar nicht erst bzw. verschwindet wieder (vorher blieb er stehen, bis zufällig etwas anderes kam)."""
         if not self._unconfirmed_matches():
             return
-        self.update_status(SHORT_REMINDER, "#ffaa00")
+        self.update_status(SHORT_REMINDER, WARN)
         self._after_ids["reminder"] = self.root.after(REMINDER_CHECK_MS, self._check_history_reminder)
 
     def _check_history_reminder(self):
@@ -1313,7 +1313,7 @@ class MasterDuelImporter:
             self._after_ids["reminder"] = self.root.after(REMINDER_CHECK_MS, self._check_history_reminder)
             return
         day = self._day_summary()
-        self.update_status("Match History übernommen" + (f" · {day}" if day else ""), "#00ff00")
+        self.update_status("Match History übernommen" + (f" · {day}" if day else ""), GOOD)
 
     def _unconfirmed_matches(self) -> int:
         """Duelle ohne Gegner-Deck seit dem letzten Blick in die Match History (Fehler: 1 = Hinweis bleibt)."""
@@ -1376,13 +1376,13 @@ class MasterDuelImporter:
         self.extras_btn.config(state=tk.NORMAL)  # Extras lassen sich auch während des Scans schließen
         self.extras.set_scanning()
 
-        def status_cb(text, color="white"):
+        def status_cb(text, color=TEXT):
             self._run_on_ui(self._extras_status, text, color)
 
         def finish_cb(scan=None, error=""):
             missing = 0
             if scan is not None and self.card_stats is not None:
-                status_cb("Karten-Stats werden nachgeschlagen …", "cyan")
+                status_cb("Karten-Stats werden nachgeschlagen …", INFO)
                 ids = [c.match.cid for c in scan.cards if c.match.cid]
                 try:
                     missing = self.card_stats.ensure(ids)
@@ -1407,9 +1407,9 @@ class MasterDuelImporter:
         self._set_buttons(tk.NORMAL)
         if scan is not None:
             self._last_scan = scan
-            self.update_status("Deck gescannt – Analyse bereit", "#00ff00")
+            self.update_status("Deck gescannt – Analyse bereit", GOOD)
         else:
-            self.update_status("Scan abgebrochen", "red")
+            self.update_status("Scan abgebrochen", BAD)
         if self.extras:
             if scan is not None:
                 self.extras.set_scan(scan, missing)

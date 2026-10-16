@@ -14,13 +14,11 @@ import tkinter.font as tkfont
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from rounded_button import RoundedButton
-from window_style import GOLD, ClickOutside, apply_frame, no_activate, place_in_work_area
+from window_style import (GOLD, LINE, MUTED, PANEL, PRIMARY, ClickOutside, apply_frame, no_activate,
+                          place_in_work_area)
 
-BG = "#2b2b2b"
-MUTED = "#9e9e9e"
-LINE = "#3d3d3d"
-OFF = "#3a3a3a"        # Button aus / nicht gewählt
-CHOSEN = "#007acc"     # gewählte Möglichkeit
+OFF = LINE             # Button aus / nicht gewählt
+CHOSEN = PRIMARY       # gewählte Möglichkeit
 ON = "#2e7d32"         # Schalter an
 ACTION = "#5e35b1"     # Aktion
 
@@ -81,7 +79,7 @@ class OptionsPopup:
         if self.is_open:
             self.close()
             return
-        win = tk.Toplevel(self.master, bg=BG)
+        win = tk.Toplevel(self.master, bg=PANEL)
         win.withdraw()  # erst zeigen, wenn es platziert ist (sonst kurz oben links → Taskleiste im Vollbild)
         win.overrideredirect(True)
         win.wm_attributes("-topmost", True)
@@ -113,7 +111,7 @@ class OptionsPopup:
 
     def _build_body(self) -> None:
         s = self.s
-        body = tk.Frame(self.window, bg=BG, padx=int(12 * s), pady=int(8 * s))
+        body = tk.Frame(self.window, bg=PANEL, padx=int(12 * s), pady=int(8 * s))
         body.pack()
         self.buttons = {}
         for index, row in enumerate(self.visible_rows()):
@@ -130,13 +128,13 @@ class OptionsPopup:
         if row["kind"] == "section":
             if not first:
                 tk.Frame(body, bg=LINE, height=1).pack(fill=tk.X, pady=(int(8 * s), int(6 * s)))
-            tk.Label(body, text=row["title"].upper(), fg=GOLD, bg=BG, font=self.font_head,
+            tk.Label(body, text=row["title"].upper(), fg=GOLD, bg=PANEL, font=self.font_head,
                      anchor="w").pack(fill=tk.X)
             if row["hint"]:
-                tk.Label(body, text=row["hint"], fg=MUTED, bg=BG, font=self.font_small,
+                tk.Label(body, text=row["hint"], fg=MUTED, bg=PANEL, font=self.font_small,
                          anchor="w").pack(fill=tk.X)
             return
-        line = tk.Frame(body, bg=BG)
+        line = tk.Frame(body, bg=PANEL)
         line.pack(fill=tk.X, pady=(int(5 * s), 0))
         # Gleich breite Buttons je Reihe; Schalter mit Platz für ✓, damit nichts beim Umschalten springt
         measure = tkfont.Font(font=self.font).measure

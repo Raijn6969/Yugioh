@@ -11,9 +11,11 @@ mit winfo_reqwidth()).
 import tkinter as tk
 from typing import Callable, Optional
 
-HANDLE = "#4a4a4a"
+from window_style import GOLD, NEUTRAL
+
+HANDLE = NEUTRAL
 HANDLE_HOVER = "#6a6a6a"
-HANDLE_DRAG = "#c9a02f"  # wie GOLD in extras_panel (nicht importiert: Zirkelimport)
+HANDLE_DRAG = GOLD
 
 
 class DarkScrollbar(tk.Canvas):

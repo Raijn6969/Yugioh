@@ -14,14 +14,9 @@ from PIL import ImageTk
 
 import win_api
 from rounded_button import render_body
-from window_style import ClickOutside, apply_frame, no_activate
+from window_style import (GOLD_HOVER, GOOD, LINE, MUTED, PANEL, TEXT, ClickOutside, apply_frame,
+                          no_activate)
 
-BG = "#2b2b2b"
-FG = "white"
-HOVER_BG = "#5a4817"   # dunkles Gold, passt zum Goldrand
-DISABLED_FG = "#8a8a8a"
-SEPARATOR = "#4a4a4a"
-CHECK = "#00ff00"
 RADIUS = 6
 
 
@@ -36,7 +31,7 @@ class DarkMenu:
         self.window: Optional[tk.Toplevel] = None
 
     # ── tk.Menu-kompatibel ──
-    def add_command(self, label: str, command: Callable, hover: str = HOVER_BG):
+    def add_command(self, label: str, command: Callable, hover: str = GOLD_HOVER):
         self.items.append({"label": label, "command": command, "hover": hover})
 
     def add_label(self, label: str):
@@ -93,11 +88,11 @@ class DarkMenu:
         self._open(place, None)
 
     def _open(self, place: Callable[[tk.Toplevel], Tuple[int, int]], anchor: Optional[tk.Widget]) -> None:
-        win = tk.Toplevel(self.master, bg=BG)
+        win = tk.Toplevel(self.master, bg=PANEL)
         win.withdraw()  # erst zeigen, wenn es platziert ist (sonst kurz oben links → Taskleiste im Vollbild)
         win.overrideredirect(True)
         win.wm_attributes("-topmost", True)
-        body = tk.Frame(win, bg=BG, padx=3, pady=4)
+        body = tk.Frame(win, bg=PANEL, padx=3, pady=4)
         body.pack()
         font = tkfont.Font(root=self.master, font=self.font or "TkDefaultFont")
         marks = any("variable" in item for item in self.items)
@@ -105,7 +100,7 @@ class DarkMenu:
         width = text_w + 2 * font.measure("0") * marks + 30
         for index, item in enumerate(self.items):
             if item.get("separator"):
-                tk.Frame(body, height=1, bg=SEPARATOR).pack(fill=tk.X, padx=8, pady=4)
+                tk.Frame(body, height=1, bg=LINE).pack(fill=tk.X, padx=8, pady=4)
             else:
                 self._add_row(body, index, item, font, width, marks)
         win.update_idletasks()
@@ -130,21 +125,21 @@ class DarkMenu:
             checked = "variable" in item and item["variable"].get() == item["value"]
         disabled = item.get("disabled", False)
         height = font.metrics("linespace") + 2 * self.row_pady
-        row = tk.Canvas(parent, width=width, height=height, bg=BG, highlightthickness=0, bd=0,
+        row = tk.Canvas(parent, width=width, height=height, bg=PANEL, highlightthickness=0, bd=0,
                         cursor="arrow" if disabled else "hand2")
         row.pack()
         mark_w = 2 * font.measure("0") if marks else 0
         hover_bg = row.create_image(0, 0, anchor="nw", state="hidden")
         if marks:
-            row.create_text(mark_w // 2 + 4, height // 2, text="✓" if checked else "", fill=CHECK, font=font)
+            row.create_text(mark_w // 2 + 4, height // 2, text="✓" if checked else "", fill=GOOD, font=font)
         row.create_text(mark_w + 8, height // 2, text=item["label"], anchor="w", font=font,
-                        fill=DISABLED_FG if disabled else FG)
+                        fill=MUTED if disabled else TEXT)
         if disabled:
             return
-        color = item.get("hover", HOVER_BG)
+        color = item.get("hover", GOLD_HOVER)
         key = (color, width, height)
         if key not in self._images:
-            self._images[key] = ImageTk.PhotoImage(render_body(width, height, RADIUS, color, color, BG), master=row)
+            self._images[key] = ImageTk.PhotoImage(render_body(width, height, RADIUS, color, color, PANEL), master=row)
         row.itemconfigure(hover_bg, image=self._images[key])
         row.bind("<Enter>", lambda e: row.itemconfigure(hover_bg, state="normal"))
         row.bind("<Leave>", lambda e: row.itemconfigure(hover_bg, state="hidden"))

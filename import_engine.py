@@ -33,6 +33,7 @@ import win_api
 from match_validator import MatchValidator, knight_night_conflict
 from debug_log import dlog
 from app_paths import APP_VERSION
+from window_style import BAD, GOOD, INFO, WARN
 
 # ── Abgleich-Schwellen (SequenceMatcher-Ratio 0..1) ──
 BATCH_MATCH_THRESHOLD = 0.85   # Archetyp-Suche: Karte der Gruppe
@@ -181,7 +182,7 @@ class DeckImporterCore:
             if self._progress:
                 message += (f"\n\nFortschritt gespeichert ({len(self._progress)} Karten eingefügt). "
                             "Beim nächsten Start mit demselben Deck-Code kannst du fortsetzen.")
-            self.status_callback("Abbruch / Fehler", "red")
+            self.status_callback("Abbruch / Fehler", BAD)
             self.finish_callback(success=False, has_errors=True, failed_cards=[], message=message)
         finally:
             self._restore_clipboard(original_clipboard)
@@ -208,12 +209,12 @@ class DeckImporterCore:
         try:
             card_ids = self.preset_ids if self.preset_ids is not None else parse_clipboard()
         except DeckCodeError as e:
-            self.status_callback("Fehler: Deck-Code beschädigt!", "red")
+            self.status_callback("Fehler: Deck-Code beschädigt!", BAD)
             self.finish_callback(success=False, has_errors=True, failed_cards=[],
                                  message=f"{e}\n\nBitte den Deck-Code neu kopieren und erneut starten.")
             return
         if not card_ids:
-            self.status_callback("Fehler: Kein YDKE/YDK!", "red")
+            self.status_callback("Fehler: Kein YDKE/YDK!", BAD)
             self.finish_callback(success=False, has_errors=True, failed_cards=[],
                                  message="Kein Deck-Code in der Zwischenablage. Bitte einen YDKE-Link "
                                          "oder eine YDK-Liste kopieren und erneut starten.")
@@ -224,7 +225,7 @@ class DeckImporterCore:
         problem = self._preflight()
         if problem:
             dlog(f"[CHECK] Abbruch vor dem Start: {problem}")
-            self.status_callback("Start nicht möglich", "red")
+            self.status_callback("Start nicht möglich", BAD)
             self.finish_callback(success=False, has_errors=True, failed_cards=[], message=problem)
             return
 
@@ -242,7 +243,7 @@ class DeckImporterCore:
         self._progress = dict(done)
 
         for i in range(3, 0, -1):
-            self.status_callback(f"Maus loslassen! ({i}s)", "yellow")
+            self.status_callback(f"Maus loslassen! ({i}s)", WARN)
             time.sleep(1)
 
         import_t0 = time.perf_counter()
@@ -302,12 +303,12 @@ class DeckImporterCore:
 
                 # ── BATCH: Bereits via Archetype-Scan gefunden ──
                 if cid in batch_done_cids:
-                    self.status_callback(f"-> {clean_name[:15]} [BATCH✓]", "green")
+                    self.status_callback(f"-> {clean_name[:15]} [BATCH✓]", GOOD)
                     dlog(f"\n[BATCH SKIP] '{clean_name}' wurde bereits im Batch-Scan gefunden.")
                     continue
                 # ── Schon bei der Suche nach einer anderen Karte nebenbei eingefügt ──
                 if cid in self._progress:
-                    self.status_callback(f"-> {clean_name[:15]} [✓]", "green")
+                    self.status_callback(f"-> {clean_name[:15]} [✓]", GOOD)
                     dlog(f"\n[NEBENBEI SKIP] '{clean_name}' wurde schon bei einer anderen Suche eingefügt.")
                     continue
 
@@ -358,7 +359,7 @@ class DeckImporterCore:
             if failed:
                 dlog(f"\n[NACHLAUF] {len(failed)} Karte(n) nicht gefunden → zweiter Versuch mit "
                      f"langsamem Tempo (×{SECOND_PASS_SPEED}).")
-                self.status_callback("Zweiter Durchgang...", "yellow")
+                self.status_callback("Zweiter Durchgang...", WARN)
                 normal_mult = self.speed_mult
                 self.speed_mult = max(self.speed_mult, SECOND_PASS_SPEED)
                 recovered = 0
@@ -411,7 +412,7 @@ class DeckImporterCore:
         if kid is None:
             return None
         clean_name = sanitize_name(card.name)
-        self.status_callback(f"-> {clean_name[:15]}", "cyan")
+        self.status_callback(f"-> {clean_name[:15]}", INFO)
         dlog(f"\n[SUCHE] '{clean_name}' (ID: {card.cid}, Konami-ID {kid}, Erwartet: {card.amount}x) – per Speicher")
         before = self._progress.get(card.cid, 0)
         try:
@@ -857,7 +858,7 @@ class DeckImporterCore:
                             last_seen_slot_00: str, last_added_ocr_clean: str) -> Tuple[bool, str, str]:
         """Eine Karte einzeln suchen und einfügen. Returns: (gefunden, last_seen_slot_00, last_added)."""
         clean_name = sanitize_name(card.name)
-        self.status_callback(f"-> {clean_name[:15]}", "cyan")
+        self.status_callback(f"-> {clean_name[:15]}", INFO)
         dlog(f"\n[SUCHE] '{clean_name}' (ID: {card.cid}, Erwartet: {card.amount}x)")
 
         self._begin_search(automator, clean_name)
@@ -930,7 +931,7 @@ class DeckImporterCore:
         dlog(f"    [TEMPO] Automatisch verlangsamt: ×{self.speed_mult:.2f} → ×{slower:.2f}")
         self.speed_mult = slower
         self._auto_slowed = True
-        self.status_callback("Tempo automatisch verlangsamt", "yellow")
+        self.status_callback("Tempo automatisch verlangsamt", WARN)
 
     def _init_deck_counter(self, sct, automator, expect_empty: bool) -> Optional[DeckCounter]:
         if not self.config.get("DECK_COUNT"):
@@ -1029,7 +1030,7 @@ class DeckImporterCore:
 
     def _load_card_db(self) -> Optional[CardDB]:
         try:
-            return load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, "cyan"))
+            return load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, INFO))
         except Exception as e:
             dlog(f"[KARTENLISTE] Nicht verfügbar ({e}) → ohne Abgleich mit allen Karten und ohne Kontrolle am Ende.")
             return None
@@ -1066,7 +1067,7 @@ class DeckImporterCore:
         fixed = 0
         for round_no in (1, 2):
             dlog(f"\n[KONTROLLE] Deck lesen (Durchgang {round_no}).")
-            self.status_callback("Kontrolle: Deck lesen...", "cyan")
+            self.status_callback("Kontrolle: Deck lesen...", INFO)
             # Maus neben das Deck: Eine hervorgehobene Karte gehört nicht in die Vergleichsbilder fürs Deck-Fenster
             self._park_cursor(automator, frame)
             # Speicher-Modus: Deck direkt aus dem Speicher (ohne Klicks), Bildschirm nur fürs Kartenraster
@@ -1172,7 +1173,7 @@ class DeckImporterCore:
             dlog(f"[FORTSETZEN] Fortschritt konnte nicht gespeichert werden: {e}")
 
     def _resolve_card_names(self, original_counts: Counter, lang: str) -> Tuple[List[DeckCard], Dict[str, str]]:
-        self.status_callback("API Check...", "cyan")
+        self.status_callback("API Check...", INFO)
         names = fetch_card_names(list(original_counts.keys()), lang)
 
         cards_ready = []
@@ -1187,7 +1188,7 @@ class DeckImporterCore:
         return cards_ready, id_to_name_map
 
     def _clear_existing_deck(self, automator: WindowAutomator):
-        self.status_callback("Leere Deck...", "yellow")
+        self.status_callback("Leere Deck...", WARN)
         automator.iron_grip_click(*self.config["TRASH_BTN"])
         time.sleep(0.4)
         automator.iron_grip_click(*self.config["TRASH_CONFIRM"])
@@ -1443,7 +1444,7 @@ class DeckImporterCore:
 
     def _setup_memory(self, cards_ready: List[DeckCard], id_to_name_map: Dict[str, str]) -> None:
         """Speicher-Modus vorbereiten. Klappt etwas nicht, läuft der Import normal mit Texterkennung."""
-        self.status_callback("Speicher-Modus: lese Master Duel...", "cyan")
+        self.status_callback("Speicher-Modus: lese Master Duel...", INFO)
         try:
             from card_stats import CardStatsDB
             import md_memory

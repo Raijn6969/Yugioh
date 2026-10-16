@@ -23,6 +23,7 @@ import md_layout
 import vision_engine
 import win_api
 from app_paths import APP_VERSION
+from window_style import BAD, INFO, WARN
 from auto_calibration import deck_editor_visible, read_deck_count
 from card_db import CardDB, CardMatch, load_card_db
 from debug_log import dlog
@@ -220,7 +221,7 @@ class DeckExporter:
             value = work()
         except Exception as e:
             dlog(f"\n[CRITICAL ERROR]: {e}\n{traceback.format_exc()}")
-            self.status_callback(f"{self.label} abgebrochen", "red")
+            self.status_callback(f"{self.label} abgebrochen", BAD)
             self.finish_callback(**{key: None, "error": str(e)})
         else:
             self.finish_callback(**{key: value, "error": ""})
@@ -242,17 +243,17 @@ class DeckExporter:
                 if not isinstance(e, (OSError, MemoryUnavailable)):
                     dlog(traceback.format_exc())
                 dlog(f"[SPEICHER] Deck nicht lesbar ({e}) → Texterkennung.")
-                self.status_callback("Speicher nicht lesbar – Texterkennung", "yellow")
+                self.status_callback("Speicher nicht lesbar – Texterkennung", WARN)
                 self.memory_fallback = True
         problem = vision_engine.check_tesseract(self.tesseract_cmd, "eng")
         if problem:
             raise RuntimeError(problem)
 
-        self.status_callback("Kartenliste…", "cyan")
-        db = load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, "cyan"))
+        self.status_callback("Kartenliste…", INFO)
+        db = load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, INFO))
 
         for i in range(3, 0, -1):
-            self.status_callback(f"Maus loslassen! ({i}s)", "yellow")
+            self.status_callback(f"Maus loslassen! ({i}s)", WARN)
             time.sleep(1)
         if self.start_callback:
             self.start_callback()
@@ -276,7 +277,7 @@ class DeckExporter:
         """Deck aus dem Speicher (ohne Klicks); der Bildschirm wird nur fürs Kartenraster gebraucht."""
         import md_memory
         from card_stats import CardStatsDB
-        self.status_callback(f"{self.label}: lese Speicher…", "cyan")
+        self.status_callback(f"{self.label}: lese Speicher…", INFO)
         memory = md_memory.shared()  # meist schon beim Start des Overlays im Hintergrund aufgebaut
         memory.find_editor()
         deck = memory.deck()
@@ -307,7 +308,7 @@ class DeckExporter:
 
     def _memory_clicker(self) -> Tuple[WindowAutomator, CardDB]:
         """Zum Anklicken unbekannter Artworks: Master Duel nach vorne, Kartenliste für die Namen."""
-        db = load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, "cyan"))
+        db = load_card_db(self.config.get("LANGUAGE", "en"), lambda text: self.status_callback(text, INFO))
         automator = WindowAutomator(self.config)
         automator.last_bot_pos = win_api.get_cursor_pos()
         focus_master_duel()
@@ -404,7 +405,7 @@ class DeckExporter:
         cards = []
         for zone, positions, _ in zones:
             for i, (rx, ry) in enumerate(positions):
-                self.status_callback(f"{self.label} {zone} {i + 1}/{len(positions)}", "cyan")
+                self.status_callback(f"{self.label} {zone} {i + 1}/{len(positions)}", INFO)
                 x, y = frame.point(rx, ry)
                 raw, s_c = reader._read_slot(sct, automator, name_region, x, y, previous)
                 if not s_c:

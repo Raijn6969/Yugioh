@@ -315,7 +315,7 @@ class OverlayHookTest(unittest.TestCase):
         app.close.assert_not_called()
         self.assertFalse(app._update_running)
         app._set_buttons.assert_called_once_with(Overlay.tk.NORMAL)
-        self.assertEqual(app.status[-1][1], "red")
+        self.assertEqual(app.status[-1][1], Overlay.BAD)
         self.assertIn("Update fehlgeschlagen", app.status[-1][0])
         self.assertIn("Download unvollständig", message.call_args.args[2])
         self.assertIn("Download unvollständig", log.call_args.args[1])
