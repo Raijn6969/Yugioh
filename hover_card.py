@@ -13,17 +13,18 @@ import tkinter as tk
 from typing import Callable, List, NamedTuple, Optional, Tuple
 
 import win_api
+from window_style import BAD, GOOD, INFO, WARN
 
 BG = "#070d18"
-NEON = "#00e5ff"
+NEON = INFO
 NEON_DIM = "#0b4f5c"
 SCAN = "#0f5f6d"
 TEXT = "#e6f7ff"
 MUTED = "#6f8fa3"
 GOLD = "#e8c25a"
-GREEN = "#39ff9f"
-AMBER = "#ffb347"
-RED = "#ff5c7a"
+GREEN = GOOD
+AMBER = WARN
+RED = BAD
 
 ANALYSIS_TIME = 1.0   # Sekunden "Analyse…" bevor die Stats erscheinen
 FRAME_MS = 30         # Animation ~33 Bilder/s, nur solange sie läuft

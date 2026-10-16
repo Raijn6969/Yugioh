@@ -23,7 +23,7 @@ import md_layout
 import vision_engine
 import win_api
 from app_paths import APP_VERSION
-from window_style import BAD, INFO, WARN
+from window_style import BAD, GOOD, INFO, WARN
 from auto_calibration import deck_editor_visible, read_deck_count
 from card_db import CardDB, CardMatch, load_card_db
 from debug_log import dlog
@@ -357,7 +357,7 @@ class DeckExporter:
                 time.sleep(0.05)
         dlog(f"\n[EXPORT] {len(main_ids)}/{result.main_count} Main, {len(extra_ids)}/{result.extra_count} Extra "
              f"erkannt, {len(result.problems)} unsicher/fehlend. .ydk liegt in der Zwischenablage.")
-        self.status_callback("Deck exportiert!", "#00ff00")
+        self.status_callback("Deck exportiert!", GOOD)
         return result
 
     def _plan(self, sct, frame: md_layout.Frame,
