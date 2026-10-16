@@ -154,6 +154,7 @@ class MasterDuelImporter:
                                         connected=md_memory.is_ready, memory=md_memory.shared)
         # IDs der wiederkehrenden Tk-Timer, damit sie beim Schließen gestoppt werden können
         self._after_ids = {}
+        self._focus_errors = set()  # Fehlertypen der Fokus-Schleife, die schon im Log stehen
         self.config = self.load_config()
         self._build_main_ui()
         self._process_ui_queue()
@@ -571,8 +572,12 @@ class MasterDuelImporter:
                         self.is_visible = False
                 if self.extras:
                     self.extras.set_visible(self.is_visible)
-        except Exception:
-            pass  # Läuft alle 300 ms; ein einzelner Fehlschlag (Fenster gerade geschlossen) ist egal
+        except Exception as e:
+            # Läuft alle 300 ms; ein einzelner Fehlschlag (Fenster gerade geschlossen) ist egal – aber jeder
+            # Fehlertyp kommt einmal ins Log, sonst bliebe ein dauerhafter Fehler unsichtbar
+            if type(e).__name__ not in self._focus_errors:
+                self._focus_errors.add(type(e).__name__)
+                dlog(f"[FOKUS] Fehler in der Fokus-Prüfung (weitere gleicher Art nicht):\n{traceback.format_exc()}")
         finally:
             self._after_ids["focus"] = self.root.after(300, self._check_window_focus)
 

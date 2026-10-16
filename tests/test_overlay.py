@@ -682,6 +682,22 @@ class DarkDialogTest(unittest.TestCase):
             app.close()
         preload.assert_called_once()
 
+    def test_focus_loop_logs_each_error_type_once(self):
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
+                mock.patch.object(Overlay, "ask_choice", return_value=None):
+            app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
+        with mock.patch.object(Overlay, "dlog") as log, \
+                mock.patch.object(Overlay.win32gui, "GetForegroundWindow", side_effect=OSError("weg")):
+            for _ in range(3):
+                _REAL_FOCUS_LOOP(app)
+            self.assertEqual(log.call_count, 1)
+            self.assertIn("OSError", log.call_args.args[0])
+            with mock.patch.object(Overlay.win32gui, "GetForegroundWindow", side_effect=ValueError("anders")):
+                _REAL_FOCUS_LOOP(app)
+            self.assertEqual(log.call_count, 2)                    # anderer Fehlertyp: noch einmal
+        app.close()
+
     def test_auto_calibration_error_unlocks_buttons_and_opens_wizard(self):
         with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
