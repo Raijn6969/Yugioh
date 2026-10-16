@@ -42,11 +42,22 @@ class EditorDetectorTest(unittest.TestCase):
         self.tick(header("Main Deck"))
         self.tick(header("Main Deck"))
         self.tick(header("Duel Pass", shade=90), seconds=1.0)  # neues Bild, noch nicht gelesen
-        self.assertTrue(self.tick(header("Duel Pass", shade=90)))  # gelesen: einmal "nein" → noch nicht weg
-        self.assertFalse(self.tick(header("Duel Pass", shade=90)))  # bestätigt (aus dem Zwischenspeicher)
+        self.assertTrue(self.detector.visible)  # neues Bild zählt schon als erstes "nein"
+        self.assertFalse(self.tick(header("Duel Pass", shade=90)))  # gelesen → bestätigt, 2 Prüfungen wie vor B15
         self.assertEqual(self.reads, 2)
         self.assertTrue(self.tick(header("Main Deck")))  # zurück im Editor → sofort wieder da, ohne Lesen
         self.assertEqual(self.reads, 2)
+
+    def test_leaving_the_editor_to_a_still_menu_hides_within_a_second(self):
+        self.answers = [True, False]
+        self.tick(header("Main Deck"), seconds=2.0)
+        self.tick(header("Main Deck"), seconds=2.0)
+        self.tick(header("Main Deck"), seconds=2.0)  # lange her, dass zuletzt gelesen wurde
+        start = self.now[0]
+        self.now[0] += 0.4
+        while self.detector.update(header("Menü", shade=90)) is not False:
+            self.now[0] += 0.4
+            self.assertLessEqual(self.now[0] - start, 1.0)
 
     def test_start_outside_the_editor_hides_at_once(self):
         self.answers = [False]
@@ -115,6 +126,7 @@ class ShouldShowTest(unittest.TestCase):
         fake = type("App", (), {})()
         fake.is_running = running
         fake._update_running = updating
+        fake._hidden_by_x = False
         fake.editor_watch = type("W", (), {"visible": editor})()
         import Overlay
         return Overlay.MasterDuelImporter._should_show(fake, own, md)

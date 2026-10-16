@@ -59,10 +59,10 @@ class EditorDetector:
                      None)
         if known is None:
             previous, self._previous = self._previous, signature
-            if previous is None:
-                return self.visible  # erstes unbekanntes Bild: erst sehen, ob es stillsteht
-            if signature_distance(previous, signature) > SAME_IMAGE:
-                known = False  # bewegt sich (Duell, Animation): kein Editor, aber nicht lesen
+            if previous is None and self.visible is None:
+                return None  # allererstes Bild: erst sehen, ob es stillsteht
+            if previous is None or signature_distance(previous, signature) > SAME_IMAGE:
+                known = False  # neu/bewegt (Duell, Animation): vorläufig kein Editor, aber nicht lesen
             elif self.clock() - self._last_ocr < OCR_INTERVAL:
                 return self.visible  # steht still, aber gerade erst gelesen → beim nächsten Mal
             else:
