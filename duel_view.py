@@ -1185,8 +1185,9 @@ class DuelView:
         items, stacks = self._scene(n)
         old = self._scene(prev)[0] if prev is not None else {}
         moved = sorted(u for u, it in items.items() if u in old and (old[u].x, old[u].y) != (it.x, it.y))
-        t = rs.ease(p)
         step = self.steps[n] if prev is not None and n < len(self.steps) else None   # Schritt, der gerade animiert wird
+        glide = rs.glide_share(step) if step is not None else 0.0   # Aktivierung mit Platzwechsel: erst gleiten
+        t = rs.ease(min(1.0, p / glide) if glide else p)
 
         def where(uid: int) -> Tuple[int, int]:
             it = items[uid]
@@ -1203,7 +1204,7 @@ class DuelView:
             x, y = where(uid)
             w, h = dims(it)
             if uid in moved:  # Größe gleitet mit (Gegnerhand → Feld)
-                (ow, oh), t = dims(old[uid]), rs.ease(p)
+                ow, oh = dims(old[uid])
                 w, h = round(ow + (w - ow) * t), round(oh + (h - oh) * t)
             card, squeeze, face = it.card, 1.0, None
             if step is not None and step.focus is not None and step.focus.uid == uid and \
@@ -1240,8 +1241,8 @@ class DuelView:
         self._lp_and_phase(frame, cols, rows, cw, ch)
         if n < len(self.steps):
             self._draw_step_box(self.steps[n], cols, rows, ch)
-        if step is not None:
-            self._draw_effects(step, p, state, frame, items, old, where, cw, ch, cols, rows)
+        if step is not None and p >= glide:   # die Aktivierung läuft erst an, wenn die Karte am neuen Platz liegt
+            self._draw_effects(step, (p - glide) / (1 - glide), state, frame, items, old, where, cw, ch, cols, rows)
 
     def _flip(self, step: rs.Step, p: float, it: Item, before: Optional[Item]):
         """Setzen/Aufdecken: (Karte, Breite 0…1, offen?) – Breite 1 → 0 → 1 wie das Umdrehen in der Factory.

@@ -311,6 +311,26 @@ class LogStepTest(unittest.TestCase):
         plain = rs.build_steps([frame(*hand), frame(*hand), frame(*field)], [state()] * 3, 0, name_of, type_of)
         self.assertEqual(plain[2].kind, "beschworen")
 
+    def test_activation_that_moves_onto_the_field_glides_first(self):
+        hand, spell = row(1, 0, rr.HAND, 300), row(1, 0, rr.FIELD_ZONE, 300)
+        frames = [frame(hand), dict(frame(spell), log=[act(11, 300)])]
+        step = rs.build_steps(frames, [state()] * 2, 0, name_of, type_of)[1]
+        self.assertEqual((step.kind, step.dur), ("aktiviert", 0.85 + 0.6))
+        self.assertAlmostEqual(rs.glide_share(step), 0.6 / 1.45)
+        self.assertEqual(rs.duration("aktiviert"), 0.85)                      # ohne Platzwechsel wie bisher
+
+    def test_activation_one_frame_before_the_move_is_carried_by_the_moving_step(self):
+        hand, spell = row(1, 0, rr.HAND, 300), row(1, 0, rr.FIELD_ZONE, 300)
+        frames = [frame(hand), dict(frame(hand), log=[act(11, 300)]), frame(spell)]
+        steps = rs.build_steps(frames, [state()] * 3, 0, name_of, type_of)
+        self.assertEqual([s.kind for s in steps], ["still", "still", "aktiviert"])
+        self.assertEqual((steps[1].text, steps[1].dur), ("", 0.0))             # erscheint nicht in der Schrittliste
+        self.assertEqual((steps[2].text, steps[2].label, steps[2].dur),
+                         ("Du aktivierst Triple Tactics Talent", "AKTIVIERT", 0.85 + 0.6))
+        again = rs.build_steps([frame(hand), dict(frame(hand), log=[act(11, 300)]), frame(hand)], [state()] * 3, 0,
+                               name_of, type_of)
+        self.assertEqual([s.kind for s in again], ["still", "aktiviert", "still"])   # Karte bleibt: unverändert
+
     def test_durations_of_the_new_kinds(self):
         kinds = ("kosten", "ziel", "negiert", "zerstoert", "angriff", "kette", "material")
         self.assertEqual([rs.duration(k) for k in kinds],

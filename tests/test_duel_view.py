@@ -375,6 +375,20 @@ class AnimationTest(unittest.TestCase):
         self.assertNotIn("AKTIVIERT", after)
         self.assertIn("Du aktivierst eine Karte", after)
 
+    def test_activation_glides_to_the_field_first_and_then_runs_at_the_new_place(self):
+        from unittest import mock
+        frames = [frame(row(1, rr.HAND)), dict(frame(row(1, rr.FIELD_ZONE)), log=[act(11, 100)])]
+        view = self.view(frames)
+        step = view.steps[1]
+        self.assertEqual((step.kind, step.dur), ("aktiviert", 0.85 + 0.6))
+        self.assertNotIn("AKTIVIERT", self.animate(view, 1, 0.2))          # noch beim Gleiten
+        spots = []
+        with mock.patch.object(view, "_draw_activation", side_effect=lambda spot, *a: spots.append(spot)):
+            self.animate(view, 1, 0.7)
+        item = view._scene(1)[0][1]
+        self.assertEqual(spots, [(item.x, item.y)])                          # Aktivierung am Ziel, nicht in der Hand
+        self.assertIn("AKTIVIERT", self.animate(view, 1, 0.7))
+
     def test_lp_change_floats_next_to_the_display(self):
         view = self.view()
         self.assertIn("−1000", self.animate(view, 3, 0.5))

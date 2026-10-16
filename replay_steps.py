@@ -153,11 +153,22 @@ def kind(moves_: Sequence[Move], state: Optional[dict], prev_state: Optional[dic
     return _classify(moves_, state, prev_state)[0]
 
 
-def duration(kind_: str, lp_changed: bool = False) -> float:
-    """Animation eines Schritts in Sekunden bei 1×."""
+def glides(kind_: str, focus: Optional[Move]) -> bool:
+    """Aktivierung einer Karte, die dabei aufs Feld kommt: erst gleitet sie hin, dann wird sie aktiviert."""
+    return (kind_ == "aktiviert" and focus is not None and focus.from_zone is not None and focus.to_zone in FIELD
+            and focus.from_zone != focus.to_zone)
+
+
+def duration(kind_: str, lp_changed: bool = False, glide: bool = False) -> float:
+    """Animation eines Schritts in Sekunden bei 1× (glide: Gleiten vor der Aktivierung, siehe glides)."""
     if kind_ == "still":
         return LP_TIME if lp_changed else 0.0
-    return DURATION[kind_] + (SET_FLIP if kind_ == "gesetzt" else 0.0)
+    return DURATION[kind_] + (SET_FLIP if kind_ == "gesetzt" else 0.0) + (DURATION["zug"] if glide else 0.0)
+
+
+def glide_share(step: Step) -> float:
+    """Anteil (0…1) der Schrittdauer, in dem die aktivierte Karte noch gleitet; 0 = keine Gleitphase."""
+    return DURATION["zug"] / step.dur if glides(step.kind, step.focus) else 0.0
 
 
 def summon_label(card_type: str) -> str:
@@ -375,6 +386,18 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
             kind_, focus, text, label, marks = from_log
         elif again:
             kind_, text, label = "zug", "", ""
-        out.append(Step(kind_, text, tuple(ms), focus, lp, label, duration(kind_, bool(lp)), marks,
-                        chains[i] if logged else None))
+        out.append(Step(kind_, text, tuple(ms), focus, lp, label, duration(kind_, bool(lp), glides(kind_, focus)),
+                        marks, chains[i] if logged else None))
+    for i in range(len(out) - 1 if logged else 0):
+        a, b = out[i], out[i + 1]
+        f, g = a.focus, b.focus
+        # das Protokoll meldet die Aktivierung einen Frame vor dem Platzwechsel (Hand → Zone): sie gehört in diesen
+        # Schritt, damit erst die Karte aufs Feld kommt und dann aktiviert wird (der alte Schritt wird unsichtbar)
+        # shortcut: nur ein direkter Wechsel in die Zone im nächsten Frame (nicht über "unterwegs"), sonst wie bisher
+        if (a.kind == "aktiviert" and f.uid != -1 and f.from_zone == f.to_zone and f.to_zone not in FIELD
+                and b.kind == "zug" and g is not None and g.uid == f.uid and glides("aktiviert", g)):
+            out[i] = a._replace(kind="still", text="", focus=None, label="", marks=(),
+                                dur=duration("still", bool(a.lp)))
+            out[i + 1] = b._replace(kind="aktiviert", text=a.text, label=a.label, marks=a.marks,
+                                    dur=duration("aktiviert", bool(b.lp), True))
     return out
