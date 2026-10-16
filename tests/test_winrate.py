@@ -5,6 +5,7 @@ import struct
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 import match_history as mh
 import md_memory
@@ -396,6 +397,16 @@ class MatchWatcherTest(unittest.TestCase):
         entry, = self.db.matches()
         self.assertEqual((entry.turns, entry.opp_name, entry.coin), (4, "Snake-Eye", False))
         self.assertEqual(self.step(menu), 0)  # dasselbe Ergebnis zählt nur einmal
+
+    def test_logs_windows_above_the_duel_once_per_change(self):
+        menu = ["HomeViewController", "ColosseumViewController"]
+        with mock.patch.object(mh, "dlog") as log:
+            self.step(menu + ["DuelClient"])                        # gewöhnliches Duell: nichts
+            self.step(menu + ["DuelClient", "DuelMenuViewController"])
+            self.step(menu + ["DuelClient", "DuelMenuViewController"])  # unverändert: kein zweiter Eintrag
+            self.step(["HomeViewController", "ColosseumHistoryViewController", "DuelClient"])  # Replay: nichts
+        log.assert_called_once()
+        self.assertIn("DuelMenuViewController", log.call_args.args[0])
 
     def test_choice_read_after_the_coin_toss_result(self):
         menu = ["HomeViewController"]

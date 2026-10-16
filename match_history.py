@@ -24,6 +24,7 @@ import time
 from typing import Callable, Dict, List, NamedTuple, Optional
 
 from debug_log import dlog
+from replay_recorder import is_replay
 
 HISTORY_VIEW = "ColosseumHistoryViewController"  # Menü "Match History"
 COIN_TOSS_VIEW = "DuelStartViewController"        # Münzwurf vor dem Duell (noch Menü)
@@ -249,6 +250,9 @@ class MatchWatcher:
         views = memory.open_views()
         top = views[-1] if views else ""
         changed, self._views = views != self._views, views
+        if changed and DUEL_VIEWS[0] in views and top not in DUEL_VIEWS and not is_replay(views):
+            # Nur zum Beobachten (kein Verhalten): liegt etwas über dem Duell (Pausenmenü o. Ä.)? Nur die Namen.
+            dlog(f"[MATCHES] Fenster über dem Duell: {' > '.join(views)}")
         if not top or top in DUEL_VIEWS:
             return 0  # im Duell bzw. Ladebildschirm: nichts lesen
         if top == COIN_TOSS_VIEW:
