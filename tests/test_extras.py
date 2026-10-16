@@ -882,6 +882,17 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(combos.closed)
         self.assertIsNone(self.panel.combos)
 
+    def test_rating_tip_shows_on_table_head_and_goes_away(self):
+        head = self.panel.table_head.winfo_children()[0]
+        event = mock.Mock(x_root=900, y_root=300)
+        self.panel._show_rating_tip(event)
+        tip = self.panel._rating_tip
+        self.assertTrue(tip.winfo_exists())
+        self.panel._hide_rating_tip()
+        self.assertIsNone(self.panel._rating_tip)
+        self.assertFalse(tip.winfo_exists())
+        self.assertTrue(head.bind("<Enter>"))
+
     def test_side_profiles_only_swap_the_scanned_unchanged_deck(self):
         import extras_panel
         swaps = []

@@ -144,6 +144,7 @@ class ExtrasPanel:
         self._shown_reason: Optional[str] = None
         self._poll_job = None
         self._nav_job = None
+        self._rating_tip = None  # Tooltip am Tabellenkopf
         self._guide_thread: Optional[threading.Thread] = None
         self._guide_result = None              # (Text, Farbe) vom Guide-Abruf, wird im UI-Thread angezeigt
 
@@ -245,7 +246,6 @@ class ExtrasPanel:
         self.handtrap_odds.pack(side=tk.RIGHT, anchor="n", padx=(0, int(6 * s)))
         # Winrate des angezeigten Decks (aus der Match History; leer, solange es keine Matches dazu gibt)
         self.winrate_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w")
-        self.winrate_label.pack(fill=tk.X, pady=(0, int(4 * s)))
 
         # Tabelle (Spalten je nach Option, siehe _rebuild_header)
         self.table_head = tk.Frame(body, bg=PANEL)
@@ -267,8 +267,6 @@ class ExtrasPanel:
         self.list_canvas.bind("<Configure>", lambda e: self.list_canvas.itemconfigure(self._inner_id, width=e.width))
         self.list_canvas.bind("<Enter>", lambda e: self.list_canvas.bind_all("<MouseWheel>", self._on_wheel))
         self.list_canvas.bind("<Leave>", lambda e: self.list_canvas.unbind_all("<MouseWheel>"))
-        tk.Label(body, text="Klick auf Ja/Nein ändert die Einstufung · Rechtsklick: wieder automatisch",
-                 fg=MUTED, bg=BG, font=self.font_small, anchor="w").pack(fill=tk.X, pady=(int(2 * s), 0))
 
         self._build_calculator(body)
 
@@ -338,6 +336,25 @@ class ExtrasPanel:
             self.table_head.grid_columnconfigure(col, minsize=0)
         self._table_row(self.table_head, PANEL, ["Karte"] + [title for title, _ in columns],
                         [MUTED] * (len(columns) + 1), self.font_small)
+        for label in self.table_head.winfo_children():
+            label.bind("<Enter>", self._show_rating_tip)
+            label.bind("<Leave>", self._hide_rating_tip)
+
+    def _show_rating_tip(self, event) -> None:
+        """Hinweis zur Einstufung als Tooltip am Tabellenkopf (statt einer dauernden Textzeile)."""
+        self._hide_rating_tip()
+        tip = self._rating_tip = tk.Toplevel(self.win)
+        tip.overrideredirect(True)
+        tip.attributes("-topmost", True)
+        tk.Label(tip, text="Klick auf Ja/Nein ändert die Einstufung · Rechtsklick: wieder automatisch", fg=TEXT,
+                 bg=PANEL, font=self.font_small, padx=int(8 * self.s), pady=int(4 * self.s), bd=1,
+                 relief=tk.SOLID).pack()
+        tip.geometry(f"+{event.x_root - int(300 * self.s)}+{event.y_root + int(18 * self.s)}")
+
+    def _hide_rating_tip(self, event=None) -> None:
+        tip, self._rating_tip = self._rating_tip, None
+        if tip is not None:
+            tip.destroy()
 
     def _label_width(self, text: str, font) -> int:
         """Breite einer Tabellenzelle mit diesem Text (am echten Label gemessen: ✎ kommt aus einer Ersatzschrift)."""
@@ -711,7 +728,7 @@ class ExtrasPanel:
 
     def _show_deck_winrate(self) -> None:
         if self.stats_db is None or self.analysis is None:
-            self.winrate_label.config(text="")
+            self._set_deck_winrate("")
             return
         from winrate_panel import summary
         from match_history import RANKED
@@ -724,7 +741,15 @@ class ExtrasPanel:
             text = f"Winrate Ranked ({self._deck_name}): {summary(stats)}" if stats.matches else ""
         except Exception:  # Datenbank gesperrt o.Ä. – Winrate ist nur Zusatz
             text = ""
+        self._set_deck_winrate(text)
+
+    def _set_deck_winrate(self, text: str) -> None:
+        """Die Zeile belegt nur dann Platz, wenn sie etwas zeigt."""
         self.winrate_label.config(text=text)
+        if text:
+            self.winrate_label.pack(fill=tk.X, pady=(0, int(4 * self.s)), before=self.table_head)
+        else:
+            self.winrate_label.pack_forget()
 
     def _import_code(self, code: str) -> None:
         if self.on_import_code is not None:
@@ -868,6 +893,7 @@ class ExtrasPanel:
         if self.closed:
             return
         self.closed = True
+        self._hide_rating_tip()
         self._stop_watcher()
         self._close_side_panels()
         for job in (self._poll_job, self._nav_job):
@@ -902,8 +928,7 @@ class ExtrasPanel:
             self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         extras = analysis.entries("Extra")
         if extras:
-            tk.Label(self.list_inner, text=f"EXTRA DECK ({analysis.sizes.get('Extra', 0)}) – wird nicht gezogen",
-                     fg=GOLD, bg=BG, font=self.font_small, anchor="w").pack(fill=tk.X, pady=(int(8 * self.s), 2))
+            tk.Label(self.list_inner, text="EXTRA DECK", fg=GOLD, bg=BG, font=self.font_small, anchor="w").pack(fill=tk.X, pady=(int(8 * self.s), 2))
             for i, entry in enumerate(extras):
                 self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         self.list_canvas.yview_moveto(0)
