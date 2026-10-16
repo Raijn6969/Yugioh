@@ -519,7 +519,7 @@ class MasterDuelImporter:
         longest = max(tkfont.Font(font=font_sub).measure(f"Tempo: {label} ▾") for _, label, _, _ in SPEED_PROFILES)
         self.speed_btn = RoundedButton(btn_frame, bg=NEUTRAL, font=font_sub,
                                        min_width=longest + 2 * btn_size["padx"], **btn_size)
-        self.speed_menu = DarkMenu(self.root, font=font_sub)
+        self.speed_menu = DarkMenu(self.root, font=font_sub, row_pady=int(8 * scale))  # große Zeilen gegen Fehlklicks
         for key, _, _, menu_text in SPEED_PROFILES:
             self.speed_menu.add_radiobutton(label=menu_text, value=key, variable=self.speed_var,
                                             command=self._on_speed_selected)
