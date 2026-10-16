@@ -304,5 +304,23 @@ class BrokenDatabaseTest(unittest.TestCase):
         self.assertIn("md_card_stats.db.defekt-1", text)
 
 
+class UpdateFailedNoticeTest(unittest.TestCase):
+    def test_marker_gives_one_message_with_a_release_button_and_is_removed(self):
+        import Overlay
+        import updater
+        folder = tempfile.mkdtemp()
+        marker = os.path.join(folder, updater.FAILED_MARKER)
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("robocopy exit code 8")
+        fake = mock.Mock()
+        with mock.patch.object(Overlay, "APP_DIR", folder), mock.patch.object(Overlay, "show_message") as show:
+            Overlay.MasterDuelImporter._show_update_failed(fake)
+            Overlay.MasterDuelImporter._show_update_failed(fake)  # zweiter Start: nichts mehr da
+        show.assert_called_once()
+        self.assertEqual(show.call_args.args[1], "Update unvollständig")
+        self.assertEqual(show.call_args.kwargs["actions"][0][0], "Release-Seite öffnen")
+        self.assertFalse(os.path.exists(marker))
+
+
 if __name__ == "__main__":
     unittest.main()

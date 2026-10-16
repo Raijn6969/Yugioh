@@ -210,10 +210,14 @@ class ScriptTest(TempTest):
         self.assertIn(crlf(["if errorlevel 1 goto copy", "set /a n+=1", "if %n% geq 120 goto copy",
                             "ping -n 2 127.0.0.1 >nul", "goto wait", ":copy", "robocopy"]), text)
         self.assertNotIn("timeout", text.replace("kein timeout", ""))
-        robocopy, = [line for line in lines if line.startswith("robocopy")]
-        self.assertIn(f'robocopy "{source}" "{app_dir}" /E', robocopy)      # ohne Schluss-\ vor dem "
-        self.assertIn(f'>> "{os.path.join(self.tmp, "update.log")}"', robocopy)
-        self.assertIn("if errorlevel 8", text)
+        rest, exe_copy = [line for line in lines if line.startswith("robocopy")]
+        self.assertIn(f'robocopy "{source}" "{app_dir}" /E /XF "MD_Importer.exe"', rest)  # ohne Schluss-\ vor dem "
+        self.assertIn(f'>> "{os.path.join(self.tmp, "update.log")}"', rest)
+        self.assertTrue(exe_copy.startswith(f'robocopy "{source}" "{app_dir}" "MD_Importer.exe" /R:'))  # exe zuletzt
+        self.assertNotIn(" /E", exe_copy)
+        self.assertIn("if %rc% geq 8", text)
+        marker = f'> "{os.path.join(app_dir, updater.FAILED_MARKER)}" echo robocopy exit code %rc%'
+        self.assertIn(marker, text)
         self.assertEqual(lines[-2], f'start "" /D "{app_dir}" "{os.path.join(app_dir, "MD_Importer.exe")}"')
 
     def test_percent_signs_in_paths_are_doubled(self):
@@ -278,6 +282,55 @@ class RealScriptRunTest(TempTest):
             self.assertEqual(f.read(), "neue Datei")
         with open(config, encoding="utf-8") as f:
             self.assertEqual(f.read(), '{"eigene": "Daten"}')
+        self.assertFalse(os.path.exists(os.path.join(app_dir, updater.FAILED_MARKER)))  # alles kopiert
+
+
+@unittest.skipUnless(os.name == "nt", "update.cmd gibt es nur unter Windows")
+class LockedFileTest(TempTest):
+    """Eine gesperrte Datei im Programmordner: Das Skript meldet es per update_failed.txt und startet die exe trotzdem."""
+
+    def test_locked_file_leaves_a_marker_and_still_starts_the_exe(self):
+        import ctypes
+        from ctypes import wintypes
+        root = os.path.join(self.tmp, "Sperre")
+        app_dir, source, folder = (os.path.join(root, name) for name in ("Programm", "neu", "skript"))
+        for path in (app_dir, source, folder):
+            os.makedirs(path)
+        locked = os.path.join(app_dir, "gesperrt.dll")
+        for path, text in ((locked, "alt"), (os.path.join(source, "gesperrt.dll"), "neue Datei, andere Größe")):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+        with open(os.path.join(source, "marker.vbs"), "w", encoding="utf-16") as f:
+            f.write(RealScriptRunTest.VBS)
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateFileW.restype = wintypes.HANDLE
+        kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                         wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        handle = kernel32.CreateFileW(locked, 0x80000000, 0, None, 3, 0x80, None)  # lesen, ohne Freigabe
+        self.assertNotEqual(handle, wintypes.HANDLE(-1).value)
+        try:
+            script = updater.write_script(source, app_dir, 999999, "marker.vbs", folder, retries=0)
+            updater.launch(script)
+            started = os.path.join(app_dir, "marker.txt")
+            t0 = time.monotonic()
+            while not (os.path.exists(started) and os.path.getsize(started) > 2):
+                self.assertLess(time.monotonic() - t0, 30, "Skript hat die 'exe' nicht gestartet")
+                time.sleep(0.05)
+        finally:
+            kernel32.CloseHandle(handle)
+        with open(os.path.join(app_dir, updater.FAILED_MARKER), encoding="utf-8") as f:
+            self.assertRegex(f.read(), r"robocopy exit code (8|9|1[0-9])")
+        self.assertEqual(updater.take_failed_marker(app_dir)[:8], "robocopy")
+
+
+class FailedMarkerTest(TempTest):
+    def test_marker_is_read_once_and_removed(self):
+        self.assertIsNone(updater.take_failed_marker(self.tmp))
+        with open(os.path.join(self.tmp, updater.FAILED_MARKER), "w", encoding="utf-8") as f:
+            f.write("robocopy exit code 8 \n")
+        self.assertEqual(updater.take_failed_marker(self.tmp), "robocopy exit code 8")
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, updater.FAILED_MARKER)))
+        self.assertIsNone(updater.take_failed_marker(self.tmp))
 
 
 class CleanupTest(TempTest):

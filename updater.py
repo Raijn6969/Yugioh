@@ -23,6 +23,7 @@ EXE_NAME = "MD_Importer.exe"
 CHUNK = 256 * 1024
 FOLDER_PREFIX = "MD_Importer_update_"
 OLD_AFTER = 24 * 3600  # Update-Ordner, die älter sind, räumt der nächste Start weg
+FAILED_MARKER = "update_failed.txt"  # schreibt update.cmd in den Programmordner, wenn das Kopieren scheiterte
 
 
 class UpdateError(Exception):
@@ -112,12 +113,14 @@ def extract(zip_path: str, folder: str, app_dir: Optional[str] = None) -> str:
     return source
 
 
-def write_script(source: str, app_dir: str, pid: int, exe_name: str, folder: str) -> str:
-    """update.cmd in `folder` schreiben (UTF-8 ohne BOM, chcp 65001 wegen Umlauten in Pfaden). Zurück: Pfad."""
+def write_script(source: str, app_dir: str, pid: int, exe_name: str, folder: str, retries: int = 20) -> str:
+    """update.cmd in `folder` schreiben (UTF-8 ohne BOM, chcp 65001 wegen Umlauten in Pfaden). Zurück: Pfad.
+    retries: robocopy-Wiederholungen je gesperrter Datei (je 1 s)."""
     def q(path):  # normpath: kein Schluss-\ vor dem "; % verdoppeln (sonst liest cmd es als Variable)
         return os.path.normpath(path).replace("%", "%%")
 
     log = q(os.path.join(folder, "update.log"))
+    copy_options = f'/R:{retries} /W:1 /NFL /NDL /NJH /NJS /NP >> "{log}"'
     lines = [
         "@echo off",
         "chcp 65001 >nul",
@@ -133,8 +136,15 @@ def write_script(source: str, app_dir: str, pid: int, exe_name: str, folder: str
         "ping -n 2 127.0.0.1 >nul",
         "goto wait",
         ":copy",
-        f'robocopy "{q(source)}" "{q(app_dir)}" /E /R:20 /W:1 /NFL /NDL /NJH /NJS /NP >> "{log}"',
-        f'if errorlevel 8 echo FEHLER beim Kopieren (robocopy %errorlevel%) >> "{log}"',
+        # Die exe als Letztes: Scheitert das Kopieren, ist sie wenigstens noch die alte (passt zu den alten Dateien)
+        f'robocopy "{q(source)}" "{q(app_dir)}" /E /XF "{exe_name}" {copy_options}',
+        "set rc=%errorlevel%",
+        f'robocopy "{q(source)}" "{q(app_dir)}" "{exe_name}" {copy_options}',
+        "if %errorlevel% gtr %rc% set rc=%errorlevel%",
+        f'if %rc% geq 8 echo FEHLER beim Kopieren (robocopy %rc%) >> "{log}"',
+        # Der Importer meldet das beim nächsten Start (take_failed_marker); die exe wird trotzdem gestartet.
+        # Umleitung vorn: "echo 8> datei" würde als Handle 8 gelesen
+        f'if %rc% geq 8 > "{q(os.path.join(app_dir, FAILED_MARKER))}" echo robocopy exit code %rc%',
         # /D: die neue exe läuft im Programmordner (sonst erbt sie den Temp-Ordner als Arbeitsordner und sperrt ihn)
         f'start "" /D "{q(app_dir)}" "{q(os.path.join(app_dir, exe_name))}"',
     ]
@@ -142,6 +152,21 @@ def write_script(source: str, app_dir: str, pid: int, exe_name: str, folder: str
     with open(script, "w", encoding="utf-8", newline="") as f:
         f.write("\r\n".join(lines) + "\r\n")
     return script
+
+
+def take_failed_marker(app_dir: str) -> Optional[str]:
+    """Hat das letzte Update beim Kopieren versagt (update_failed.txt)? Löscht die Datei; Zurück: ihr Text oder None."""
+    path = os.path.join(app_dir, FAILED_MARKER)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read().strip()
+    except OSError:
+        return None
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return text or "unbekannt"
 
 
 def launch(script: str, popen: Callable = subprocess.Popen) -> None:

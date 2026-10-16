@@ -178,6 +178,7 @@ class MasterDuelImporter:
         self._check_window_focus()
         self._backup_database()
         self._start_update_check()
+        self._run_on_ui(self._show_update_failed)
         # Erst nach der Startmeldung: dann sind Datenbank und Fenster längst bereit
         self._after_ids["review_notice"] = self.root.after(REVIEW_NOTICE_DELAY_MS, self._start_review_notice)
 
@@ -318,6 +319,18 @@ class MasterDuelImporter:
         self.config[season_review.NOTICE_KEY] = season_review.month_key(year, month)
         self._save_config_safely()
         self._queue_toast(f"Rückblick für {season_review.MONTHS[month - 1]} ist fertig – Deck → Winrate → Rückblick")
+
+    def _show_update_failed(self):
+        """Das Update-Skript konnte nicht alles kopieren (update_failed.txt im Programmordner): einmal Bescheid geben."""
+        code = updater.take_failed_marker(APP_DIR)
+        if code is None:
+            return
+        dlog(f"[UPDATE] Letztes Update unvollständig ({code}).")
+        show_message(self.root, "Update unvollständig",
+                     "Das letzte Update konnte nicht alle Dateien kopieren (eine Datei war gesperrt).\n\n"
+                     "Bitte die zip von GitHub neu herunterladen und entpacken.\n\n"
+                     f"({code})", kind="warning", wait=False,
+                     actions=[("Release-Seite öffnen", self._open_project_page)])
 
     def _open_project_page(self, url=None):
         """Release-Seite im Browser (kein Download, keine Installation)."""
