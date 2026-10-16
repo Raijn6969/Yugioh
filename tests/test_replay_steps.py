@@ -25,7 +25,7 @@ def state(activating=None, dest=None, gy=(), ban=()):
 
 
 def kind_of(a, b, st=None, prev=None):
-    return rs.kind(rs.moves(a, b), st or state(), prev or state())
+    return rs._classify(rs.moves(a, b), st or state(), prev or state())[0]
 
 
 class MovesTest(unittest.TestCase):

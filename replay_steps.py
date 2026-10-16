@@ -149,10 +149,6 @@ def _classify(moves_: Sequence[Move], state: Optional[dict], prev_state: Optiona
     return "still", None
 
 
-def kind(moves_: Sequence[Move], state: Optional[dict], prev_state: Optional[dict]) -> str:
-    return _classify(moves_, state, prev_state)[0]
-
-
 def glides(kind_: str, focus: Optional[Move]) -> bool:
     """Aktivierung einer Karte, die dabei aufs Feld kommt: erst gleitet sie hin, dann wird sie aktiviert."""
     return (kind_ == "aktiviert" and focus is not None and focus.from_zone is not None and focus.to_zone in FIELD
