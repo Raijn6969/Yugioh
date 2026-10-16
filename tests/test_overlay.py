@@ -265,6 +265,8 @@ class OverlayTest(unittest.TestCase):
     def open_extras(self, app, root, scan):
         """Extras öffnen; der Scan liefert sofort `scan` (statt Master Duel zu lesen)."""
         class FakeExporter:
+            memory_fallback = False
+
             def __init__(self, config, cmd, status_cb, finish_cb, **kwargs):
                 self.finish_cb = finish_cb
 
@@ -311,6 +313,94 @@ class OverlayTest(unittest.TestCase):
             self.assertEqual(json.load(f)["READ_METHOD"], "memory")
         root2, app2 = self.open_app()
         self.assertNotIn("read_method", app2._after_ids)  # danach nicht mehr gefragt
+
+    def memory_app(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True, "READ_METHOD": "memory"}))
+        return self.open_app()
+
+    def saved_read_method(self):
+        with open(self.config_file, encoding="utf-8") as f:
+            return json.load(f)["READ_METHOD"]
+
+    def test_memory_outage_popup_can_switch_to_ocr(self):
+        root, app = self.memory_app()
+        with mock.patch.object(Overlay, "ask_choice", return_value="ocr") as ask:
+            app._offer_ocr_when_idle()
+        self.assertEqual([label for label, _, _ in ask.call_args.args[3]], ["Zur Texterkennung wechseln", "Später"])
+        self.assertEqual(self.saved_read_method(), "ocr")  # Fake-Config, nicht die echte
+        self.assertFalse(app._use_memory())
+        self.assertTrue(app.speed_btn.winfo_manager())  # Tempo-Knopf gehört zur Texterkennung
+
+    def test_memory_outage_popup_later_changes_nothing(self):
+        root, app = self.memory_app()
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:
+            app._offer_ocr_when_idle()
+        self.assertEqual(ask.call_count, 1)
+        self.assertTrue(app._use_memory())
+        self.assertEqual(self.saved_read_method(), "memory")
+
+    def test_memory_outage_popup_waits_until_import_is_done(self):
+        root, app = self.memory_app()
+        app.is_running = True
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:
+            app._offer_ocr_when_idle()
+            self.assertEqual(ask.call_count, 0)
+            self.assertIn("ocr_offer", app._after_ids)  # wird später erneut versucht
+            app.is_running = False
+            app._offer_ocr_when_idle()
+        self.assertEqual(ask.call_count, 1)
+
+    def test_no_popup_when_already_using_ocr(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True, "READ_METHOD": "ocr"}))
+        root, app = self.open_app()
+        with mock.patch.object(Overlay, "ask_choice") as ask, \
+                 mock.patch.object(Overlay.md_memory, "is_ready", return_value=False):
+            app._offer_ocr_when_idle()
+            app._memory_fell_back()
+        self.assertEqual(ask.call_count, 0)
+
+    def test_failed_preloads_open_the_popup_exactly_once(self):
+        root, app = self.memory_app()
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
+                 mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                 mock.patch.object(Overlay.md_memory, "preload_failures", return_value=Overlay.MEMORY_WARN_AFTER), \
+                 mock.patch.object(Overlay.md_memory, "preload", lambda: None):
+            with mock.patch.object(app, "update_status") as status:
+                for _ in range(3):
+                    app._memory_preload_at = -1000.0
+                    app._preload_memory()
+                    app._memory_thread.join()
+                self.pump(root, 0.3)
+        self.assertEqual(ask.call_count, 1)
+        status.assert_called_once_with("Speicher-Modus nicht verfügbar", "#ffaa00")  # beim Vorladen wie bisher
+
+    def test_fallback_of_an_export_opens_the_popup_afterwards(self):
+        root, app = self.memory_app()
+        with mock.patch.object(Overlay, "DeckExporter") as exporter, mock.patch.object(Overlay.threading, "Thread"), \
+                 mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
+                 mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                 mock.patch.object(app, "update_status") as status:
+            app.start_export_thread()
+            exporter.return_value.memory_fallback = True
+            finish_cb = exporter.call_args.args[3]
+            finish_cb(None, "Abbruch")  # Ergebnis-Fenster (im Test nur protokolliert), dann der Hinweis
+            self.assertEqual(ask.call_count, 0)  # nie mitten im Vorgang
+            self.pump(root, 0.3)
+            self.assertEqual(self.warnings, ["Export abgebrochen"])
+            self.assertEqual(ask.call_count, 1)
+            self.assertEqual(status.call_args.args[0], "Export abgebrochen")  # Ergebnis bleibt in der Statuszeile
+            finish_cb(None, "Abbruch")
+            self.pump(root, 0.3)
+        self.assertEqual(ask.call_count, 1)  # einmal pro Sitzung
+
+    def test_no_popup_when_memory_is_connected_or_works(self):
+        root, app = self.memory_app()
+        with mock.patch.object(Overlay, "ask_choice") as ask:
+            with mock.patch.object(Overlay.md_memory, "is_ready", return_value=True):
+                app._memory_fell_back()  # z.B. nur der Deck-Editor war zu
+            self.pump(root, 0.3)
+        self.assertEqual(ask.call_count, 0)
+        self.assertFalse(app._memory_warned)
 
     def test_start_import_uses_the_configured_read_method(self):
         for method, memory in (("memory", True), ("ocr", False)):
@@ -891,6 +981,8 @@ class MemoryWarningTest(unittest.TestCase):
     def make_app(self):
         from types import SimpleNamespace
         app = SimpleNamespace(_memory_thread=None, _memory_preload_at=0.0, _memory_warned=False, shown=[], tray=[])
+        app._offer_ocr_when_idle = None
+        app._run_on_ui = lambda func: app.shown.append("popup")
         app.update_status = lambda text, color: app.shown.append(text)
         app.tray = SimpleNamespace(notify=lambda text, title: app.shown.append("tray: " + text))
         app._warn_memory_unavailable = lambda: Overlay.MasterDuelImporter._warn_memory_unavailable(app)
@@ -903,8 +995,9 @@ class MemoryWarningTest(unittest.TestCase):
         self.preload(app, Overlay.MEMORY_WARN_AFTER)
         self.preload(app, Overlay.MEMORY_WARN_AFTER + 1)
         self.assertEqual(app.shown[0], "Speicher-Modus nicht verfügbar")
-        self.assertEqual(len(app.shown), 2)  # Statuszeile + Tray, nur einmal
+        self.assertEqual(len(app.shown), 3)  # Statuszeile + Tray + Popup (über die UI-Warteschlange), nur einmal
         self.assertIn("Winrate", app.shown[1])
+        self.assertEqual(app.shown[2], "popup")
 
 
 if __name__ == "__main__":

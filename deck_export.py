@@ -202,6 +202,7 @@ class DeckExporter:
         self.signatures: dict = {}  # Mini-Abbilder der Karten beim Einlesen (siehe _plan)
         self.reuse = scan           # Deck seit diesem Scan unverändert → Export ohne neues Lesen
         self.memory = memory        # Lesemethode "Speicher": Deck aus dem Speicher statt per Texterkennung
+        self.memory_fallback = False  # Speicher nicht lesbar, es lief mit Texterkennung (Hinweis danach)
         # Texterkennung und Ruckler-Erkennung genau wie beim Import
         self.reader = reader or DeckImporterCore(config, tesseract_cmd, status_callback, lambda **kwargs: None)
 
@@ -245,6 +246,7 @@ class DeckExporter:
                     dlog(traceback.format_exc())
                 dlog(f"[SPEICHER] Deck nicht lesbar ({e}) → Texterkennung.")
                 self.status_callback("Speicher nicht lesbar – Texterkennung", "yellow")
+                self.memory_fallback = True
         problem = vision_engine.check_tesseract(self.tesseract_cmd, "eng")
         if problem:
             raise RuntimeError(problem)

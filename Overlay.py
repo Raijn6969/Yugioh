@@ -635,6 +635,9 @@ class MasterDuelImporter:
             [("Speicher lesen", "memory", "#007acc"), ("Texterkennung", "ocr", "#444444")])
         if choice is None:
             return  # nichts gewählt: Texterkennung, beim nächsten Start wird wieder gefragt
+        self._set_read_method(choice)
+
+    def _set_read_method(self, choice: str):
         self.config[READ_METHOD_KEY] = choice
         self._save_config_safely()
         self._update_speed_button()
@@ -656,15 +659,41 @@ class MasterDuelImporter:
         self._memory_thread = threading.Thread(target=md_memory.preload, daemon=True)
         self._memory_thread.start()
 
-    def _warn_memory_unavailable(self):
+    def _warn_memory_unavailable(self, status: bool = True):
         """Der Speicher-Modus verbindet sich seit Minuten nicht (meist ein Master-Duel-Update): Der Import weicht
         still auf die Texterkennung aus, der Winrate-Tracker würde aber unbemerkt nichts mehr erfassen."""
         text = ("Speicher-Modus verbindet sich nicht (Master-Duel-Update?). Der Import nutzt die Texterkennung, "
                 "Duelle werden gerade nicht für die Winrate erfasst.")
         dlog(f"[MEMORY] {text} Letzter Fehler: {md_memory.last_error()}")
-        self.update_status("Speicher-Modus nicht verfügbar", "#ffaa00")
+        if status:  # nach einem Vorgang bleibt dessen Ergebnis ("Import Erfolgreich!") in der Statuszeile stehen
+            self.update_status("Speicher-Modus nicht verfügbar", "#ffaa00")
         if self.tray:
             self.tray.notify(text, "MD Importer")
+        self._run_on_ui(self._offer_ocr_when_idle)  # nicht im Fokus-Timer blockieren
+
+    def _memory_fell_back(self):
+        """Ein Import/Scan/Export musste auf die Texterkennung ausweichen: Hinweis, einmal pro Sitzung – nur,
+        wenn die Verbindung fehlt (nicht schon, weil der Deck-Editor gerade zu ist)."""
+        if not self._memory_warned and self._use_memory() and not md_memory.is_ready():
+            self._memory_warned = True
+            self._warn_memory_unavailable(status=False)
+
+    def _offer_ocr_when_idle(self):
+        """Popup "zur Texterkennung wechseln"; nicht mitten in einem Vorgang oder über einem anderen Fenster,
+        sondern erst danach (alle UPDATE_RETRY_MS nachsehen)."""
+        self._after_ids.pop("ocr_offer", None)
+        if not self._use_memory():
+            return  # inzwischen schon umgestellt
+        if self.is_running or self.root.grab_current():
+            self._after_ids["ocr_offer"] = self.root.after(UPDATE_RETRY_MS, self._offer_ocr_when_idle)
+            return
+        choice = ask_choice(
+            self.root, "Speicher-Modus nicht verfügbar",
+            "Der Speicher-Modus funktioniert gerade nicht, oft nach einem Master-Duel-Update. "
+            "Du kannst zur Texterkennung wechseln.",
+            [("Zur Texterkennung wechseln", "ocr", "#007acc"), ("Später", None, "#444444")], kind="warning")
+        if choice:
+            self._set_read_method(choice)
 
     # --- FENSTER LOGIK ---
     def start_move(self, event):
@@ -975,6 +1004,8 @@ class MasterDuelImporter:
 
             def finish_cb(success, has_errors, failed_cards, message="", notes=None, scan=None):
                 self._run_on_ui(self._on_import_finished, success, has_errors, failed_cards, message, notes, scan)
+                if core.memory_fallback:
+                    self._run_on_ui(self._memory_fell_back)
 
             def start_cb():
                 self._run_on_ui(self._on_import_started)
@@ -1058,6 +1089,8 @@ class MasterDuelImporter:
 
         def finish_cb(result, error=""):
             self._run_on_ui(self._on_export_finished, result, error)
+            if exporter.memory_fallback:
+                self._run_on_ui(self._memory_fell_back)
 
         def start_cb():
             self._run_on_ui(self._on_import_started)  # Timer läuft auch beim Export (ab Ende des Countdowns)
@@ -1267,6 +1300,8 @@ class MasterDuelImporter:
                 status_cb("Karten-Stats werden nachgeschlagen …", "cyan")
                 missing = self.card_stats.ensure(c.match.cid for c in scan.cards if c.match.cid)
             self._run_on_ui(self._on_extras_scan_done, scan, error, missing)
+            if exporter.memory_fallback:
+                self._run_on_ui(self._memory_fell_back)
 
         exporter = DeckExporter(self.config, TESSERACT_CMD, status_cb, finish_cb, memory=self._use_memory())
         exporter.label = "Scan"

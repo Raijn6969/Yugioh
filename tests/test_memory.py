@@ -262,6 +262,7 @@ class MemoryImportTest(unittest.TestCase):
         self.assertIsNone(core.memory)
         memory.close.assert_not_called()  # gemeinsame Verbindung: shared() prüft sie beim nächsten Mal selbst
         self.assertTrue(any("ausgefallen" in n for n in core.notes))
+        self.assertTrue(core.memory_fallback)  # Overlay weist danach auf die Texterkennung hin
 
     def test_unknown_artwork_is_named_from_the_panel(self):
         core = self.make_core([23490])
@@ -279,6 +280,7 @@ class MemoryImportTest(unittest.TestCase):
             core._setup_memory([], {})
         self.assertIsNone(core.memory)
         self.assertTrue(any("Speicher-Modus nicht möglich" in n for n in core.notes))
+        self.assertTrue(core.memory_fallback)
 
 
 class FakeGame:

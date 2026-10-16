@@ -154,6 +154,7 @@ class DeckImporterCore:
         # Speicher-Modus: Karte im Detail-Panel per ID aus dem Speicher statt per Texterkennung
         self.use_memory = memory
         self.memory = None                # md_memory.DeckEditorMemory, solange der Speicher-Modus läuft
+        self.memory_fallback = False      # Speicher fiel aus, es lief mit Texterkennung weiter (Hinweis danach)
         self._kid_names: Dict[int, str] = {}  # Konami-ID → Name (Deck-Karten in der Spielsprache)
         self._kid_passcodes: Dict[int, str] = {}  # Konami-ID → Passcode (Deck-Karten: wie im Deck-Code)
         self._deck_kids: Dict[str, int] = {}       # Passcode der Deck-Karten → Konami-ID
@@ -846,7 +847,7 @@ class DeckImporterCore:
     def _memory_failed(self, error: Exception) -> None:
         dlog(f"    [SPEICHER] Ausgefallen ({error}) → weiter mit Texterkennung.")
         self.notes.append(f"Speicher-Modus während des Imports ausgefallen ({error}) – Rest per Texterkennung.")
-        self.memory = None
+        self.memory, self.memory_fallback = None, True
 
     def _memory_deck_count(self, kid: int) -> int:
         main, extra = self.memory.deck()
@@ -1463,6 +1464,7 @@ class DeckImporterCore:
         except Exception as e:
             dlog(f"[SPEICHER] Nicht möglich ({e}) → Import mit Texterkennung.")
             self.notes.append(f"Speicher-Modus nicht möglich ({e}) – der Import lief mit Texterkennung.")
+            self.memory_fallback = True
 
     def _memory_deck(self) -> Optional[Tuple[List[int], List[int]]]:
         """(Main, Extra) als Konami-IDs aus dem Speicher; None = Speicher-Modus nicht (mehr) verfügbar."""
@@ -1472,7 +1474,7 @@ class DeckImporterCore:
             return self.memory.deck()
         except Exception as e:
             dlog(f"[SPEICHER] Deck nicht lesbar ({e}) → Kontrolle per Texterkennung.")
-            self.memory = None
+            self.memory, self.memory_fallback = None, True
             return None
 
     def _memory_cards(self, deck: Tuple[List[int], List[int]]) -> list:
@@ -1495,7 +1497,7 @@ class DeckImporterCore:
         except Exception as e:  # z.B. Editor geschlossen, Spiel beendet
             dlog(f"[SPEICHER] Lesen fehlgeschlagen ({e}) → weiter mit Texterkennung.")
             self.notes.append(f"Speicher-Modus während des Imports ausgefallen ({e}) – Rest per Texterkennung.")
-            self.memory = None
+            self.memory, self.memory_fallback = None, True
             return None
         if kid and kid not in self._kid_names and kid not in self._unnamed:
             self._learn_kid(kid)

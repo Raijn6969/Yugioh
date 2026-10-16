@@ -317,6 +317,7 @@ class ExportFlowTest(unittest.TestCase):
         self.assertEqual(plan.call_args.kwargs["counts"], (2, 1))
         self.assertEqual([c.match.cid for c in scan.cards], ["24094653", "24094653", "84013237"])
         self.assertEqual([c.zone for c in scan.cards], ["Main", "Main", "Extra"])
+        self.assertFalse(exporter.memory_fallback)
 
     def test_unknown_artwork_in_deck_is_clicked_once_and_learned(self):
         zones = [("Main", md_layout.deck_slot_positions(1, 267, 5), 10), ("Extra", [], 10)]
@@ -348,6 +349,7 @@ class ExportFlowTest(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 exporter.scan()
         ocr.assert_called_once()
+        self.assertTrue(exporter.memory_fallback)
 
     def test_unchanged_deck_is_exported_from_last_scan(self):
         cards = [deck_export.ExportedCard("Main", 1, "bonfire", card_db.CardMatch("1", "Bonfire", True)),
