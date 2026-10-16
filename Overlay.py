@@ -35,7 +35,7 @@ except Exception:
 
 from auto_calibration import auto_calibrate
 from calibration import CalibrationWizard
-from card_stats import CardStatsDB
+from card_stats import CardStatsDB, take_recovery_notice
 from deck_analysis import current_changes
 from deck_export import DeckExporter, save_ydk
 from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
@@ -1157,8 +1157,24 @@ class MasterDuelImporter:
             try:
                 self.card_stats = CardStatsDB()
             except Exception as e:  # z.B. Ordner schreibgeschützt
-                print(f"Karten-Datenbank nicht verfügbar: {e}")
+                dlog_changed("stats-db", f"[DATENBANK] Karten-Datenbank nicht verfügbar: {type(e).__name__}: {e}")
+        notice = take_recovery_notice()  # auch wenn ein Import sie als Erster wiederhergestellt hat
+        if notice:
+            self._run_on_ui(self._show_db_recovered, *notice)
         return self.card_stats
+
+    def _show_db_recovered(self, broken, date):
+        """Einmal Bescheid geben: die Datenbank war beschädigt (siehe card_stats.recover_database)."""
+        if date:
+            day = time.strftime("%d.%m.%Y", time.strptime(date, "%Y-%m-%d"))
+            outcome = (f"Wiederhergestellt aus der Sicherung vom {day}. Duelle, Decks und Replays seit diesem Tag "
+                       "fehlen.")
+        else:
+            outcome = "Es gab keine Sicherung – die Datenbank wurde leer neu angelegt (Winrate, Verlauf, Replays weg)."
+        show_message(self.root, "Datenbank beschädigt",
+                     f"Die Datenbank mit Winrate, Verlauf und Replays war beschädigt.\n\n{outcome}\n\n"
+                     f"Die beschädigte Datei wurde nicht gelöscht, sondern liegt als\n{os.path.basename(broken)}\n"
+                     "neben der Datenbank.", kind="warning", wait=False)
 
     def _add_to_history(self, result):
         card_ids = getattr(self._core, "_card_ids", None)

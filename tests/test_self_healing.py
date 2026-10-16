@@ -237,5 +237,72 @@ class DeckCounterTest(unittest.TestCase):
         self.assertEqual(counter.read(), 37)
 
 
+class BrokenDatabaseTest(unittest.TestCase):
+    """Beschädigte Datenbank: beiseitelegen (nie löschen), neueste Sicherung zurückholen, Hinweis merken."""
+
+    def setUp(self):
+        import card_stats
+        self.card_stats = card_stats
+        card_stats.take_recovery_notice()
+        self.folder = tempfile.mkdtemp()
+        self.path = os.path.join(self.folder, "md_card_stats.db")
+        with open(self.path, "wb") as f:
+            f.write(b"kein sqlite" * 500)
+
+    def make_backup(self, day, deck_id):
+        import sqlite3
+        os.makedirs(os.path.join(self.folder, "backups"), exist_ok=True)
+        path = os.path.join(self.folder, "backups", f"md_card_stats_{day}.db")
+        con = sqlite3.connect(path)
+        self.card_stats.create_tables(con)
+        con.execute("INSERT INTO md_decks VALUES (?, 'Ryzeal', '1', '', 0)", (deck_id,))
+        con.commit()
+        con.close()
+
+    def open_db(self):
+        return self.card_stats.CardStatsDB(self.path, base_path=None, fetch=lambda ids: {})
+
+    def broken_files(self):
+        return [n for n in os.listdir(self.folder) if ".defekt-" in n]
+
+    def test_newest_intact_backup_is_restored_and_broken_file_kept(self):
+        self.make_backup("2026-10-14", "alt")
+        self.make_backup("2026-10-15", "neu")
+        with open(os.path.join(self.folder, "backups", "md_card_stats_2026-10-16.db"), "wb") as f:
+            f.write(b"auch kaputt")  # die neueste Sicherung ist selbst defekt → die davor
+        db = self.open_db()
+        self.assertEqual(db.md_deck("neu").name, "Ryzeal")
+        (broken,) = self.broken_files()
+        with open(os.path.join(self.folder, broken), "rb") as f:
+            self.assertEqual(f.read(), b"kein sqlite" * 500)
+        self.assertEqual(self.card_stats.take_recovery_notice(), (os.path.join(self.folder, broken), "2026-10-15"))
+        self.assertIsNone(self.card_stats.take_recovery_notice())  # nur einmal
+
+    def test_without_backup_a_new_database_is_created(self):
+        db = self.open_db()
+        self.assertEqual(db.matches(), [])
+        self.assertEqual(len(self.broken_files()), 1)
+        self.assertEqual(self.card_stats.take_recovery_notice()[1], None)
+
+    def test_locked_database_is_not_treated_as_broken(self):
+        import sqlite3
+        with mock.patch.object(self.card_stats.CardStatsDB, "_create",
+                               side_effect=sqlite3.OperationalError("database is locked")):
+            with self.assertRaises(sqlite3.OperationalError):
+                self.open_db()
+        self.assertEqual(self.broken_files(), [])
+        self.assertIsNone(self.card_stats.take_recovery_notice())
+
+    def test_overlay_tells_the_user_once_with_the_backup_date(self):
+        import Overlay
+        fake = mock.Mock()
+        with mock.patch.object(Overlay, "show_message") as show:
+            Overlay.MasterDuelImporter._show_db_recovered(fake, r"C:\x\md_card_stats.db.defekt-1", "2026-10-15")
+        title, text = show.call_args.args[1:3]
+        self.assertEqual(title, "Datenbank beschädigt")
+        self.assertIn("15.10.2026", text)
+        self.assertIn("md_card_stats.db.defekt-1", text)
+
+
 if __name__ == "__main__":
     unittest.main()

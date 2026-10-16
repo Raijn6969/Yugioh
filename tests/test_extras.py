@@ -848,6 +848,7 @@ class ExtrasPanelTest(unittest.TestCase):
                 self.pump(0.05)
                 if self.panel.ash_prio.text_rows:
                     break
+            self.pump(0.3)  # das Ergebnis erscheint erst im nächsten Takt der Anzeige
         panel = self.panel.ash_prio
         self.assertIs(panel.db, self.db)
         self.assertIn("Kartentexten", panel.info_label.cget("text"))

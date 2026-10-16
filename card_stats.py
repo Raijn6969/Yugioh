@@ -17,7 +17,9 @@ Ob eine Karte ein Starter bzw. eine Handtrap ist, wird aus dem gespeicherten Kar
 import json
 import os
 import re
+import shutil
 import sqlite3
+import threading
 import time
 from contextlib import ExitStack, contextmanager
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
@@ -25,6 +27,7 @@ from urllib.request import pathname2url
 
 from lazy_requests import requests
 
+import db_backup
 from app_paths import BUNDLE_DIR, DATA_DIR
 from debug_log import dlog
 from handtrap_rules import classify_handtrap
@@ -37,6 +40,9 @@ BASE_DB_FILE = os.path.join(BUNDLE_DIR, BASE_DB_NAME)
 BATCH = 50  # IDs pro Anfrage (YGOPRODeck erlaubt mehrere IDs, der Link bleibt kurz genug)
 COLUMNS = "id, name, type, frame, race, level, archetype, desc"
 HISTORY_MIN_COPIES = 3  # Archetyp zählt für den Deck-Namen ab so vielen Karten
+_recover_lock = threading.Lock()  # Match-, Review- und UI-Thread öffnen die Datenbank evtl. gleichzeitig
+_checked: set = set()             # Pfade, deren Integrität in diesem Programmlauf schon geprüft wurde
+recovery_notice: Optional[Tuple[str, Optional[str]]] = None  # (beiseitegelegte Datei, Datum der Sicherung)
 
 
 class CardInfo(NamedTuple):
@@ -211,6 +217,45 @@ def create_tables(con: sqlite3.Connection) -> None:
                        saved_at REAL, PRIMARY KEY (deck_name, name))""")
 
 
+def _intact(path: str) -> bool:
+    """Lässt sich die Datei als SQLite-Datenbank öffnen und besteht sie den schnellen Integritätstest?"""
+    try:
+        con = sqlite3.connect(f"file:{pathname2url(os.path.abspath(path))}?mode=ro", uri=True)
+        try:
+            return con.execute("PRAGMA quick_check(1)").fetchone() == ("ok",)
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return False
+
+
+def recover_database(path: str) -> Tuple[str, Optional[str]]:
+    """
+    Beschädigte Datenbank beiseitelegen (nie löschen: <Datei>.defekt-<Zeitstempel>) und die neueste heile Sicherung
+    aus backups/ zurückkopieren. Ohne Sicherung fehlt die Datei danach (CardStatsDB legt sie neu an).
+    Returns: (beiseitegelegte Datei, Datum der Sicherung "JJJJ-MM-TT" oder None).
+    """
+    broken = f"{path}.defekt-{time.strftime('%Y%m%d-%H%M%S')}"
+    os.replace(path, broken)
+    for suffix in ("-journal", "-wal", "-shm"):  # sonst spielte SQLite ein altes Journal in die neue Datei ein
+        if os.path.exists(path + suffix):
+            os.replace(path + suffix, broken + suffix)
+    for backup in reversed(db_backup.backups(db_backup.folder_for(path))):  # neueste zuerst
+        if _intact(backup):
+            tmp = path + ".tmp"
+            shutil.copyfile(backup, tmp)
+            os.replace(tmp, path)
+            return broken, os.path.basename(backup)[len(db_backup.PREFIX):-len(".db")]
+    return broken, None
+
+
+def take_recovery_notice() -> Optional[Tuple[str, Optional[str]]]:
+    """Hinweis auf eine Wiederherstellung (einmal abholen, damit der Nutzer ihn einmal sieht)."""
+    global recovery_notice
+    notice, recovery_notice = recovery_notice, None
+    return notice
+
+
 def name_key(name: str) -> str:
     """Kartenname zum Vergleichen: Guides schreiben z.B. "Maliss P Dormouse" statt "Maliss <P> Dormouse"."""
     return re.sub(r"[^a-z0-9]", "", name.lower())
@@ -277,8 +322,36 @@ class CardStatsDB:
         self._konami_names_cache: Optional[Dict[int, str]] = None
         self._konami_passcodes_cache: Optional[Dict[int, str]] = None
         self._names_cache: Optional[Dict[str, List[str]]] = None  # name_key → IDs (ids_by_name)
+        try:
+            self._create()
+        except sqlite3.OperationalError:
+            raise  # gesperrt / nicht zu öffnen: keine Datenbank beiseitelegen
+        except sqlite3.DatabaseError:
+            self._recover()
+
+    def _create(self) -> None:
         with self._connect() as con:
+            if self.path not in _checked and con.execute("PRAGMA quick_check(1)").fetchone()[0] != "ok":
+                raise sqlite3.DatabaseError("Integritätsprüfung fehlgeschlagen")
             create_tables(con)
+        _checked.add(self.path)
+
+    def _recover(self) -> None:
+        """Datenbank beschädigt: beiseitelegen, Sicherung zurückholen (siehe recover_database), Hinweis merken."""
+        global recovery_notice
+        with _recover_lock:
+            try:
+                self._create()  # ein anderer Thread war schneller
+                return
+            except sqlite3.OperationalError:
+                raise
+            except sqlite3.DatabaseError:
+                pass
+            broken, date = recover_database(self.path)
+            recovery_notice = (broken, date)
+            dlog(f"[DATENBANK] Beschädigt, beiseitegelegt als {os.path.basename(broken)}; "
+                 + (f"Sicherung vom {date} zurückgeholt." if date else "keine Sicherung vorhanden, neu angelegt."))
+            self._create()
 
     @contextmanager
     def _connect(self, base: bool = False):
