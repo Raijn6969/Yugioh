@@ -287,6 +287,18 @@ class PanelTest(unittest.TestCase):
         self.assertTrue(texts()[0].startswith("Nibiru trifft ab der 5. Beschwörung"))
         self.assertEqual(panel.strip_texts(), [])  # Nibiru: keine Bildleiste
 
+    def test_ash_panel_shows_an_error_when_loading_fails(self):
+        from ash_panel import AshPrioPanel
+        with mock.patch.object(ash_prio, "load", side_effect=KeyError("hand")):
+            panel = AshPrioPanel(self.root, "Deck", DECK, on_close=lambda: None, path="fehlt.db")
+            self.addCleanup(panel.close)
+            for _ in range(100):
+                self.pump(0.05)
+                if panel._shown:
+                    break
+        self.assertIn("nicht lesbar", panel.info_label.cget("text"))
+        self.assertIsNone(panel._poll_job)  # kein ewiges Warten und Abfragen
+
     def test_ash_panel_loads_in_background(self):
         from ash_panel import AshPrioPanel
         path = os.path.join(tempfile.mkdtemp(), "factory.db")

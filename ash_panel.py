@@ -21,6 +21,7 @@ import ash_prio
 import card_images
 import handtrap_targets
 from dark_scrollbar import DarkScrollbar
+from debug_log import dlog
 from extras_panel import BG, GOLD, HIGHLIGHT, MUTED, PANEL, ROW_ALT, TEXT
 from hover_card import AMBER, GREEN, NEON, RED
 from rounded_button import RoundedButton
@@ -139,22 +140,27 @@ class AshPrioPanel:
 
     # ── Laden (Factory-Datenbank, im Hintergrund) ──
     def _load(self) -> None:
-        result = ash_prio.load(self.deck, self.path, self.names)
-        if result[0] is None:
-            self.text_rows = self._text_rows()
-            passcodes = [row[0] for row in self.text_rows if row[4]]
-        else:
-            wanted = {t.name for key, _ in ash_prio.HANDTRAPS
-                      for t in ash_prio.targets(result[1], key, self.names.values())[:MAX_CARDS]}
-            self.card_ids = self._card_ids(wanted)
-            passcodes = [self.card_ids[name] for name in wanted if name in self.card_ids]
-        self.photos.prepare(passcodes)  # verkleinern im Hintergrund, dann zeigt das Fenster sie sofort
-        self._result = result
-        missing = self.photos.missing(passcodes)
-        if missing:  # einmal online laden, dann nachträglich zeigen
-            card_images.download(missing, folder=self.image_folder)
-            self.photos.prepare(missing)
-            self._images_ready = True
+        try:
+            result = ash_prio.load(self.deck, self.path, self.names)
+            if result[0] is None:
+                self.text_rows = self._text_rows()
+                passcodes = [row[0] for row in self.text_rows if row[4]]
+            else:
+                wanted = {t.name for key, _ in ash_prio.HANDTRAPS
+                          for t in ash_prio.targets(result[1], key, self.names.values())[:MAX_CARDS]}
+                self.card_ids = self._card_ids(wanted)
+                passcodes = [self.card_ids[name] for name in wanted if name in self.card_ids]
+            self.photos.prepare(passcodes)  # verkleinern im Hintergrund, dann zeigt das Fenster sie sofort
+            self._result = result
+            missing = self.photos.missing(passcodes)
+            if missing:  # einmal online laden, dann nachträglich zeigen
+                card_images.download(missing, folder=self.image_folder)
+                self.photos.prepare(missing)
+                self._images_ready = True
+        except Exception as e:  # unerwartete Daten (z.B. alter Schnappschuss): sonst bliebe das Fenster bei "Lese …"
+            dlog(f"[ASH-PRIO] Laden fehlgeschlagen: {type(e).__name__}: {e}")
+            if self._result is None:
+                self._result = (None, [], f"Ash-Prio nicht lesbar: {e}")
 
     def _card_ids(self, names) -> Dict[str, str]:
         """{Kartenname: Passcode} – Artwork wie im Deck; Karten, die nicht im Deck sind, aus der Kartendatenbank."""
