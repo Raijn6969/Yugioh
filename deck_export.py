@@ -346,7 +346,14 @@ class DeckExporter:
         extra_ids = [c.match.cid for c in cards if c.zone == "Extra" and c.match.cid]
         result = ExportResult(build_ydk(main_ids, extra_ids), len(zones[0][1]), len(zones[1][1]), cards,
                               scan, reused)
-        pyperclip.copy(result.ydk)
+        for attempt in range(3):  # die Zwischenablage kann kurz von einem anderen Programm belegt sein
+            try:
+                pyperclip.copy(result.ydk)
+                break
+            except Exception:
+                if attempt == 2:
+                    raise
+                time.sleep(0.05)
         dlog(f"\n[EXPORT] {len(main_ids)}/{result.main_count} Main, {len(extra_ids)}/{result.extra_count} Extra "
              f"erkannt, {len(result.problems)} unsicher/fehlend. .ydk liegt in der Zwischenablage.")
         self.status_callback("Deck exportiert!", "#00ff00")

@@ -366,6 +366,17 @@ class ExportFlowTest(unittest.TestCase):
         self.assertEqual(result.ydk, deck_export.build_ydk(["1"], ["6"]))
         copy.assert_called_once_with(result.ydk)
 
+    def test_clipboard_briefly_locked_does_not_lose_the_scan(self):
+        cards = [deck_export.ExportedCard("Main", 1, "bonfire", card_db.CardMatch("1", "Bonfire", True))]
+        zones = [("Main", md_layout.deck_slot_positions(1, 267, 5), 10), ("Extra", [], 10)]
+        scan = deck_export.DeckScan(md_layout.Frame(0, 0, 1920, 1080), zones, cards, {})
+        exporter = deck_export.DeckExporter({}, "", lambda *a: None, lambda **k: None, scan=scan)
+        with mock.patch.object(deck_export.pyperclip, "copy", side_effect=[OSError("belegt"), None]) as copy, \
+                mock.patch.object(deck_export.time, "sleep"):
+            result = exporter._run()
+        self.assertEqual(copy.call_count, 2)
+        self.assertEqual(result.ydk, deck_export.build_ydk(["1"], []))
+
 
 if __name__ == "__main__":
     unittest.main()
