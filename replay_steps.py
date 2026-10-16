@@ -357,6 +357,10 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
         if logged:
             state, prev_state = _quiet(state), _quiet(prev_state)
         kind_, focus = _classify(ms, state, prev_state)
+        # Beschwörung steht schon im Protokoll der letzten Frames: die Karte gleitet nur noch (leerer "zug")
+        seen = {e.get("c") for f in frames[max(0, i - 3):i] for e in f.get("log") or ()
+                if e.get("k") == "act" and e.get("a") in CODE_SUMMON} if logged else ()
+        again = kind_ == "beschworen" and bool(focus.card) and focus.card in seen
         from_log = _log_step(frame, prev, chains[i], ms, name_of, type_of, my_id) if logged and i else None
         lp = {}
         for team in (0, 1):
@@ -369,6 +373,8 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
         text, marks = describe(focus, kind_, name_of, my_id, frame.get("phase") or "", type_of), ()
         if from_log is not None:
             kind_, focus, text, label, marks = from_log
+        elif again:
+            kind_, text, label = "zug", "", ""
         out.append(Step(kind_, text, tuple(ms), focus, lp, label, duration(kind_, bool(lp)), marks,
                         chains[i] if logged else None))
     return out

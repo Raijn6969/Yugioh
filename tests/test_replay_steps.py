@@ -300,6 +300,17 @@ class LogStepTest(unittest.TestCase):
                                name_of, type_of)
         self.assertEqual((steps[1].kind, steps[1].marks, steps[1].chain), ("beschworen", (), None))
 
+    def test_summon_in_the_protocol_is_not_derived_again_from_the_move(self):
+        hand, field = (row(1, 0, rr.HAND, 100),), (row(1, 0, 0, 100),)
+        logged = dict(frame(*hand), log=[act(3, 100)])
+        steps = rs.build_steps([frame(*hand), logged, frame(*field), frame(*hand), frame(*hand), frame(*field)],
+                               [state()] * 6, 0, name_of, type_of)
+        self.assertEqual([s.kind for s in steps], ["still", "beschworen", "zug", "hand", "still", "beschworen"])
+        self.assertEqual((steps[2].text, steps[2].label, steps[2].dur), ("", "", 0.6))   # gleitet, aber keine Zeile
+        self.assertEqual(steps[5].text, "Du beschwörst Ash Blossom")   # mehr als 3 Frames später: wieder eine echte
+        plain = rs.build_steps([frame(*hand), frame(*hand), frame(*field)], [state()] * 3, 0, name_of, type_of)
+        self.assertEqual(plain[2].kind, "beschworen")
+
     def test_durations_of_the_new_kinds(self):
         kinds = ("kosten", "ziel", "negiert", "zerstoert", "angriff", "kette", "material")
         self.assertEqual([rs.duration(k) for k in kinds],

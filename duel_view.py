@@ -685,7 +685,7 @@ class DuelView:
         width = self.side_w - int(12 * s)
         y, pad = int(4 * s), int(6 * s)
         for n, step in enumerate(self.steps if self.replay else ()):
-            if step.kind == "still":
+            if not step.text:   # auch gleitende Schritte ohne Text (Beschwörung steht schon im Protokoll)
                 continue
             frame = self.replay.frames[n]
             when_ = "  ·  ".join(x for x in (frame.get("turn"), frame.get("phase")) if x)
@@ -766,7 +766,7 @@ class DuelView:
                 if self.playing and last:
                     self._stop_play()
                 elif self.playing:
-                    still = self.steps[self.frame_no].kind == "still"
+                    still = not self.steps[self.frame_no].text
                     self._next_at = now + (0.0 if still else rs.STEP_PAUSE / self.speed)
             else:
                 self._draw_replay()
