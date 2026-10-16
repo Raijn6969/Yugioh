@@ -18,6 +18,24 @@ HANDLE_HOVER = "#6a6a6a"
 HANDLE_DRAG = GOLD
 
 
+def _wheel_all(event) -> Optional[str]:
+    """Scrollt die registrierte Fläche unter dem Mauszeiger (innerste zuerst); nur Sichtbares liegt darunter."""
+    widget = event.widget
+    while isinstance(widget, tk.Misc):
+        if getattr(widget, "wheel_scroll", False):
+            widget.yview_scroll(int(-event.delta / 120) * 2 or (-1 if event.delta > 0 else 1), "units")
+            return "break"
+        widget = widget.master
+
+
+def bind_wheel(canvas: tk.Canvas) -> None:
+    """Mausrad über dem Canvas (auch über seinen Kindern) scrollt ihn – ein gemeinsames Binding für alle."""
+    canvas.wheel_scroll = True
+    if not getattr(canvas.winfo_toplevel(), "wheel_bound", False):
+        canvas.winfo_toplevel().wheel_bound = True
+        canvas.bind_all("<MouseWheel>", _wheel_all, add="+")
+
+
 class DarkScrollbar(tk.Canvas):
     def __init__(self, parent: tk.Misc, command: Callable, bg: str, scale: float = 1.0):
         self.width = max(6, int(8 * scale))

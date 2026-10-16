@@ -278,6 +278,5 @@ class MatchupPanel:
                 self.win.after_cancel(self._poll_job)
             except tk.TclError:
                 pass
-        self.grid.release()
         self.win.destroy()
         self.on_close()

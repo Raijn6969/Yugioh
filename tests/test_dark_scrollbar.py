@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
-from dark_scrollbar import DarkScrollbar, HANDLE, HANDLE_DRAG, HANDLE_HOVER
+from dark_scrollbar import DarkScrollbar, bind_wheel, HANDLE, HANDLE_DRAG, HANDLE_HOVER
 from tests.test_staples import HAS_TK
 
 if HAS_TK:
@@ -98,6 +98,25 @@ class DarkScrollbarTest(unittest.TestCase):
         self.bar.set(0, 1)  # alles sichtbar: nichts tun
         self.bar.event_generate("<MouseWheel>", delta=-120, x=3, y=20)
         self.command.assert_not_called()
+
+    def test_bind_wheel_scrollt_nur_die_flaeche_unter_der_maus(self):
+        canvases = []
+        for x in (0, 150):
+            canvas = tk.Canvas(self.root, scrollregion=(0, 0, 50, 4 * HEIGHT))
+            canvas.place(x=x, y=0, width=140, height=HEIGHT)
+            kind = tk.Frame(canvas, height=100)  # wie die Zeilen der Ansichten: Kind-Widget im Canvas
+            canvas.create_window(0, 0, window=kind, anchor="nw", width=100, height=100)
+            bind_wheel(canvas)
+            canvases.append((canvas, kind))
+        self.root.update()
+        start = canvases[0][0].yview()
+        canvases[1][1].event_generate("<MouseWheel>", delta=-120, x=5, y=5)
+        self.assertEqual(canvases[0][0].yview(), start)
+        self.assertGreater(canvases[1][0].yview()[0], 0)
+        canvases[1][0].place_forget()  # Tab weg: sein Rad darf nichts mehr bewirken
+        before = canvases[0][0].yview()
+        canvases[0][1].event_generate("<MouseWheel>", delta=-120, x=5, y=5)
+        self.assertGreater(canvases[0][0].yview()[0], before[0])
 
     def test_mausrad_nicht_doppelt_im_toplevel(self):
         fenster = mock.Mock()

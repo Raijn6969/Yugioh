@@ -16,7 +16,7 @@ from typing import Callable, List, Optional, Tuple
 import review_export
 import season_review as sr
 from bug_report import reveal
-from dark_scrollbar import DarkScrollbar
+from dark_scrollbar import DarkScrollbar, bind_wheel
 from match_history import RANKED
 from winrate_panel import matches_text
 from rounded_button import RoundedButton
@@ -98,8 +98,7 @@ class ReviewPanel:
         self._inner_id = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self.inner.bind("<Configure>", lambda e: self.canvas.config(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
-        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
-        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(self.canvas)
 
     # ── Inhalt ──
     def _today(self) -> float:
@@ -257,16 +256,9 @@ class ReviewPanel:
         else:
             self._status(f"Export fehlgeschlagen: {value}", BAD)
 
-    def _on_wheel(self, event) -> None:
-        self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
-
     def close(self) -> None:
         if self.closed:
             return
         self.closed = True
-        try:
-            self.canvas.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
         self.win.destroy()
         self.on_close()

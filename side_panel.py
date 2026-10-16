@@ -10,7 +10,7 @@ from typing import Callable, Dict, List, Optional
 
 import side_profiles
 from card_stats import SideProfile
-from dark_scrollbar import DarkScrollbar
+from dark_scrollbar import DarkScrollbar, bind_wheel
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
@@ -124,9 +124,7 @@ class SidePanel:
         item = canvas.create_window(0, 0, window=inner, anchor="nw")
         inner.bind("<Configure>", lambda e: canvas.config(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(item, width=e.width))
-        wheel = lambda e: canvas.yview_scroll(int(-e.delta / 120) * 2, "units")  # noqa: E731
-        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", wheel))
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(canvas)
         self._out_canvas = canvas
         return inner
 
@@ -372,9 +370,5 @@ class SidePanel:
         if self.closed:
             return
         self.closed = True
-        try:
-            self._out_canvas.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
         self.win.destroy()
         self.on_close()

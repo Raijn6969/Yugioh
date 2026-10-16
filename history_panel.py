@@ -16,7 +16,7 @@ import md_layout
 from card_db import CardMatch
 from card_stats import CardStatsDB, HistoryEntry
 from dark_dialog import ask_choice
-from dark_scrollbar import DarkScrollbar
+from dark_scrollbar import DarkScrollbar, bind_wheel
 from deck_export import DeckScan, ExportedCard
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
@@ -135,8 +135,7 @@ class HistoryPanel:
         self._inner_id = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self.inner.bind("<Configure>", lambda e: self.canvas.config(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
-        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
-        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(self.canvas)
 
     # ── Liste ──
     def _on_query_changed(self) -> None:
@@ -269,16 +268,12 @@ class HistoryPanel:
         self.selected = None
         self.refresh()
 
-    def _on_wheel(self, event) -> None:
-        self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
-
     def close(self) -> None:
         if self.closed:
             return
         self.closed = True
         try:
             self.state = self.get_state()
-            self.canvas.unbind_all("<MouseWheel>")
         except tk.TclError:
             pass
         self.win.destroy()

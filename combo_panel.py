@@ -24,7 +24,7 @@ import card_images
 import mdm_combos
 from card_grid import CardGrid
 from card_stats import name_key
-from dark_scrollbar import DarkScrollbar
+from dark_scrollbar import DarkScrollbar, bind_wheel
 from history_panel import when
 from rounded_button import RoundedButton
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
@@ -169,7 +169,6 @@ class ComboPanel:
 
         self.win = tk.Frame(master, bg=BG)  # Ansicht im Deck-Fenster (extras_panel packt sie)
         self._build()
-        self.win.bind("<MouseWheel>", lambda e: self.canvas.yview_scroll(int(-e.delta / 120) * 2, "units"))
         self.load()
 
     # ── Aufbau ──
@@ -206,6 +205,7 @@ class ComboPanel:
         self._inner_id = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self.inner.bind("<Configure>", lambda e: self.canvas.config(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
+        bind_wheel(self.canvas)
 
     # ── Laden (Hintergrund) ──
     def load(self, refresh: bool = False) -> None:

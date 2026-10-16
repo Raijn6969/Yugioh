@@ -17,7 +17,7 @@ import tkinter as tk
 from typing import Callable, List, Optional
 
 from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, WinStats
-from dark_scrollbar import DarkScrollbar
+from dark_scrollbar import DarkScrollbar, bind_wheel
 from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
 from rounded_button import RoundedButton
@@ -270,8 +270,7 @@ class WinratePanel:
         self._inner_id = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self.inner.bind("<Configure>", lambda e: self.canvas.config(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
-        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", self._on_wheel))
-        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(self.canvas)
 
     def _tile_row(self, parent: tk.Frame, captions) -> None:
         s = self.s
@@ -594,9 +593,6 @@ class WinratePanel:
     def _open(self, deck: DeckWinStats) -> None:
         self.on_open(deck.deck_name, deck.deck_code)
 
-    def _on_wheel(self, event) -> None:
-        self.canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
-
     # ── Zustand von außen ──
     def set_visible(self, visible: bool) -> None:
         if not self.closed:
@@ -611,9 +607,5 @@ class WinratePanel:
             self.duel.close()
         if self.review is not None:
             self.review.close()
-        try:
-            self.canvas.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
         self.win.destroy()
         self.on_close()

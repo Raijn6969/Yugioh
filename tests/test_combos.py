@@ -287,6 +287,20 @@ class ComboPanelTest(unittest.TestCase):
     def canvases(widget):
         return [c for c in widget.winfo_children() if isinstance(c, tk.Canvas)]
 
+    def test_mausrad_scrollt_combo_liste_auch_ueber_zeilen(self):
+        panel = self.open(["Elfnote"], FakeSession())
+        self.root.attributes("-alpha", 0)  # unsichtbar, aber eingeblendet: nur dann kommen Tk-Ereignisse an
+        self.root.deiconify()
+        self.root.geometry("500x150+0+0")
+        panel.win.pack(fill=tk.BOTH, expand=True)
+        self.root.update()
+        for _ in range(20):  # Liste länger als das Fenster
+            tk.Frame(panel.inner, height=60, bg="#222").pack(fill=tk.X)
+        self.root.update()
+        zeile = panel.inner.winfo_children()[0]  # Kind der Liste, nicht der Canvas selbst
+        zeile.event_generate("<MouseWheel>", delta=-120, x=5, y=5)
+        self.assertGreater(panel.canvas.yview()[0], 0)
+
     def test_list_filter_detail_and_back(self):
         panel = self.open(["Elfnote"], FakeSession())
         self.assertIn("Elfnote: 3 Combos, 2 mit deinem Deck spielbar", panel.status_label.cget("text"))

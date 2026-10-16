@@ -20,7 +20,7 @@ from typing import Callable, Dict, List, Optional
 import ash_prio
 import card_images
 import handtrap_targets
-from dark_scrollbar import DarkScrollbar
+from dark_scrollbar import DarkScrollbar, bind_wheel
 from debug_log import dlog
 from rounded_button import RoundedButton
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
@@ -104,9 +104,7 @@ class AshPrioPanel:
         self._inner_id = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self.inner.bind("<Configure>", lambda e: self.canvas.config(scrollregion=self.canvas.bbox("all")))
         self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self._inner_id, width=e.width))
-        wheel = lambda e: self.canvas.yview_scroll(int(-e.delta / 120) * 2, "units")  # noqa: E731
-        self.canvas.bind("<Enter>", lambda e: self.canvas.bind_all("<MouseWheel>", wheel))
-        self.canvas.bind("<Leave>", lambda e: self.canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(self.canvas)
 
     # ── Laden (Factory-Datenbank, im Hintergrund) ──
     def _load(self) -> None:
@@ -407,9 +405,5 @@ class AshPrioPanel:
                 self.win.after_cancel(self._poll_job)
             except tk.TclError:
                 pass
-        try:
-            self.canvas.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
         self.win.destroy()
         self.on_close()

@@ -32,7 +32,7 @@ import md_layout
 import win_api
 import starter_guides
 from card_stats import CardInfo, CardStatsDB
-from dark_scrollbar import DarkScrollbar
+from dark_scrollbar import DarkScrollbar, bind_wheel
 from options_popup import OptionsPopup
 from deck_analysis import DeckAnalysis, DeckEntry, DeckWatcher, current_changes, slot_at, slot_rect
 from debug_log import clear_changed, dlog_changed
@@ -272,8 +272,7 @@ class ExtrasPanel:
         self.list_inner.bind("<Configure>", lambda e: self.list_canvas.config(
             scrollregion=self.list_canvas.bbox("all")))
         self.list_canvas.bind("<Configure>", lambda e: self.list_canvas.itemconfigure(self._inner_id, width=e.width))
-        self.list_canvas.bind("<Enter>", lambda e: self.list_canvas.bind_all("<MouseWheel>", self._on_wheel))
-        self.list_canvas.bind("<Leave>", lambda e: self.list_canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(self.list_canvas)
 
         self._build_calculator(body)
 
@@ -936,10 +935,6 @@ class ExtrasPanel:
                     self.win.after_cancel(job)
                 except tk.TclError:
                     pass
-        try:
-            self.list_canvas.unbind_all("<MouseWheel>")
-        except tk.TclError:
-            pass
         self.hover.destroy()
         self.win.destroy()
         self.on_close()
@@ -1086,9 +1081,6 @@ class ExtrasPanel:
             self.list_canvas.yview_moveto(top)
         elif bottom > view_bottom:
             self.list_canvas.yview_moveto(bottom - (view_bottom - view_top))
-
-    def _on_wheel(self, event) -> None:
-        self.list_canvas.yview_scroll(int(-event.delta / 120) * 2, "units")
 
     def _update_calculator(self) -> None:
         try:
