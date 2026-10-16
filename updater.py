@@ -174,7 +174,7 @@ def prepare(release: Release, temp_root: str, progress: Callable[[int, int], Non
         raise UpdateError("Der Release hat keine zip zum Herunterladen.")
     folder = update_dir(temp_root, release.version)
     shutil.rmtree(folder, ignore_errors=True)
-    os.makedirs(folder)
+    os.makedirs(folder, exist_ok=True)  # rmtree kann an gesperrten Dateien scheitern
     zip_path = os.path.join(folder, "update.zip")
     download(release.zip_url, release.zip_size, zip_path, progress, opener)
     return extract(zip_path, os.path.join(folder, "neu"), app_dir)

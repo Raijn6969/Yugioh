@@ -156,6 +156,15 @@ class CardImagesTest(unittest.TestCase):
         self.assertFalse(os.path.exists(card_images.image_path("666", folder)))  # keine Bilddatei
         self.assertEqual(len(session.urls), 2)
 
+    def test_write_error_leaves_no_part_file_and_does_not_abort(self):
+        import card_images
+        session = type("S", (), {"get": lambda self, url, timeout=None: type(
+            "R", (), {"status_code": 200, "content": b"\xff\xd8jpeg"})()})()
+        folder = tempfile.mkdtemp()
+        with unittest.mock.patch.object(card_images.os, "replace", side_effect=PermissionError("gesperrt")):
+            self.assertEqual(card_images.download(["14558127"], session, folder), 0)
+        self.assertEqual(os.listdir(folder), [])
+
 
 @unittest.skipUnless(HAS_TK, "kein Tk")
 class StaplePanelTest(unittest.TestCase):

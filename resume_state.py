@@ -45,5 +45,5 @@ def clear_progress(path: str = None) -> None:
     path = path or RESUME_FILE
     try:
         os.remove(path)
-    except FileNotFoundError:
+    except OSError:  # nicht da oder gerade gesperrt – der Import selbst ist fertig
         pass

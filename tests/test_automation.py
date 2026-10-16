@@ -147,6 +147,12 @@ class DataDirTest(unittest.TestCase):
         folder = tempfile.mkdtemp()
         self.assertEqual(app_paths._data_dir(folder), folder)
 
+    def test_folder_stays_writable_when_the_probe_file_cannot_be_deleted(self):
+        import tempfile
+        import app_paths
+        with mock.patch.object(app_paths.os, "remove", side_effect=PermissionError("Virenscanner")):
+            self.assertTrue(app_paths._writable(tempfile.mkdtemp()))
+
     def test_read_only_program_folder_falls_back_to_appdata(self):
         import tempfile
         import app_paths

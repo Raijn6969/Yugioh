@@ -376,6 +376,11 @@ class ImportFlowTest(unittest.TestCase):
         self.assertIn("[FORTSETZEN] 3 Karten waren schon eingefügt", log)
         self.assertFalse(os.path.exists(self.resume_file))
 
+    def test_locked_resume_file_does_not_fail_a_finished_import(self):
+        resume_state.save_progress(CARD_IDS, {"1": 1}, self.resume_file)
+        with mock.patch.object(resume_state.os, "remove", side_effect=PermissionError("gesperrt")):
+            resume_state.clear_progress(self.resume_file)  # darf nicht werfen
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -75,9 +75,16 @@ def download(passcodes: Iterable[str], session=None, folder: str = FOLDER) -> in
         if resp.status_code != 200 or resp.content[:2] != JPEG_START:  # wirklich ein JPEG?
             return False
         tmp = image_path(passcode, folder) + f".{threading.get_ident()}.part"
-        with open(tmp, "wb") as f:
-            f.write(resp.content)
-        os.replace(tmp, image_path(passcode, folder))
+        try:
+            with open(tmp, "wb") as f:
+                f.write(resp.content)
+            os.replace(tmp, image_path(passcode, folder))
+        except OSError:  # Platte voll o. Ä.: kein halbes Bild liegen lassen
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return False
         time.sleep(PAUSE)
         return True
 

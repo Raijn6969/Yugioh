@@ -26,10 +26,13 @@ def _writable(folder: str) -> bool:
     try:
         with open(probe, "w"):
             pass
-        os.remove(probe)
-        return True
     except OSError:
         return False
+    try:
+        os.remove(probe)
+    except OSError:
+        pass  # sonst wechselte ein gesperrter Probe-Datei-Löschversuch die Daten nach %APPDATA% (Config scheinbar weg)
+    return True
 
 
 def _data_dir(app_dir: str) -> str:
