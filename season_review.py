@@ -1,6 +1,6 @@
 """
 Monatsrückblick (Knopf "Rückblick" im Winrate-Fenster): die Bilanz einer Season, also eines Kalendermonats – wie der
-Zeitraum-Filter "Saison" im Winrate-Fenster.
+Zeitraum-Filter "Monat" im Winrate-Fenster.
 
 Inhalt: Bilanz und Winrate gesamt, als Erster und als Zweiter; die meistgespielten Decks; das beste und das schlechteste
 Matchup gegen ein Gegner-Deck (mindestens MIN_MATCHUP Duelle); der Münzwurf; die längste Sieg- und Niederlagenserie; die

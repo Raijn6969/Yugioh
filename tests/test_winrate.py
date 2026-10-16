@@ -593,6 +593,27 @@ class WinratePanelTest(unittest.TestCase):
             result += self.texts(child)
         return result
 
+    def test_more_matches_button(self):
+        now = time.time()
+        self.db.add_matches([(mh.MatchRecord(str(100 + i), now - 1000 + i, mh.RANKED, mh.WIN, True, 0, 0, [], [],
+                                             [], [], "", "live", False), "Ryzeal", "#main", "", "")
+                             for i in range(43)])  # 45 Ranked mit den 2 aus setUp
+
+        def state():
+            texts = self.texts(self.panel.inner)
+            rows = sum(t == "SIEG" or t == "NIEDERLAGE" for t in texts)
+            return rows, [t for t in texts if "weitere" in t]
+        self.panel.refresh()
+        self.assertEqual(state(), (20, ["+ 20 weitere (noch 25)"]))
+        self.assertIn("LETZTE MATCHES (20 von 45)", self.texts(self.panel.inner))
+        self.panel._more_matches()
+        self.assertEqual(state(), (40, ["+ 20 weitere (noch 5)"]))
+        self.panel._more_matches()
+        self.assertEqual(state(), (45, []))
+        self.assertIn("LETZTE MATCHES", self.texts(self.panel.inner))
+        self.panel._set_period("all")
+        self.assertEqual(self.panel.match_limit, 20)
+
     def test_coin_toss_line_and_match_details(self):
         self.assertIn("nicht erfasst", self.panel.coin_label.cget("text"))  # Matches aus der Match History
         self.assertEqual(self.panel.tiles["coin"][0].cget("text"), "–")
@@ -606,7 +627,7 @@ class WinratePanelTest(unittest.TestCase):
         self.assertEqual(tile("coin_won"), ("–", "keine Matches"))
         self.assertEqual(tile("coin_lost"), ("50 %", "1–1 · 2 Matches"))
         self.assertEqual(self.panel.coin_label.cget("text"), "Münzwurf zuletzt 2× in Folge verloren")
-        self.assertTrue(any("Münzwurf verloren" in text for text in self.texts(self.panel.inner)))
+        self.assertTrue(any("Münze ✗" in text for text in self.texts(self.panel.inner)))
 
     def test_ranked_rates_decks_and_matches(self):
         value, record = self.panel.tiles["all"]

@@ -67,8 +67,8 @@ and lists recent matches. A small notification appears for every recorded match.
 It also tracks the coin toss: how often you won it, your win rate after winning or
 losing it, and your current streak (e.g. "lost the last 3"). Only for duels recorded
 live from version 9.2 on; the Match History doesn't include the coin toss.
-- **Time range:** Today (from 5 am, so a late session counts as one day), 7 days,
-  Season (this month's ranked season) or all.
+- **Time range:** Today (from 5 am, so a late session counts as one day), week,
+  month (this month's ranked season) or all.
 - **Trend:** a line of your win rate over the last 10 matches at each point; hover
   over it to see the match.
 - **Against opponent decks:** your record against each deck you faced (once the

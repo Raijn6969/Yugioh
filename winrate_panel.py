@@ -4,8 +4,8 @@ Winrate (Button "Winrate" im Deck-Fenster): Siege und Niederlagen der eigenen Du
 Oben die Winrate gesamt, als Erster und als Zweiter, darunter der Münzwurf (wie oft gewonnen, Winrate nach gewonnenem
 bzw. verlorenem Münzwurf, aktuelle Serie). In der Liste: der Verlauf (Winrate der jeweils letzten 10 Matches), die
 Bilanz gegen die Gegner-Decks, die eigenen Decks (nach Archetypen benannt, dazu der Name in Master Duel) und die
-letzten Matches mit dem Deck des Gegners (sobald bekannt). Filter: Ranked/alle Modi und Zeitraum (heute, 7 Tage,
-Saison, alle). Klick auf ein Deck: nur dieses Deck (noch ein Klick: wieder alle); „Anzeigen“ zeigt das Deck im
+letzten Matches mit dem Deck des Gegners (sobald bekannt). Filter: Ranked/alle Modi und Zeitraum (heute, Woche,
+Monat, alle). Klick auf ein Deck: nur dieses Deck (noch ein Klick: wieder alle); „Anzeigen“ zeigt das Deck im
 Deck-Fenster. Erfasst werden die Duelle von match_history im Speicher-Modus. Die Abschnitte (Münzwurf, Verlauf,
 Gegner-Decks, eigene Decks, letzte Matches) lassen sich ein- und ausklappen.
 Knopf „Rückblick“: die Bilanz eines Monats (review_panel).
@@ -14,12 +14,13 @@ Knopf „Rückblick“: die Bilanz eines Monats (review_panel).
 import datetime
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from typing import Callable, List, Optional
 
 from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, WinStats
 from dark_scrollbar import DarkScrollbar, bind_wheel
 from history_panel import when
-from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
+from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder
 from rounded_button import RoundedButton
 from season_review import DAY_START_HOUR  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im Tag
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
@@ -28,8 +29,8 @@ from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG,
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
 PERIOD_KEY = "WINRATE_PERIOD"  # Einstellung: Schlüssel aus PERIODS
 COLLAPSED_KEY = "WINRATE_COLLAPSED"  # Einstellung: {section_key: bool}
-PERIODS = (("today", "Heute"), ("week", "7 Tage"), ("season", "Saison"), ("all", "Alle"))
-MATCH_LIMIT = 20
+PERIODS = (("today", "Heute"), ("week", "Woche"), ("season", "Monat"), ("all", "Alle"))
+MATCH_LIMIT = 20   # Matches pro Schub in "Letzte Matches"
 OPPONENT_LIMIT = 12
 TREND_MIN = 3       # so viele Matches braucht der Verlauf mindestens
 UNKNOWN_DECK = "Unbekanntes Deck"
@@ -37,7 +38,7 @@ OPPONENT_COLUMNS = (8, 7, 8, 6)  # Zeichen je Zahlenspalte, von rechts: Zweiter,
 
 
 def period_start(period: str, now: Optional[float] = None) -> Optional[float]:
-    """Beginn des Zeitraums (Unix-Zeit, lokale Uhr); None = alle Matches. Saison = Ranked-Saison in Master Duel
+    """Beginn des Zeitraums (Unix-Zeit, lokale Uhr); None = alle Matches. Monat = Ranked-Saison in Master Duel
     (ein Kalendermonat)."""
     now = time.time() if now is None else now
     if period == "week":
@@ -127,6 +128,7 @@ class WinratePanel:
         self.duel = None                       # Duell-Übersicht (duel_view), None = zu
         self.review = None                     # Monatsrückblick (review_panel), None = zu
         self._shown_matches: List[MatchEntry] = []
+        self.match_limit = MATCH_LIMIT        # so viele Matches zeigt die Liste gerade
         self.selected: Optional[str] = None   # gewähltes Deck, None = alle
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = font(SIZE_TEXT, s)
@@ -288,17 +290,27 @@ class WinratePanel:
     # ── Inhalt ──
     def _set_mode(self, key: str) -> None:
         self.settings[MODE_KEY] = key
+        self.match_limit = MATCH_LIMIT
         self.save_settings()
         self.refresh()
 
     def _set_period(self, key: str) -> None:
         self.settings[PERIOD_KEY] = key
+        self.match_limit = MATCH_LIMIT
         self.save_settings()
         self.refresh()
 
     def select(self, deck_name: Optional[str]) -> None:
         self.selected = None if deck_name == self.selected else deck_name
+        self.match_limit = MATCH_LIMIT
         self.refresh()
+
+    def _more_matches(self) -> None:
+        pos = self.canvas.yview()[0]
+        self.match_limit += MATCH_LIMIT
+        self.refresh()
+        self.canvas.update_idletasks()
+        self.canvas.yview_moveto(pos)  # nicht nach oben springen
 
     def refresh(self) -> None:
         if self.closed:
@@ -315,7 +327,7 @@ class WinratePanel:
                 self.selected = None
             stats = self.db.win_stats(self.selected, self.mode, since)
             period_matches = self.db.matches(self.selected, self.mode, 1_000_000, since)  # Verlauf: ganzer Zeitraum
-            matches = period_matches[:MATCH_LIMIT]
+            matches = period_matches[:self.match_limit]
             self._shown_matches = matches
             try:
                 self._replay_by_match = self.db.replay_starts_by_match()
@@ -367,10 +379,17 @@ class WinratePanel:
                 row = self._deck_row(deck, ROW_ALT if i % 2 else BG)
                 self._register_item("decks", row, {"fill": tk.X})
         if matches:
-            self._section("matches", "LETZTE MATCHES")
+            count = f"{len(matches)} von {len(period_matches)}" if len(period_matches) > len(matches) else ""
+            self._section("matches", f"LETZTE MATCHES ({count})" if count else "LETZTE MATCHES")
             for i, match in enumerate(matches):
                 row = self._match_row(match, ROW_ALT if i % 2 else BG, i)
                 self._register_item("matches", row, {"fill": tk.X})
+            rest = len(period_matches) - len(matches)
+            if rest > 0:
+                more = RoundedButton(self.inner, text=f"+ {MATCH_LIMIT} weitere (noch {rest})",
+                                     command=self._more_matches, font=self.font_small, padx=int(8 * self.s),
+                                     pady=int(3 * self.s), radius=int(6 * self.s))
+                self._register_item("matches", more, {"anchor": "w", "pady": int(4 * self.s)})
         self.canvas.yview_moveto(0)
 
     def _show_info(self, stats: WinStats) -> None:
@@ -535,10 +554,15 @@ class WinratePanel:
         order = {True: "Erster", False: "Zweiter"}.get(match.first, "?")
         tk.Label(row, text=order, fg=TEXT, bg=bg, font=self.font_small, width=7, anchor="w").pack(side=tk.LEFT)
         replay_btn = None
-        if self._has_replay(match):  # vor dem Textbereich packen, sonst wird er bei schmaler Breite abgeschnitten
-            replay_btn = RoundedButton(row, text="▶ Replay", command=lambda i=index: self.view_duel(i, replay=True),
-                                        font=self.font_small, padx=int(8 * s), pady=int(3 * s),
-                                        radius=int(6 * s))
+        # feste Spalte rechts für den Knopf (auch ohne Replay), der Text läuft nie darunter
+        slot = tk.Frame(row, bg=bg, width=tkfont.Font(font=self.font_small).measure("▶ Replay") + int(28 * s),
+                        height=1)
+        slot.pack(side=tk.RIGHT)
+        slot.pack_propagate(False)
+        if self._has_replay(match):
+            replay_btn = RoundedButton(slot, text="▶ Replay", command=lambda i=index: self.view_duel(i, replay=True),
+                                       font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s),
+                                       role="success")
             replay_btn.pack(side=tk.RIGHT)
         text = tk.Frame(row, bg=bg)
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -548,14 +572,15 @@ class WinratePanel:
         tk.Label(text, text=title, fg=TEXT, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
         details = [when(match.played_at, short=True)]
         if match.coin is not None:
-            details.append("Münzwurf gewonnen" if match.coin else "Münzwurf verloren")
+            details.append("Münze ✓" if match.coin else "Münze ✗")
         if match.turns:
             details.append(f"{match.turns} Züge" if match.turns != 1 else "1 Zug")
-        if self.mode is None:  # sonst zeigt der Filter oben den Modus
-            details.append(mode_name(match.mode))
         if match.finish == FINISH_SURRENDER:
             details.append("Aufgabe")
-        tk.Label(text, text="  ·  ".join(details), fg=MUTED, bg=bg, font=self.font_small, anchor="w").pack(fill=tk.X)
+        info = tk.Label(text, text="  ·  ".join(details), fg=MUTED, bg=bg, font=self.font_small, anchor="w",
+                        justify=tk.LEFT)
+        info.pack(fill=tk.X)
+        text.bind("<Configure>", lambda e: info.config(wraplength=max(1, e.width)))
         for widget in (row, text, *row.winfo_children(), *text.winfo_children()):  # Klick: Decklisten ansehen
             if widget is replay_btn:  # der Knopf hat sein eigenes Klick-Binding
                 continue
