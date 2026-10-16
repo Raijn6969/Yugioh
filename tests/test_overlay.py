@@ -1017,6 +1017,28 @@ class RoundedButtonTest(unittest.TestCase):
         self.assertEqual(str(first.cget("image")), str(second.cget("image")))
         self.assertNotEqual(str(first.cget("image")), str(other.cget("image")))
 
+    def test_roles_set_fill_and_text_color_and_stay_readable(self):
+        from rounded_button import RoundedButton, _shade
+        from window_style import ROLES
+
+        def contrast(a, b):
+            def lum(h):
+                c = [int(h[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+                c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+                return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+            hi, lo = sorted((lum(a), lum(b)), reverse=True)
+            return (hi + 0.05) / (lo + 0.05)
+
+        for role, (fill, fg, _) in ROLES.items():
+            fg = "#ffffff" if fg == "white" else fg
+            button = RoundedButton(self.root, text="X", role=role)
+            self.assertEqual(button.cget("bg"), fill)
+            self.assertGreaterEqual(contrast(fill, fg), 4.5, role)
+            self.assertGreaterEqual(contrast(_shade(fill, 1.06), fg), 4.5, role)        # Hover
+            self.assertGreaterEqual(contrast(_shade(fill, 0.55), "#a8a8a8"), 4.5, role)  # gesperrt
+        button.config(role="danger")
+        self.assertEqual(button.cget("bg"), ROLES["danger"][0])
+
     def test_images_in_use_survive_clearing_the_shared_cache(self):
         import rounded_button
         from rounded_button import RoundedButton

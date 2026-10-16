@@ -19,6 +19,7 @@ from card_stats import CardInfo, CardStatsDB, HandtrapInfo, StarterInfo
 from draw_odds import p_at_least, p_exactly
 from handtrap_rules import classify_handtrap
 from starter_rules import classify
+from window_style import ROLES
 
 try:
     import tkinter as tk
@@ -782,6 +783,9 @@ class ExtrasPanelTest(unittest.TestCase):
         ydk = "#main\n" + "1\n" * 3 + "2\n" * 2 + "#extra\n9\n!side\n"
         self.db.add_history(ydk, ["1", "1", "1", "2", "2", "9"], now=1)
         self.panel.history_btn.invoke()
+        self.pump(0.1)
+        self.assertEqual(self.panel.history_btn.cget("bg"), ROLES["active"][0])  # offenes Fenster: gold markiert
+        self.assertEqual(self.panel.winrate_btn.cget("bg"), ROLES["neutral"][0])
         history = self.panel.history
         self.assertEqual([e.name for e in history.entries], ["lukias"])
         with mock.patch.object(extras_panel.threading, "Thread", ImmediateThread):
@@ -1069,6 +1073,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertFalse(menu.is_open)
 
     def test_speed_option_only_when_reading_memory(self):
+        import options_popup
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
         self.panel._open_options()
@@ -1080,7 +1085,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertIn("Langsam", menu.buttons)
         menu.invoke("Langsam")
         self.assertEqual(saved[-1]["SPEED_PROFILE"], "slow")
-        self.assertEqual(menu.buttons["Langsam"]._opts["fill"], "#007acc")
+        self.assertEqual(menu.buttons["Langsam"]._opts["fill"], options_popup.CHOSEN)
         menu.invoke("Texterkennung")
         self.assertNotIn("Langsam", menu.buttons)
         menu.close()

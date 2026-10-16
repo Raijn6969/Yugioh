@@ -26,9 +26,9 @@ from card_grid import CardGrid
 from card_stats import name_key
 from dark_scrollbar import DarkScrollbar
 from history_panel import when
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
-                          ROW_ALT, PRIMARY, NEUTRAL, DANGER, apply_frame, no_activate, place_in_work_area)
+                          ROW_ALT, PRIMARY, NEUTRAL, apply_frame, no_activate, place_in_work_area)
 
 POLL_MS = 100
 COLUMNS = 6             # Startkarten pro Reihe in der Detailansicht
@@ -183,9 +183,7 @@ class ComboPanel:
         tk.Label(header, text="◆ COMBOS", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="von Master Duel Meta", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         self.refresh_btn = RoundedButton(header, text="Aktualisieren", command=lambda: self.load(refresh=True),
                                          bg=NEUTRAL, font=self.font_small, padx=int(8 * s), pady=int(3 * s),
                                          radius=int(6 * s))
@@ -373,7 +371,7 @@ class ComboPanel:
             tk.Label(self.type_row, text="Combos zu:", fg=MUTED, bg=BG, font=self.font_small).pack(side=tk.LEFT)
             for i, (other, _) in enumerate(self.sets):
                 RoundedButton(self.type_row, text=other.deck_type, command=lambda i=i: self.show_type(i),
-                              bg=PRIMARY if i == self.shown_type else NEUTRAL, font=self.font_small,
+                              role="active" if i == self.shown_type else "neutral", font=self.font_small,
                               padx=int(8 * s), pady=int(2 * s), radius=int(6 * s)).pack(side=tk.LEFT,
                                                                                        padx=(int(6 * s), 0))
         self._clear()

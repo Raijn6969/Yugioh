@@ -34,9 +34,9 @@ from dark_dialog import _make_draggable
 from dark_scrollbar import DarkScrollbar
 from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, WIN, mode_name
-from rounded_button import RoundedButton
-from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN, BAD,
-                          apply_frame, no_activate)
+from rounded_button import RoundedButton, close_button
+from window_style import (NEUTRAL, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
+                          BAD, apply_frame, no_activate)
 
 POLL_MS = 100
 OPP_HAND = 0.62          # Gegnerhand: so hoch (und breit) wie eine Karte, wie in der Factory
@@ -46,7 +46,7 @@ MAX_SCALE = 1.6          # … und so weit vergrößert, wenn Platz ist
 FIELD = "#141e38"        # Spielfeld (Schattenarena: (20, 30, 56))
 FIELD_EDGE = "#3c508c"
 OPP_HALF = "#281622"     # Hälfte des Gegners rötlich
-ZONE, ZONE_EDGE, ZONE_TEXT = "#1a284c", "#30468a", "#5a6eaa"
+ZONE, ZONE_EDGE, ZONE_TEXT = "#1a284c", "#30468a", "#8fa2dc"
 OPP_ZONE, OPP_ZONE_EDGE = "#2c1a28", "#823c50"
 CARD_BACK = "#7a4828"
 SHIELD_BG = "#101018"    # Schilder über den Karten ("AKTIVIERT", "gesetzt" …)
@@ -483,9 +483,7 @@ class DuelView:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         self.title_label = tk.Label(header, text="", fg=MUTED, bg=PANEL, font=self.font)
         self.title_label.pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg="#cc0000", border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.newer_btn = RoundedButton(header, text="neuer ▶", command=lambda: self.step(-1), **small)
         self.newer_btn.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
@@ -508,7 +506,7 @@ class DuelView:
         self.mode_btn = RoundedButton(self.controls, text="Decks", command=self.toggle_mode, **small)
         self.mode_btn.pack(side=tk.RIGHT, padx=int(8 * s))
         self.hide_opponent = True
-        self.export_btn = RoundedButton(self.controls, text="Als HTML", command=self.export_html, bg="#00796b", **small)
+        self.export_btn = RoundedButton(self.controls, text="Als HTML", command=self.export_html, **small)
         self.export_btn.pack(side=tk.RIGHT)
         self.hide_btn = RoundedButton(self.controls, text="Gegnername: aus", command=self.toggle_hide, **small)
         self.hide_btn.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
@@ -574,8 +572,8 @@ class DuelView:
             self.controls.pack_forget()
         self.title_label.config(text=f"{match.deck_name or match.md_deck or 'Unbekanntes Deck'}  vs  "
                                      f"{match.opp_name or 'unbekannt'}  ·  {index + 1} / {len(self.matches)}")
-        self.older_btn.config(bg="#444444" if index + 1 < len(self.matches) else "#2a2a2a")
-        self.newer_btn.config(bg="#444444" if index > 0 else "#2a2a2a")
+        self.older_btn.config(bg=NEUTRAL if index + 1 < len(self.matches) else "#2a2a2a")
+        self.newer_btn.config(bg=NEUTRAL if index > 0 else "#2a2a2a")
         ids = set(ydk_parts(match.deck_code)[0] + ydk_parts(match.deck_code)[1] + ydk_parts(match.opp_code)[0]
                   + ydk_parts(match.opp_code)[1])
         if self.replay:
@@ -1602,9 +1600,7 @@ class DuelView:
         _make_draggable(win, header)
         tk.Label(header, text=f"◆ {title.upper()} ({len(card_list)})  ·  {team_name}",
                  fg=GOLD, bg=PANEL, font=self.font_head).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self._close_inspector, bg="#cc0000", border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT)
+        close_button(header, self._close_inspector, s).pack(side=tk.RIGHT)
 
         body = tk.Frame(win, bg=FIELD)
         body.pack(fill=tk.BOTH, expand=True, padx=int(6 * s), pady=int(6 * s))

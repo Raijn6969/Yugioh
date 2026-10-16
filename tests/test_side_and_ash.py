@@ -9,6 +9,7 @@ import unittest
 from unittest import mock
 
 import ash_prio
+from window_style import ROLES
 import side_profiles
 from card_stats import CardInfo, CardStatsDB, SideProfile
 
@@ -340,7 +341,7 @@ class PanelTest(unittest.TestCase):
         panel.toggle("Hand 1")
         self.assertIsNone(panel._line_box)
         panel.choose("nibiru")
-        self.assertEqual(panel.buttons["nibiru"].cget("bg"), "#007acc")
+        self.assertEqual(panel.buttons["nibiru"].cget("bg"), ROLES["active"][0])
 
     def test_ash_panel_shows_the_cards_hit_most_as_images(self):
         from ash_panel import AshPrioPanel

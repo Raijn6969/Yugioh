@@ -14,13 +14,11 @@ import tkinter.font as tkfont
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from rounded_button import RoundedButton
-from window_style import (GOLD, LINE, MUTED, PANEL, PRIMARY, ClickOutside, apply_frame, no_activate,
+from window_style import (GOLD, LINE, MUTED, NEUTRAL, PANEL, ROLES, ClickOutside, apply_frame, no_activate,
                           place_in_work_area)
 
-OFF = LINE             # Button aus / nicht gewählt
-CHOSEN = PRIMARY       # gewählte Möglichkeit
-ON = "#2e7d32"         # Schalter an
-ACTION = "#5e35b1"     # Aktion
+OFF = NEUTRAL                  # Button aus / nicht gewählt (Rolle "neutral")
+CHOSEN = ROLES["active"][0]    # gewählte Möglichkeit bzw. Schalter an (Rolle "active", gold)
 
 
 class OptionsPopup:
@@ -142,7 +140,7 @@ class OptionsPopup:
         width = max(measure(prefix + item[0]) for item in row["items"]) + int(24 * s)
         for item in row["items"]:
             label = item[0]
-            button = RoundedButton(line, text=label, command=lambda l=label: self.invoke(l), bg=OFF,
+            button = RoundedButton(line, text=label, command=lambda l=label: self.invoke(l), role="neutral",
                                    font=self.font, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s),
                                    min_width=width)
             button.pack(side=tk.LEFT, padx=(0, int(6 * s)))
@@ -158,10 +156,10 @@ class OptionsPopup:
                 if button is None:
                     continue
                 if row["kind"] == "choice":
-                    button.config(bg=CHOSEN if row["variable"].get() == item[1] else OFF)
+                    button.config(role="active" if row["variable"].get() == item[1] else "neutral")
                 elif row["kind"] == "toggles":
                     on = bool(item[1].get())
-                    button.config(bg=ON if on else OFF, text=f"✓ {item[0]}" if on else item[0])
+                    button.config(role="active" if on else "neutral", text=f"✓ {item[0]}" if on else item[0])
                 else:
-                    button.config(bg=ACTION)
+                    button.config(role="neutral")
 

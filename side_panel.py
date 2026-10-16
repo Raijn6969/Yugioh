@@ -11,10 +11,10 @@ from typing import Callable, Dict, List, Optional
 import side_profiles
 from card_stats import SideProfile
 from dark_scrollbar import DarkScrollbar
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from starter_rules import EXTRA_FRAMES
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
-                          ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL, DANGER, allow_typing, apply_frame, no_activate,
+                          ROW_ALT, HIGHLIGHT, NEUTRAL, allow_typing, apply_frame, no_activate,
                           place_in_work_area)
 
 DEFAULT_NAME = "Zweiter"
@@ -67,9 +67,7 @@ class SidePanel:
         tk.Label(header, text="◆ SIDE-PROFILE", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text=self.deck_name, fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
@@ -89,7 +87,7 @@ class SidePanel:
                                    relief=tk.FLAT, font=self.font, width=18)
         self.name_entry.pack(side=tk.LEFT, padx=(int(6 * s), 0), ipady=int(2 * s))
         allow_typing(self.name_entry)
-        self.save_btn = RoundedButton(name_row, text="Profil speichern", command=self.save, bg="#00796b",
+        self.save_btn = RoundedButton(name_row, text="Profil speichern", command=self.save, role="primary",
                                       font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.save_btn.pack(side=tk.RIGHT)
         RoundedButton(name_row, text="Leeren", command=self.clear, bg=NEUTRAL, font=self.font_small,
@@ -210,12 +208,12 @@ class SidePanel:
             small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
             ready = not self.unknown
             if ready and side_profiles.can_apply(self.deck, profile):
-                RoundedButton(buttons, text="Tauschen", bg=PRIMARY, command=lambda p=profile: self.apply(p),
+                RoundedButton(buttons, text="Tauschen", role="primary", command=lambda p=profile: self.apply(p),
                               **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
             if ready and side_profiles.can_revert(self.deck, profile):
-                RoundedButton(buttons, text="Zurück", bg="#ef6c00", command=lambda p=profile: self.revert(p),
+                RoundedButton(buttons, text="Zurück", role="neutral", command=lambda p=profile: self.revert(p),
                               **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
-            RoundedButton(buttons, text="Löschen", bg=NEUTRAL, command=lambda p=profile: self.delete(p),
+            RoundedButton(buttons, text="Löschen", role="danger", command=lambda p=profile: self.delete(p),
                           **small).pack(side=tk.LEFT)
             text = tk.Frame(row, bg=bg)
             text.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -362,7 +360,7 @@ class SidePanel:
         else:
             sizes = self._sizes()
             self.feedback.config(text=f"Danach: Main {sizes['Main']}, Extra {sizes['Extra']} Karten", fg=GOOD)
-        self.save_btn.config(bg="#00796b" if problem is None else NEUTRAL)
+        self.save_btn.config(role="primary" if problem is None else "neutral")
 
     def save(self) -> None:
         name = self.name_var.get().strip()

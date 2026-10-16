@@ -39,9 +39,9 @@ from debug_log import clear_changed, dlog_changed
 from deck_export import DeckScan
 from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
 from hover_card import ANALYSIS_TIME, HoverCard, HoverContent, HoverRow
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
-                          WARN, BAD, ROW_ALT, HIGHLIGHT, NEUTRAL, DANGER, allow_typing, apply_frame, no_activate)
+                          WARN, BAD, ROW_ALT, HIGHLIGHT, NEUTRAL, allow_typing, apply_frame, no_activate)
 
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
@@ -143,6 +143,7 @@ class ExtrasPanel:
         self._highlighted: Optional[str] = None
         self._shown_reason: Optional[str] = None
         self._poll_job = None
+        self._nav_job = None
         self._guide_thread: Optional[threading.Thread] = None
         self._guide_result = None              # (Text, Farbe) vom Guide-Abruf, wird im UI-Thread angezeigt
 
@@ -171,27 +172,25 @@ class ExtrasPanel:
         tk.Label(header, text="◆ DECK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         # Rechts: ✕, Optionen, Verlauf, Winrate, Staples, Matchup – ohne Untertitel, sonst passen sie nicht
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         # Optionen links neben ✕
-        self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, bg=NEUTRAL,
+        self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, role="neutral",
                                          font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.options_btn.pack(side=tk.RIGHT)
         if self.stats_db is not None:  # Verlauf liegt in der Datenbank
-            self.history_btn = RoundedButton(header, text="Verlauf", command=self.toggle_history, bg="#00796b",
+            self.history_btn = RoundedButton(header, text="Verlauf", command=self.toggle_history, role="neutral",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.history_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.winrate_btn = RoundedButton(header, text="Winrate", command=self.toggle_winrate, bg="#b8860b",
+            self.winrate_btn = RoundedButton(header, text="Winrate", command=self.toggle_winrate, role="neutral",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.winrate_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.staples_btn = RoundedButton(header, text="Staples", command=self.toggle_staples, bg="#6a1b9a",
+            self.staples_btn = RoundedButton(header, text="Staples", command=self.toggle_staples, role="neutral",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.staples_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.matchup_btn = RoundedButton(header, text="Matchup", command=self.toggle_matchup, bg="#ad1457",
+            self.matchup_btn = RoundedButton(header, text="Matchup", command=self.toggle_matchup, role="neutral",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.matchup_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
@@ -271,17 +270,17 @@ class ExtrasPanel:
 
         footer = tk.Frame(body, bg=BG)
         footer.pack(fill=tk.X, pady=(int(8 * s), 0))
-        self.rescan_btn = RoundedButton(footer, text="Neu scannen", command=self._rescan, bg="#5e35b1",
+        self.rescan_btn = RoundedButton(footer, text="Neu scannen", command=self._rescan, role="primary",
                                         font=self.font_bold, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s))
         self.rescan_btn.pack(side=tk.RIGHT)
         if self.stats_db is not None:
             small = dict(font=self.font_small, padx=int(9 * s), pady=int(4 * s), radius=int(6 * s))
             # Starthände aus der Factory (bzw. dem mitgelieferten Schnappschuss), sonst Einschätzung aus Kartentexten
-            self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, bg="#0277bd", **small)
+            self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, role="neutral", **small)
             self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, bg="#2e7d32", **small)
+            self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, role="neutral", **small)
             self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, bg="#ad1457", **small)
+            self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, role="neutral", **small)
             self.combos_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         # zuletzt packen: Tk verteilt den Platz in Packreihenfolge – bei Platzmangel wird der Tipp gekürzt, kein Knopf
         tk.Label(footer, text="Tipp: Maus über eine Karte im Deck", fg=MUTED, bg=BG,
@@ -442,6 +441,7 @@ class ExtrasPanel:
 
     def _on_history_closed(self) -> None:
         self.history = None
+        self._refresh_nav()
 
     # ── Winrate (Match History von Master Duel) ──
     def toggle_winrate(self) -> None:
@@ -460,6 +460,7 @@ class ExtrasPanel:
 
     def _on_winrate_closed(self) -> None:
         self.winrate = None
+        self._refresh_nav()
 
     def _close_side_panels(self) -> None:
         """Verlauf, Winrate, Staples, Combos, Matchup, Side und Ash-Prio liegen an derselben Stelle: höchstens eins."""
@@ -470,6 +471,18 @@ class ExtrasPanel:
         self._close_matchup()
         self._close_side()
         self._close_ash_prio()
+        if not self.closed:
+            self._nav_job = self.win.after(1, self._refresh_nav)  # der Aufrufer öffnet danach das neue Fenster
+
+    def _refresh_nav(self) -> None:
+        """Navigationsknöpfe: der Knopf des offenen Fensters ist gold markiert, die übrigen neutral."""
+        if self.closed:
+            return
+        for button, panel in (("history_btn", self.history), ("winrate_btn", self.winrate),
+                              ("staples_btn", self.staples), ("matchup_btn", self.matchup),
+                              ("ash_btn", self.ash_prio), ("side_btn", self.side), ("combos_btn", self.combos)):
+            if hasattr(self, button):
+                getattr(self, button).config(role="neutral" if panel is None else "active")
 
     # ── Side-Profile (Karten für ein Match tauschen) ──
     def toggle_side(self) -> None:
@@ -528,6 +541,7 @@ class ExtrasPanel:
 
     def _on_side_closed(self) -> None:
         self.side = None
+        self._refresh_nav()
 
     # ── Ash-Prio (Spickzettel aus der Factory) ──
     def toggle_ash_prio(self) -> None:
@@ -550,6 +564,7 @@ class ExtrasPanel:
 
     def _on_ash_prio_closed(self) -> None:
         self.ash_prio = None
+        self._refresh_nav()
 
     # ── Matchup (Störkarten der Gegner) ──
     def toggle_matchup(self) -> None:
@@ -569,6 +584,7 @@ class ExtrasPanel:
 
     def _on_matchup_closed(self) -> None:
         self.matchup = None
+        self._refresh_nav()
 
     # ── Staples (Vergleich mit den Top-Listen) ──
     def toggle_staples(self) -> None:
@@ -590,6 +606,7 @@ class ExtrasPanel:
 
     def _on_staples_closed(self) -> None:
         self.staples = None
+        self._refresh_nav()
 
     # ── Combos (Community-Combos von Master Duel Meta) ──
     def toggle_combos(self) -> None:
@@ -611,6 +628,7 @@ class ExtrasPanel:
 
     def _on_combos_closed(self) -> None:
         self.combos = None
+        self._refresh_nav()
 
     def _deck_by_zone(self):
         """({englischer Kartenname: Kopien} Main, dasselbe für das Extra Deck, häufigste Archetypen) des Decks."""
@@ -823,11 +841,12 @@ class ExtrasPanel:
         self.closed = True
         self._stop_watcher()
         self._close_side_panels()
-        if self._poll_job is not None:
-            try:
-                self.win.after_cancel(self._poll_job)
-            except tk.TclError:
-                pass
+        for job in (self._poll_job, self._nav_job):
+            if job is not None:
+                try:
+                    self.win.after_cancel(job)
+                except tk.TclError:
+                    pass
         try:
             self.list_canvas.unbind_all("<MouseWheel>")
         except tk.TclError:

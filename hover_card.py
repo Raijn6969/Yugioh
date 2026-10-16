@@ -13,7 +13,7 @@ import tkinter as tk
 from typing import Callable, List, NamedTuple, Optional, Tuple
 
 import win_api
-from window_style import BAD, GOOD, INFO, WARN
+from window_style import BAD, GOOD, INFO, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, WARN, font
 
 BG = "#070d18"
 NEON = INFO
@@ -58,10 +58,10 @@ class HoverCard:
         self.s = scale
         self.width = int(300 * scale)
         self.pad = int(14 * scale)
-        self.font_small = ("Consolas", int(8 * scale))
-        self.font_mono = ("Consolas", int(9 * scale))
-        self.font_mono_bold = ("Consolas", int(10 * scale), "bold")
-        self.font_title = ("Segoe UI", int(11 * scale), "bold")
+        self.font_small = font(SIZE_SMALL, scale, mono=True)
+        self.font_mono = font(SIZE_SMALL, scale, mono=True)
+        self.font_mono_bold = font(SIZE_TEXT, scale, bold=True, mono=True)
+        self.font_title = font(SIZE_TITLE, scale, bold=True)
 
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
@@ -211,7 +211,7 @@ class HoverCard:
             x1 = pad + i * seg_w
             items["segments"].append(c.create_rectangle(x1, y1, x1 + seg_w - max(1, int(2 * s)), y2, width=0,
                                                         fill=NEON_DIM))
-        c.create_text(pad, int(104 * s), text="ZIEHCHANCE · STARTER · KOPIEN", fill=NEON_DIM, font=self.font_small,
+        c.create_text(pad, int(104 * s), text="ZIEHCHANCE · STARTER · KOPIEN", fill=MUTED, font=self.font_small,
                       anchor="w")
         items["scan"] = c.create_line(2, 0, w - 3, 0, fill=SCAN)
         self._frame(height)

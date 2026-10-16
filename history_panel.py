@@ -16,11 +16,11 @@ from card_db import CardMatch
 from card_stats import CardStatsDB, HistoryEntry
 from dark_scrollbar import DarkScrollbar
 from deck_export import DeckScan, ExportedCard
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from starter_rules import EXTRA_FRAMES
 from utils import parse_deck_code
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, WARN, ROW_ALT,
-                          HIGHLIGHT, PRIMARY, NEUTRAL, DANGER, allow_typing, apply_frame, no_activate,
+                          HIGHLIGHT, PRIMARY, NEUTRAL, allow_typing, apply_frame, no_activate,
                           place_in_work_area)
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
@@ -101,9 +101,7 @@ class HistoryPanel:
         tk.Label(header, text="◆ VERLAUF", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Importierte Decks", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
@@ -196,7 +194,7 @@ class HistoryPanel:
                       **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
         RoundedButton(buttons, text="Kopieren", command=lambda: self.on_copy(entry.code), bg=NEUTRAL,
                       **small).pack(side=tk.LEFT, padx=(0, int(4 * s)))
-        RoundedButton(buttons, text="✕", command=lambda: self._delete(entry), bg="#5a1f1f", border="#8a4a4a",
+        RoundedButton(buttons, text="✕", command=lambda: self._delete(entry), role="danger",
                       **small).pack(side=tk.LEFT)
 
         text = tk.Frame(row, bg=bg)

@@ -49,9 +49,9 @@ from dark_menu import DarkMenu
 from debug_log import append, dlog, dlog_changed, start_run
 from editor_watch import EditorWatcher
 from hang_watch import HangWatch
-from window_style import (BAD, BG, DANGER, GOOD, INFO, MUTED, NEUTRAL, PRIMARY, SIZE_SMALL, SIZE_TEXT, TEXT, WARN,
+from window_style import (BAD, BG, GOOD, INFO, MUTED, NEUTRAL, PRIMARY, SIZE_SMALL, SIZE_TEXT, TEXT, WARN,
                           apply_frame, font, no_activate)
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from tray import TrayIcon
 from utils import DeckCodeError, parse_clipboard
 from window_automation import get_md_window_size, is_md_process
@@ -83,7 +83,7 @@ REVIEW_NOTICE_DELAY_MS = STARTED_TOAST_MS + 2000  # so lange nach dem Start wird
 SPEED_PROFILES = [
     ("fast", "Schnell", WARN, "Schnell"),
     ("normal", "Normal", TEXT, "Normal"),
-    ("slow", "Langsam", "#66aaff", "Langsam"),
+    ("slow", "Langsam", INFO, "Langsam"),
 ]
 
 
@@ -503,14 +503,14 @@ class MasterDuelImporter:
 
         # Lesemethode (Speicher oder Texterkennung) steht in den Optionen des Deck-Fensters
         self.start_btn = RoundedButton(btn_frame, text="Importieren", command=self.start_import_thread,
-                                       bg=PRIMARY, font=font_main, min_width=same_w, **btn_size)
+                                       role="primary", font=font_main, min_width=same_w, **btn_size)
         self.start_btn.pack(**btn_pack)
 
         self.export_btn = RoundedButton(btn_frame, text="Exportieren", command=self.start_export_thread,
-                                        bg="#2e7d32", font=font_main, min_width=same_w, **btn_size)
+                                        role="success", font=font_main, min_width=same_w, **btn_size)
         self.export_btn.pack(**btn_pack)
 
-        self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras, bg="#5e35b1",
+        self.extras_btn = RoundedButton(btn_frame, text="Deck", command=self.toggle_extras, role="neutral",
                                         font=font_main, min_width=same_w, **btn_size)
         self.extras_btn.pack(**btn_pack)
 
@@ -534,9 +534,8 @@ class MasterDuelImporter:
         self._btn_frame, self._scale = btn_frame, scale
 
         # Etwas eingerückt, damit der abgerundete Goldrand im Eck frei bleibt
-        RoundedButton(self.root, text="✕", command=self.close, bg=DANGER, border="#ff8a80", font=font_x,
-                      padx=int(9 * scale), pady=int(2 * scale), radius=int(6 * scale)
-                      ).place(relx=1.0, x=-int(5 * scale), y=int(5 * scale), anchor="ne")
+        close_button(self.root, self.close, scale, font_x).place(
+            relx=1.0, x=-int(5 * scale), y=int(5 * scale), anchor="ne")
 
         # Import-Dauer, dezent oben links (leer bis zum ersten Import)
         self.timer_label = tk.Label(self.root, text="", fg=MUTED, bg=BG,
@@ -1039,7 +1038,7 @@ class MasterDuelImporter:
                     "Fortsetzen: dort weitermachen – das Deck wird NICHT geleert (es darf seit dem Abbruch "
                     "nicht verändert worden sein).\n"
                     "Neu starten: Deck wird geleert und komplett neu importiert.",
-                    [("Fortsetzen", True, PRIMARY), ("Neu starten", False, "#ef6c00"),
+                    [("Fortsetzen", True, PRIMARY), ("Neu starten", False, NEUTRAL),
                      ("Abbrechen", None, NEUTRAL)])
                 if answer is None:
                     return

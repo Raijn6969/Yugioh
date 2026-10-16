@@ -20,9 +20,9 @@ import card_images
 import matchup_analysis
 from card_grid import CardGrid
 from match_history import RANKED
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
-                          BAD, PRIMARY, NEUTRAL, DANGER, apply_frame, no_activate, place_in_work_area)
+                          BAD, apply_frame, no_activate, place_in_work_area)
 from winrate_panel import MODE_KEY
 
 COLUMNS = 5
@@ -101,9 +101,7 @@ class MatchupPanel:
         tk.Label(header, text="◆ MATCHUP", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Störkarten deiner Gegner", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
@@ -172,7 +170,7 @@ class MatchupPanel:
         active = {"ranked": self.mode == RANKED, "all": self.mode is None, "deck": self.only_deck,
                   "decks": not self.only_deck}
         for key, button in self.filter_buttons.items():
-            button.config(bg=PRIMARY if active[key] else NEUTRAL)
+            button.config(role="active" if active[key] else "neutral")
         self._generation += 1
         self._thread = threading.Thread(target=self._worker, daemon=True, args=(
             self._generation, self.deck_name if self.only_deck else None, self.mode))

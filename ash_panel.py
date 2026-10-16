@@ -22,9 +22,9 @@ import card_images
 import handtrap_targets
 from dark_scrollbar import DarkScrollbar
 from debug_log import dlog
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
-                          ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL, DANGER, apply_frame, no_activate, place_in_work_area)
+                          ROW_ALT, HIGHLIGHT, apply_frame, no_activate, place_in_work_area)
 
 POLL_MS = 100
 CARD_SIZE = (58, 85)   # Bildleiste
@@ -90,9 +90,7 @@ class AshPrioPanel:
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="wo Handtraps am meisten schaden", fg=MUTED, bg=PANEL, font=self.font).pack(
             side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))
         body.pack(fill=tk.BOTH, expand=True)
@@ -263,7 +261,7 @@ class AshPrioPanel:
         if self.closed:
             return
         for key, button in self.buttons.items():
-            button.config(bg=PRIMARY if key == self.handtrap else NEUTRAL)
+            button.config(role="active" if key == self.handtrap else "neutral")
         for child in self.inner.winfo_children():
             child.destroy()
         self._hand_rows, self._line_box = {}, None

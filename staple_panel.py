@@ -17,9 +17,9 @@ import staple_analysis
 from card_grid import CardGrid
 from card_stats import name_key
 from history_panel import when
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
-                          WARN, BAD, PRIMARY, NEUTRAL, DANGER, apply_frame, no_activate, place_in_work_area)
+                          WARN, BAD, NEUTRAL, apply_frame, no_activate, place_in_work_area)
 
 POLL_MS = 100
 COLUMNS = 5             # Karten pro Reihe
@@ -86,9 +86,7 @@ class StaplePanel:
         tk.Label(header, text="◆ STAPLES", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Vergleich mit Top-Listen", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         self.refresh_btn = RoundedButton(header, text="Aktualisieren", command=lambda: self.load(refresh=True),
                                          bg=NEUTRAL, font=self.font_small, padx=int(8 * s), pady=int(3 * s),
                                          radius=int(6 * s))
@@ -208,7 +206,7 @@ class StaplePanel:
             tk.Label(self.type_row, text="Vergleichen mit:", fg=MUTED, bg=BG, font=self.font_small).pack(side=tk.LEFT)
             for i, other in enumerate(self.comparisons):
                 RoundedButton(self.type_row, text=other.stats.deck_type, command=lambda i=i: self.show(i),
-                              bg=PRIMARY if i == self.shown else NEUTRAL, font=self.font_small,
+                              role="active" if i == self.shown else "neutral", font=self.font_small,
                               padx=int(8 * s), pady=int(2 * s), radius=int(6 * s)).pack(side=tk.LEFT,
                                                                                        padx=(int(6 * s), 0))
         counts = {"matching": comparison.matching, "different": len(comparison.different),

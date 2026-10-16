@@ -12,7 +12,7 @@ import tkinter.font as tkfont
 
 from PIL import Image, ImageDraw, ImageTk
 
-from window_style import GOLD, MUTED, NEUTRAL
+from window_style import GOLD, MUTED, NEUTRAL, ROLES, SIZE_SMALL, font as window_font
 
 SUPERSAMPLE = 4  # Zeichen-Vergrößerung für glatte Rundungen
 SHARED_MAX = 300  # so viele verschiedene Körper (Größe/Farbe) hält der gemeinsame Zwischenspeicher je Fenster-Wurzel
@@ -41,7 +41,9 @@ def render_body(width: int, height: int, radius: int, fill: str, border: str, ba
 class RoundedButton(tk.Label):
     def __init__(self, master, text: str = "", command=None, bg: str = NEUTRAL, fg: str = "white",
                  font=None, border: str = GOLD, padx: int = 12, pady: int = 4, radius: int = 7,
-                 menu=None, min_width: int = 0, **_ignored):
+                 menu=None, min_width: int = 0, role: str = "", **_ignored):
+        if role:
+            bg, fg, border = ROLES[role]
         self._background = master.cget("bg")
         super().__init__(master, text=text, compound="center", bd=0, highlightthickness=0, padx=0, pady=0,
                          bg=self._background, cursor="hand2", font=font)
@@ -65,7 +67,9 @@ class RoundedButton(tk.Label):
             return super().configure()
         redraw = False
         for key in list(kw):
-            if key in ("bg", "background"):
+            if key == "role":
+                self._opts["fill"], self._opts["fg"], self._opts["border"] = ROLES[kw.pop(key)]
+            elif key in ("bg", "background"):
                 self._opts["fill"] = kw.pop(key)
             elif key in ("fg", "foreground"):
                 self._opts["fg"] = kw.pop(key)
@@ -117,7 +121,7 @@ class RoundedButton(tk.Label):
         elif self._pressed:
             fill = _shade(fill, 0.8)
         elif self._hover:
-            fill, border = _shade(fill, 1.15), _shade(border, 1.3)
+            fill, border = _shade(fill, 1.06), _shade(border, 1.5)  # Füllung kaum heller: Textkontrast
 
         font = tkfont.Font(font=super().cget("font"))
         width = max(self._min_width, font.measure(self._opts["text"]) + 2 * self._padx)
@@ -164,3 +168,10 @@ class RoundedButton(tk.Label):
             menu.tk_popup(x, y)
         finally:
             menu.grab_release()
+
+
+def close_button(parent, command, scale: float = 1.0, font=None) -> RoundedButton:
+    """Das ✕ (schließen/beenden) aller Fenster in der Rolle "danger"; packen/platzieren macht der Aufrufer."""
+    return RoundedButton(parent, text="✕", command=command, role="danger",
+                         font=font or window_font(SIZE_SMALL, scale, bold=True), padx=int(9 * scale),
+                         pady=int(2 * scale), radius=int(6 * scale))

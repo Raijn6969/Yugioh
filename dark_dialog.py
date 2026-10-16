@@ -61,7 +61,7 @@ def show_message(master: tk.Misc, title: str, message: str, kind: str = "info",
             if text:
                 feedback.config(text=text)
                 feedback.pack(padx=int(16 * scale), pady=(0, int(12 * scale)))
-        button = RoundedButton(buttons, text=label, command=run, bg="#2e7d32", **button_size)
+        button = RoundedButton(buttons, text=label, command=run, bg=PRIMARY, **button_size)
         button.pack(side=tk.LEFT, padx=int(5 * scale))
         win.action_buttons.append(button)
     ok = RoundedButton(buttons, text="Schließen" if actions else "OK", command=win.destroy,

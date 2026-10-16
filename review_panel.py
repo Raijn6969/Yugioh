@@ -18,9 +18,9 @@ import season_review as sr
 from bug_report import reveal
 from dark_scrollbar import DarkScrollbar
 from match_history import RANKED
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
-                          BAD, ROW_ALT, NEUTRAL, DANGER, apply_frame, no_activate)
+                          BAD, ROW_ALT, NEUTRAL, apply_frame, no_activate)
 
 MODE_KEY = "WINRATE_MODE"  # wie im Winrate-Fenster: "ranked" oder "all"
 POLL_MS = 100
@@ -78,11 +78,9 @@ class ReviewPanel:
         tk.Label(header, text="◆ RÜCKBLICK", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="Season = ein Kalendermonat", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
-        self.export_btn = RoundedButton(header, text="Als HTML", command=self.export_html, bg="#00796b", **small)
+        self.export_btn = RoundedButton(header, text="Als HTML", command=self.export_html, **small)
         self.export_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
 
         body = tk.Frame(self.win, bg=BG, padx=int(12 * s), pady=int(8 * s))

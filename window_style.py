@@ -24,9 +24,15 @@ WARN = "#ffb347"
 BAD = "#ff6b6b"
 ROW_ALT = "#242424"     # Zeilenton (jede zweite Zeile)
 HIGHLIGHT = "#0d3440"   # hervorgehobene Zeile
-PRIMARY = "#007acc"     # Knopffüllungen: Hauptaktion, neutral, Gefahr/Schließen
+PRIMARY = "#0070b8"     # Knopffüllungen: Hauptaktion, neutral, Export, Gefahr/Schließen (weiß darauf ≥ 4,5:1)
 NEUTRAL = "#444444"
+SUCCESS = "#2e7d32"
 DANGER = "#cc0000"
+# Knopfrollen für RoundedButton(role=…): (Füllung, Schrift, Rand). "ruhig + Akzent": Navigation neutral, der aktive
+# Knopf gold, Farbe nur für Hauptaktion (primary/success) und Gefahr.
+ROLES = {"primary": (PRIMARY, "white", GOLD), "neutral": (NEUTRAL, "white", GOLD),
+         "success": (SUCCESS, "white", GOLD), "danger": (DANGER, "white", BAD),
+         "active": (GOLD_HOVER, TEXT, GOLD)}
 
 # Schrift: eine Familie, Kennzahlen Consolas; Größen in pt bei 1080p (mit font() × Maßstab s)
 FONT = "Segoe UI"

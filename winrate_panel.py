@@ -20,10 +20,10 @@ from card_stats import CardStatsDB, DeckWinStats, MatchEntry, OpponentStats, Win
 from dark_scrollbar import DarkScrollbar
 from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, HISTORY_SIZE, RANKED, REMIND_AT, WIN, history_reminder, mode_name
-from rounded_button import RoundedButton
+from rounded_button import RoundedButton, close_button
 from season_review import DAY_START_HOUR  # "Heute" beginnt um 5 Uhr: Wer nach Mitternacht weiterspielt, bleibt im Tag
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
-                          WARN, BAD, ROW_ALT, HIGHLIGHT, PRIMARY, NEUTRAL, DANGER, apply_frame, no_activate,
+                          WARN, BAD, ROW_ALT, HIGHLIGHT, apply_frame, no_activate,
                           place_in_work_area)
 
 MODE_KEY = "WINRATE_MODE"  # Einstellung: "ranked" oder "all"
@@ -215,11 +215,9 @@ class WinratePanel:
         tk.Label(header, text="◆ WINRATE", fg=GOLD, bg=PANEL, font=self.font_head).pack(
             side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         tk.Label(header, text="deine Duelle", fg=MUTED, bg=PANEL, font=self.font).pack(side=tk.LEFT)
-        RoundedButton(header, text="✕", command=self.close, bg=DANGER, border="#ff8a80",
-                      font=font(SIZE_SMALL, s, bold=True), padx=int(9 * s), pady=int(2 * s),
-                      radius=int(6 * s)).pack(side=tk.RIGHT, padx=int(8 * s))
+        close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         small = dict(font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s))
-        self.review_btn = RoundedButton(header, text="Rückblick", command=self.toggle_review, bg="#5e35b1", **small)
+        self.review_btn = RoundedButton(header, text="Rückblick", command=self.toggle_review, **small)
         self.review_btn.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
         self.mode_buttons = {}
         for key, label in (("all", "Alle Modi"), ("ranked", "Ranked")):  # rechts nach links
@@ -338,9 +336,9 @@ class WinratePanel:
             return
         for key, button in self.mode_buttons.items():
             active = (key == "all") == (self.mode is None)
-            button.config(bg=PRIMARY if active else NEUTRAL)
+            button.config(role="active" if active else "neutral")
         for key, button in self.period_buttons.items():
-            button.config(bg=PRIMARY if key == self.period else NEUTRAL)
+            button.config(role="active" if key == self.period else "neutral")
         since = period_start(self.period)
         try:
             decks = self.db.deck_win_stats(self.mode, since)
@@ -476,7 +474,7 @@ class WinratePanel:
         bg = HIGHLIGHT if deck.deck_name == self.selected else bg
         row = tk.Frame(self.inner, bg=bg, padx=int(8 * s), pady=int(4 * s))
         if deck.deck_code:
-            RoundedButton(row, text="Anzeigen", command=lambda: self._open(deck), bg="#00796b",
+            RoundedButton(row, text="Anzeigen", command=lambda: self._open(deck),
                           font=self.font_small, padx=int(8 * s), pady=int(3 * s), radius=int(6 * s)).pack(side=tk.RIGHT)
         text = tk.Frame(row, bg=bg)
         text.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -558,7 +556,7 @@ class WinratePanel:
         replay_btn = None
         if self._has_replay(match):  # vor dem Textbereich packen, sonst wird er bei schmaler Breite abgeschnitten
             replay_btn = RoundedButton(row, text="▶ Replay", command=lambda i=index: self.view_duel(i, replay=True),
-                                        bg="#00796b", font=self.font_small, padx=int(8 * s), pady=int(3 * s),
+                                        font=self.font_small, padx=int(8 * s), pady=int(3 * s),
                                         radius=int(6 * s))
             replay_btn.pack(side=tk.RIGHT)
         text = tk.Frame(row, bg=bg)
