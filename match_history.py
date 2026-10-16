@@ -37,6 +37,7 @@ HISTORY_SIZE = 20     # so viele Duelle zeigt die Match History in Master Duel
 REMIND_AT = (15, 18)  # Erinnerung, die Match History zu öffnen (ab HISTORY_SIZE nach jedem Duell)
 PENDING_MAX_AGE = 3 * 3600.0  # Münzwurf-Info gilt höchstens so lange für das nächste Ergebnis
 SAME_TOSS = 120.0  # Sekunden: so lange gehört eine schon gelesene Wahl noch zum selben Münzwurf
+OFFLINE_PAUSE = 600.0  # Sekunden: nach einem Netzfehler beim Nachschlagen neuer Karten nicht gleich wieder versuchen
 
 # Spielmodi (Enum GameMode des Spiels)
 FREE, RANKED, ROOM, RATING = 1, 3, 10, 19
@@ -175,10 +176,12 @@ def history_reminder(unconfirmed: int) -> str:
     return ""
 
 
-def store_matches(db, records: List[MatchRecord]) -> List[MatchRecord]:
+def store_matches(db, records: List[MatchRecord], ensure: Optional[Callable[[list], object]] = None
+                  ) -> List[MatchRecord]:
     """
     Matches speichern (Decks als Passcodes, benannt nach ihren Archetypen). Neue Duell-IDs kommen dazu; ein
     Live-Eintrag wird durch denselben Eintrag aus der Match History ersetzt. Returns: die neuen Duelle.
+    ensure: Karten nachschlagen (Standard db.ensure); fehlt die Info, werden die Matches trotzdem gespeichert.
     """
     from deck_export import build_ydk  # erst hier: zieht Bildschirm-Module nach
     unique: Dict[str, MatchRecord] = {}
@@ -198,7 +201,7 @@ def store_matches(db, records: List[MatchRecord]) -> List[MatchRecord]:
         main, extra = [passcodes[k] for k in main if k in passcodes], [passcodes[k] for k in extra if k in passcodes]
         if not main + extra:
             return "", ""
-        db.ensure(main + extra)
+        (ensure or db.ensure)(main + extra)
         return db.deck_name(main + extra), build_ydk(main, extra)
 
     rows = [(r, *describe(r.my_main, r.my_extra), *describe(r.opp_main, r.opp_extra)) for r in todo]
@@ -227,6 +230,7 @@ class MatchWatcher:
         self._pending: Optional[CoinToss] = None  # vom Münzwurf, bis zum Ergebnis
         self._pending_deck = None                  # gewählte Deck-ID beim Münzwurf
         self._pending_at = 0.0
+        self._offline_until = 0.0                  # bis dahin keine Online-Nachschlagen neuer Karten (Netzfehler)
         self._stop = threading.Event()
 
     def start(self) -> None:
@@ -287,11 +291,22 @@ class MatchWatcher:
             self._last_history = now
             records += parse_history(memory.client_work("DuelHistory"))
         self._started = True
-        new = store_matches(db, records) if records else []
+        new = store_matches(db, records, lambda ids: self._ensure(db, ids)) if records else []
         if new:
             dlog(f"[MATCHES] {len(new)} neue(s) Match(es) erfasst.")
             self.on_new(new)
         return len(new)
+
+    def _ensure(self, db, ids) -> None:
+        """Neue Karten online nachschlagen – nach einem Netzfehler OFFLINE_PAUSE lang nicht mehr (der Match-Thread
+        sähe sonst bei jedem Deck bis zum Zeitlimit nichts mehr vom Münzwurf/Ergebnis)."""
+        if self.clock() < self._offline_until:
+            return
+        try:
+            db.ensure(ids, raise_errors=True)
+        except Exception as e:
+            self._offline_until = self.clock() + OFFLINE_PAUSE
+            dlog(f"[MATCHES] Karten nicht nachgeschlagen ({e}) – {OFFLINE_PAUSE / 60:.0f} Min. kein neuer Versuch.")
 
     def _live_record(self, memory, db) -> Optional[MatchRecord]:
         result = memory.client_work("DuelResult")

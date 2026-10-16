@@ -370,10 +370,11 @@ class CardStatsDB:
                     f"SELECT id FROM cards WHERE id IN ({','.join('?' * len(ids))})", ids)}
         return [cid for cid in ids if cid not in known]
 
-    def ensure(self, ids: Iterable[str]) -> int:
+    def ensure(self, ids: Iterable[str], raise_errors: bool = False) -> int:
         """
         Lädt alle noch unbekannten Karten (neuer als die Grunddatenbank) online nach und speichert sie.
         Returns: Anzahl der Karten, die danach immer noch fehlen (offline oder unbekannt).
+        raise_errors: Netzfehler weiterreichen statt nur zu loggen (wer sich „offline“ merken will).
         """
         missing = self.missing(ids)
         if not missing:
@@ -382,6 +383,8 @@ class CardStatsDB:
             found = self._fetch(missing)
         except Exception as e:
             dlog(f"[STATS] Karteninfos nicht geladen ({e}) – {len(missing)} Karte(n) ohne Stats.")
+            if raise_errors:
+                raise
             return len(missing)
         now = time.time()
         self._info_cache.update(found)

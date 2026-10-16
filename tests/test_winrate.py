@@ -408,6 +408,26 @@ class MatchWatcherTest(unittest.TestCase):
         log.assert_called_once()
         self.assertIn("DuelMenuViewController", log.call_args.args[0])
 
+    def test_network_error_pauses_card_lookup_for_ten_minutes_but_matches_are_stored(self):
+        now = [1000.0]
+        self.watcher.clock = lambda: now[0]
+        self.db.ensure = mock.Mock(side_effect=OSError("kein Netz"))
+        history = {"58": {"1": entry_(91, 500, mh.WIN)}}
+        self.step(["HomeViewController", mh.HISTORY_VIEW], DuelHistory=history)
+        self.assertEqual(self.db.ensure.call_count, 1)             # zweites Deck (Gegner) wird gar nicht erst versucht
+        self.assertEqual(len(self.db.matches()), 1)                # gespeichert wurde trotzdem
+        self.step(["HomeViewController"])
+        now[0] += 599
+        history["58"]["2"] = entry_(92, 600, mh.LOSS)
+        self.step(["HomeViewController", mh.HISTORY_VIEW], DuelHistory=history)
+        self.assertEqual(self.db.ensure.call_count, 1)             # noch in der Pause
+        self.assertEqual(len(self.db.matches()), 2)
+        self.step(["HomeViewController"])
+        now[0] += 2
+        history["58"]["3"] = entry_(93, 700, mh.WIN)
+        self.step(["HomeViewController", mh.HISTORY_VIEW], DuelHistory=history)
+        self.assertEqual(self.db.ensure.call_count, 2)             # nach 10 Minuten wieder ein Versuch
+
     def test_choice_read_after_the_coin_toss_result(self):
         menu = ["HomeViewController"]
         self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1})  # gewonnen, wählt noch
