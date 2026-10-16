@@ -28,13 +28,6 @@ class ArchetypeProfile:
         """Prüft ob Token exklusiv zu diesem Archetyp gehört"""
         return token in self.tokens
 
-    def get_correction(self, token: str) -> Optional[str]:
-        """Holt OCR-Korrektur für häufige Fehlerkennungen"""
-        for correct, mistakes in self.common_mistakes.items():
-            if token in mistakes:
-                return correct
-        return None
-
 class ArchetypeDatabase:
     """Verwaltet alle Archetypen-Profile"""
 

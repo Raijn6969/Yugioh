@@ -6,7 +6,6 @@ damit sich Fehlklicks im Nachhinein nachvollziehen lassen.
 """
 
 import os
-import re
 import time
 import hashlib
 import traceback
@@ -39,8 +38,6 @@ BATCH_MATCH_THRESHOLD = 0.85   # Archetyp-Suche: Karte der Gruppe
 OPPO_MATCH_THRESHOLD = 0.92    # Archetyp-Suche: nebenbei sichtbare andere Deck-Karte (strenger)
 AMBIGUITY_MARGIN = 0.05        # Liegen zwei Kandidaten näher beieinander, sind sie nicht unterscheidbar
 GHOST_RATIO = 0.88             # Slot zeigt (fast) dieselbe Karte wie Slot 0
-TRUNCATION_MIN_OCR = 10        # Ab so vielen gelesenen Zeichen darf ein abgeschnittener Name matchen
-TRUNCATED_LONG_OCR = 18        # So lange Texte sind im Detail-Panel meist abgeschnitten
 BETTER_MATCH_MARGIN = 0.03     # Passt eine andere Deck-Karte um so viel besser → nicht diese Karte
 
 # ── Sonderregeln für lange / abgeschnittene Namen ──
@@ -50,7 +47,6 @@ PREFIX_OVERLAP_MIN = 12        # Mindestens so viele Zeichen am Anfang identisch
 PREFIX_OVERLAP_SHARE = 0.6     # … und mindestens dieser Anteil der gelesenen Zeichen
 SINGLE_RESULT_OVERLAP_MIN = 10       # Lockerer, wenn die Suche nur ein Ergebnis hat
 SINGLE_RESULT_OVERLAP_SHARE = 0.5
-NUMBER_TRUNCATED_MIN_OCR = 18
 
 # ── Raster ──
 MAX_GRID_SLOTS = 42            # 7 Zeilen à 6 Karten
@@ -58,9 +54,9 @@ GRID_BOTTOM_LIMIT = 0.93       # Anteil der Bildschirmhöhe; darunter liegt kein
 END_REPEAT_STREAK = 3          # 4x dieselbe Karte in Folge = Ende der Ergebnisse (max. 3 Raritäten)
 END_EMPTY_STREAK = 6           # So viele leere Reads in Folge = Ende der Ergebnisse
 SCROLL_NOTCHES = 4             # Mausrad-Rasten pro Seite (1 Raste ≈ ¾ Zeile → 4 Rasten = 3 Zeilen)
-MAX_MEMORY_NOTCHES = 400
+MAX_MEMORY_NOTCHES = 400       # Speicher-Modus: weiter wird nicht gescrollt (≈ 13 s, ~280 Reihen)
 # Abbrüche, die nie in den normalen Ablauf zurückfallen dürfen (Maus bewegt, Master Duel nicht mehr vorne)
-ABORTS = (UserInterrupt, FocusLostError)       # Speicher-Modus: weiter wird nicht gescrollt (≈ 13 s, ~280 Reihen)
+ABORTS = (UserInterrupt, FocusLostError)
 # Scroll-Leiste rechts neben der Kartenliste: ein Klick darauf springt sofort dorthin. Gemessen bei 1920×1080
 # (FIRST_CARD 1370/379, Abstand 88/140): Griff x 1856–1867, Leiste y 302–1003. Relativ zum kalibrierten Raster:
 SCROLLBAR_X = 5.585        # Mitte der Leiste, in Kartenabständen rechts von FIRST_CARD
@@ -1222,16 +1218,6 @@ class DeckImporterCore:
 
     # Erste Wörter, die zu generisch sind für eine Batch-Suche
     _BATCH_NOISE = batch_planner.BATCH_NOISE
-
-    @staticmethod
-    def _normalize_word(w: str) -> str:
-        """Normalisiert ein Wort für Archetype-Vergleiche: 'exosisters' → 'exosister'."""
-        return batch_planner.normalize_word(w)
-
-    @staticmethod
-    def _name_words(name: str) -> List[str]:
-        """Wörter eines Namens (klein); Teile in spitzen Klammern bleiben als eigenes Token ("<p>")."""
-        return batch_planner.name_words(name)
 
     def _compute_batch_groups(self, cards_ready: List) -> Dict[str, List]:
         """
