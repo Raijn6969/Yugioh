@@ -21,7 +21,7 @@ FIELD = (*MONSTER, *SPELL)
 DURATION = {"aktiviert": 0.85, "beschworen": 0.7, "gesetzt": 0.6, "umgedreht": 0.35, "friedhof": 0.7,
             "verbannt": 0.7, "hand": 0.8, "zug": 0.6, "still": 0.0,
             "kosten": 0.7, "material": 0.6, "ziel": 0.6, "kontrolle": 0.6, "negiert": 0.7, "zerstoert": 0.7,
-            "angriff": 0.8, "kette": 0.6}
+            "angriff": 0.8, "kette": 0.6, "deck": 0.6}
 SET_FLIP = 0.35      # gesetzte Karte: erst offen gezeigt, dann umgedreht (kommt zur Dauer dazu)
 LP_TIME = 0.5        # Schritt ohne Kartenänderung, aber mit LP-Änderung
 STEP_PAUSE = 1.0     # Pause nach einem Schritt beim Abspielen (bei 1×, wie Factory STEP_TIME)
@@ -32,12 +32,14 @@ SUMMON = (("link", "Linkbeschwörung"), ("xyz", "Xyz-Beschwörung"), ("synchro",
 CODE_SUMMON = (2, 3, 5, 6, 7, 9)  # Normal-, Spezial-, Fusion-, Synchro-, Xyz-, Linkbeschwörung (Art vom Kartentyp)
 CODE_EXTRA_SUMMON = (5, 6, 7, 9)  # aus dem Extra Deck: ihre Materialien gehen gemeinsam (ein Schritt)
 PILE_WHERE = {rr.GRAVE: "im Friedhof", rr.BANISHED: "(verbannt)"}   # Aktivierung außerhalb von Hand/Feld
+CODE_RETURN = 33   # zurück (Friedhof/Verbannt → Deck/Hand/Extra); ins Deck ist eine eigene Zeile, auf die Hand zeigt
+                   # schon die Bewegung im nächsten Frame
 CODE_DESTROY = {20: "durch Kampf", 21: "durch Effekt"}
 CODE_COST = {46: ("verbannst", "verbannt", "als Kosten"), 49: ("schickst", "schickt", "als Kosten auf den Friedhof"),
              51: ("wirfst", "wirft", "als Kosten ab"), 31: ("zeigst", "zeigt", "als Kosten vor"),
              50: ("schickst", "schickt", "als Kosten auf den Friedhof")}
 LOG_ORDER = ("aktiviert", "beschworen", "zerstoert", "kosten", "material", "negiert", "angriff", "ziel", "kontrolle",
-             "kette", "gesetzt", "hand")
+             "kette", "deck", "gesetzt", "hand")
 # diese nennt der Text zusätzlich zum Hauptereignis
 EXTRA_KINDS = ("kosten", "material", "ziel", "kontrolle", "negiert", "zerstoert", "kette")
 MARK_KINDS = ("kosten", "ziel", "negiert", "zerstoert", "angriff")  # diese bekommen ein Schild auf der Karte
@@ -261,6 +263,8 @@ def event_kind(e: dict) -> Optional[str]:
         return "beschworen"
     if code in CODE_DESTROY:
         return "zerstoert"
+    if code == CODE_RETURN:
+        return "deck" if e.get("z") in (rr.DECK, rr.EXTRA_DECK) else None
     return {28: "material", 12: "negiert", 10: "angriff", 23: "ziel", 22: "kontrolle", 13: "gesetzt", 14: "gesetzt",
             26: "hand", 1: "hand"}.get(code)
 
@@ -305,6 +309,10 @@ def describe_event(kind_: str, e: dict, name_of: Callable[[int], Optional[str]],
         return f"{who} {du if me else er} {name} {tail}"
     if kind_ == "material":
         return f"{name} wird Xyz-Material"
+    if kind_ == "deck":
+        if e.get("z") == rr.EXTRA_DECK:
+            return f"{who} {'legst' if me else 'legt'} {name} ins Extra Deck zurück"
+        return f"{who} {'mischst' if me else 'mischt'} {name} ins Deck"
     if kind_ == "zerstoert":
         return f"{name} wird {CODE_DESTROY[code]} zerstört"
     if kind_ == "negiert":

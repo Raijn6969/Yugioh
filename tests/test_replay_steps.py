@@ -379,6 +379,15 @@ class LogStepTest(unittest.TestCase):
         self.assertEqual((steps[2].kind, steps[2].text, steps[2].focus.to_zone),
                          ("aktiviert", "Du aktivierst Triple Tactics Talent im Friedhof", rr.GRAVE))
 
+    def test_shuffled_back_into_the_deck_has_its_own_line(self):
+        self.assertEqual(self.one(act(33, 300, 0, rr.GRAVE, z=rr.DECK))[:2],
+                         ("deck", "Du mischst Triple Tactics Talent ins Deck"))
+        self.assertEqual(self.one(act(33, 200, 1, rr.GRAVE, z=rr.EXTRA_DECK))[1],
+                         "Gegner legt Accesscode Talker ins Extra Deck zurück")
+        self.assertEqual(self.one(act(33, 100, 0, rr.BANISHED, z=rr.HAND))[0], "still")  # Hand: zeigt die Bewegung
+        both = log_steps(act(33, 300, 0, rr.GRAVE, z=rr.DECK), act(33, 100, 0, rr.BANISHED, z=rr.HAND))[1]
+        self.assertEqual(both.text, "Du mischst Triple Tactics Talent ins Deck")
+
     def test_card_reappearing_in_its_pile_is_no_new_move(self):
         entry = {"uid": 1, "card": 100}
         self.assertIsNone(rs._kind_of(rs.Move(1, 0, 100, None, rr.BANISHED, None, 1, None, 0), state(),
