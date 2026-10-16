@@ -366,6 +366,9 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
     """steps[i] = der Übergang von Frame i-1 zu Frame i (steps[0] ist leer)."""
     out = []
     logged = any(f.get("log") for f in frames)   # Mitschnitt mit echtem Protokoll
+    # erster Frame mit Phase (bzw. Protokoll-Phase); ohne jede Phase im Mitschnitt bleibt alles wie bisher
+    started = next((i for i, f in enumerate(frames)
+                    if f.get("phase") or any(e.get("k") == "phase" for e in f.get("log") or ())), 0)
     chains = chain_states(frames) if logged else []
     for i, frame in enumerate(frames):
         prev = frames[i - 1] if i else None
@@ -393,6 +396,8 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
             kind_, focus, text, label, marks = from_log
         elif again:
             kind_, text, label = "zug", "", ""
+        if i < started and kind_ == "hand":   # Austeilen der Starthand vor Spielbeginn: keine Zeile, kein Bild
+            kind_, focus, text, label, marks = "still", None, "", "", ()
         out.append(Step(kind_, text, tuple(ms), focus, lp, label, duration(kind_, bool(lp), glides(kind_, focus)),
                         marks, chains[i] if logged else None))
     for i in range(len(out) - 1 if logged else 0):

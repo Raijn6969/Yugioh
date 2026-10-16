@@ -189,6 +189,18 @@ class BuildStepsTest(unittest.TestCase):
         self.assertEqual((steps[1].kind, steps[1].text, steps[1].label),
                          ("aktiviert", "Gegner aktiviert Ash Blossom", "EFFEKT"))
 
+    def test_opening_hand_before_the_first_phase_has_no_step(self):
+        deck, hand = row(1, 0, rr.DECK, 100), row(1, 0, rr.HAND, 100)
+        steps = rs.build_steps([frame(deck, phase=""), frame(hand, phase=""), frame(hand, phase="Main1")],
+                               [state()] * 3, 0, name_of, type_of)
+        self.assertEqual((steps[1].kind, steps[1].text, steps[1].label, steps[1].dur), ("still", "", "", 0.0))
+        for phase in ("Draw", "Main1"):   # ab der ersten Phase bleibt es ein Zug in die Hand
+            steps = rs.build_steps([frame(deck, phase=phase), frame(hand, phase=phase)], [state()] * 2, 0, name_of,
+                                   type_of)
+            self.assertEqual(steps[1].kind, "hand")
+        logged = [frame(deck, phase=""), dict(frame(hand, phase=""), log=[{"k": "phase", "p": 0}])]
+        self.assertEqual(rs.build_steps(logged, [state()] * 2, 0, name_of, type_of)[1].kind, "hand")
+
 
 
 def act(code, card, team=0, zone=13, cost=0, **more):
