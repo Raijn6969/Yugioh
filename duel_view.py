@@ -57,7 +57,7 @@ PLAQUE = "#f0c450"       # Kettenglied-Nummer auf der Karte
 RESOLVING = "#ff7a7a"    # Kettenglied, das gerade auflöst ("KETTE LÖST AUF"), Rahmen von Ziel/Negation/Zerstörung
 LP_DOWN, LP_UP = "#ff6464", "#78e68c"
 FRAME_MS = 33            # Animation: ein Bild alle 33 ms
-SPEEDS = (0.5, 1.0, 2.0, 4.0)   # Wiedergabe-Tempo, der Knopf schaltet der Reihe nach weiter
+SPEEDS = (0.5, 1.0, 1.5, 2.0, 4.0)   # Wiedergabe-Tempo, der Knopf schaltet der Reihe nach weiter
 STEP_ROW = "#463a18"     # aktuelle Zeile der Schrittliste
 
 PILES = {
@@ -663,7 +663,7 @@ class DuelView:
             self.manual(target, animate=name in ("Left", "Right"))
 
     def _cycle_speed(self) -> None:
-        """0,5× → 1× → 2× → 4× (wie Factory _cycle_speed); eine laufende Animation wird mit umgerechnet."""
+        """0,5× → 1× → 1,5× → 2× → 4× (wie Factory _cycle_speed); eine laufende Animation wird mit umgerechnet."""
         new = SPEEDS[(SPEEDS.index(self.speed) + 1) % len(SPEEDS)] if self.speed in SPEEDS else 1.0
         a = self._anim
         if a is not None:

@@ -465,9 +465,11 @@ class AnimationTest(unittest.TestCase):
         view.manual(1)
         view.manual(2)
         dur = view._anim["dur"]
-        button.invoke()                                   # 2×: die laufende Animation wird kürzer
+        button.invoke()                                   # 1,5×: die laufende Animation wird kürzer
+        self.assertEqual((view.speed, button.cget("text")), (1.5, "1,5×"))
+        self.assertAlmostEqual(view._anim["dur"], dur / 1.5)
+        button.invoke()
         self.assertEqual((view.speed, button.cget("text")), (2.0, "2×"))
-        self.assertAlmostEqual(view._anim["dur"], dur / 2)
         button.invoke()
         button.invoke()
         self.assertEqual((view.speed, button.cget("text")), (0.5, "0,5×"))
