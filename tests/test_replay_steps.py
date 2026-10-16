@@ -370,6 +370,15 @@ class LogStepTest(unittest.TestCase):
         self.assertEqual(self.one(act(11, 100, 1, rr.BANISHED))[1], "Gegner aktiviert Ash Blossom (verbannt)")
         self.assertEqual(self.one(act(6, 200))[0], "beschworen")                       # Synchrobeschwörung
 
+    def test_activation_in_the_graveyard_waits_until_the_card_lies_there(self):
+        field, moving, grave = row(1, 0, 9, 300), row(1, 0, rr.MOVING, 300), row(1, 0, rr.GRAVE, 300)
+        frames = [frame(field), dict(frame(moving), log=[act(11, 300, 0, rr.GRAVE)]), frame(grave)]
+        steps = rs.build_steps(frames, [state()] * 3, 0, name_of, type_of)
+        self.assertEqual((steps[1].kind, steps[1].text), ("friedhof", ""))        # gleitet, ohne Zeile in der Liste
+        self.assertGreater(steps[1].dur, 0)
+        self.assertEqual((steps[2].kind, steps[2].text, steps[2].focus.to_zone),
+                         ("aktiviert", "Du aktivierst Triple Tactics Talent im Friedhof", rr.GRAVE))
+
     def test_card_reappearing_in_its_pile_is_no_new_move(self):
         entry = {"uid": 1, "card": 100}
         self.assertIsNone(rs._kind_of(rs.Move(1, 0, 100, None, rr.BANISHED, None, 1, None, 0), state(),

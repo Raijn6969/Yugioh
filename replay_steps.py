@@ -423,8 +423,36 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
                                          for k, os_ in near for o in os_):
             out[i] = s._replace(kind="still", text="", focus=None, label="", marks=(),
                                 dur=duration("still", bool(s.lp)))
+    _activate_in_pile(out, frames)
     _merge_materials(out, frames)
     return out
+
+
+def _activate_in_pile(out: List[Step], frames: List[dict], reach: int = 3) -> None:
+    """Aktivierung im Friedhof/verbannt, während die Karte im Bild noch unterwegs ist (MD räumt aufgelöste Zauber erst
+    spät vom Feld): erst gleitet sie in den Stapel (Schritt ohne Zeile in der Liste), aktiviert wird sie, sobald sie
+    dort liegt."""
+    for i, step in enumerate(out):
+        f = step.focus
+        if step.kind != "aktiviert" or f is None or f.uid == -1:
+            continue
+        pile = next((e["f"] for e in frames[i].get("log") or ()
+                     if e.get("k") == "act" and e.get("a") == 11 and e.get("c") == f.card and e.get("f") in PILE_WHERE),
+                    None)
+        if pile is None or f.to_zone == pile:
+            continue
+        for k in range(i + 1, min(len(out), i + 1 + reach)):
+            arrived = next((m for m in out[k].moves if m.uid == f.uid and m.to_zone == pile), None)
+            if arrived is None:
+                continue
+            own = out[k].focus is not None and out[k].focus.uid == f.uid   # nur ihre eigene Ankunft im Stapel
+            if out[k].text and not own:   # dort passiert schon etwas anderes: lieber so lassen
+                break
+            moved = "friedhof" if pile == rr.GRAVE else "verbannt"
+            out[i] = step._replace(kind=moved, text="", label="", marks=(), dur=duration(moved, bool(step.lp)))
+            out[k] = out[k]._replace(kind="aktiviert", text=step.text, label=step.label, marks=step.marks,
+                                     focus=arrived._replace(card=f.card), dur=duration("aktiviert", bool(out[k].lp)))
+            break
 
 
 def _merge_materials(out: List[Step], frames: List[dict], reach: int = 6) -> None:
