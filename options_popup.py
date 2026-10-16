@@ -126,8 +126,9 @@ class OptionsPopup:
         if row["kind"] == "section":
             if not first:
                 tk.Frame(body, bg=LINE, height=1).pack(fill=tk.X, pady=(int(8 * s), int(6 * s)))
-            tk.Label(body, text=row["title"].upper(), fg=GOLD, bg=PANEL, font=self.font_head,
-                     anchor="w").pack(fill=tk.X)
+            if row["title"]:  # ohne Titel: der Hinweis steht allein (der Titel würde nur den Knopf wiederholen)
+                tk.Label(body, text=row["title"].upper(), fg=GOLD, bg=PANEL, font=self.font_head,
+                         anchor="w").pack(fill=tk.X)
             if row["hint"]:
                 tk.Label(body, text=row["hint"], fg=MUTED, bg=PANEL, font=self.font_small,
                          anchor="w").pack(fill=tk.X)

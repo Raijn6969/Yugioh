@@ -834,6 +834,21 @@ class DarkDialogTest(unittest.TestCase):
         self.assertFalse(running)
         self.assertEqual(scan_done.args[1], 1)  # eine Karte ohne Stats
 
+    def test_scan_status_is_shown_in_one_place_only(self):
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")),                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),                 mock.patch.object(Overlay, "ask_choice", return_value=None):
+            app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
+            before = app.status_label.cget("text")
+            app.extras = mock.Mock()
+            app._extras_status("Deck wird gescannt …", Overlay.INFO)
+            app._on_extras_scan_done(mock.Mock(), "", 0)
+            deck_window_status = app.extras.set_status.call_args.args[0]
+            leiste = app.status_label.cget("text")
+            app.extras = None
+            app._extras_status("Scan läuft", Overlay.INFO)  # Deck-Fenster zu: die Leiste zeigt es
+            fallback = app.status_label.cget("text")
+            app.close()
+        self.assertEqual((deck_window_status, leiste, fallback), ("Deck wird gescannt …", before, "Scan läuft"))
+
     def test_uncalibrated_start_tries_automatic_first(self):
         with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \

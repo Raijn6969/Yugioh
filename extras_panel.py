@@ -195,11 +195,11 @@ class ExtrasPanel:
                                              radius=int(6 * s))
             self.matchup_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
-        self.options_menu.add_section("Karten lesen", "gilt für Import, Deck-Scan und Export")
+        self.options_menu.add_section("Karten lesen", "für Import, Deck-Scan und Export")
         self.options_menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
                                      command=self._on_read_method_changed)
         memory = lambda: self.read_method.get() == "memory"  # noqa: E731
-        self.options_menu.add_section("Tempo", "beim Speicher-Lesen nur Reserve: „Langsam“ für langsame PCs",
+        self.options_menu.add_section("Tempo", "nur Reserve: „Langsam“ für langsame PCs",
                                       visible=memory)
         self.options_menu.add_choice([(label, key) for key, label in SPEEDS.items()], self.speed,
                                      command=self._on_speed_changed, visible=memory)
@@ -208,9 +208,9 @@ class ExtrasPanel:
                                        ("Analyse-Animation", self.animation),
                                        ("Spalte „2. Zug“", self.show_second)],
                                       command=self._on_option_changed)
-        self.options_menu.add_section("Starter", "Einstufung aus den Deck-Guides von Master Duel Meta")
+        self.options_menu.add_section("", "Starter-Einstufung aus den Deck-Guides von Master Duel Meta")
         self.options_menu.add_buttons([("Aus Guides nachladen (online)", self.load_guides)])
-        self.options_menu.add_section("Kalibrierung", "nur nötig, wenn Klicks danebengehen")
+        self.options_menu.add_section("", "Kalibrierung – nur nötig, wenn Klicks danebengehen")
         self.options_menu.add_buttons([("Automatisch kalibrieren", lambda: self._calibrate(self.on_auto_calibrate)),
                                        ("Assistent (von Hand)", lambda: self._calibrate(self.on_calibrate_manual))])
 

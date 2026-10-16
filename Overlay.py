@@ -1398,23 +1398,24 @@ class MasterDuelImporter:
         threading.Thread(target=exporter.execute_scan, daemon=True).start()
 
     def _extras_status(self, text, color):
-        self.update_status(text, color)
-        if self.extras:
+        if self.extras:  # nur eine Stelle zeigt den Scan-Status: das Deck-Fenster, sonst die Leiste
             self.extras.set_status(text, color)
+        else:
+            self.update_status(text, color)
 
     def _on_extras_scan_done(self, scan, error, missing):
         self.is_running = False
         self._set_buttons(tk.NORMAL)
         if scan is not None:
             self._last_scan = scan
-            self.update_status("Deck gescannt – Analyse bereit", GOOD)
-        else:
-            self.update_status("Scan abgebrochen", BAD)
         if self.extras:
             if scan is not None:
                 self.extras.set_scan(scan, missing)
             else:
                 self.extras.show_error(error)
+        else:
+            self.update_status("Deck gescannt" if scan is not None else "Scan abgebrochen",
+                               GOOD if scan is not None else BAD)
 
 
 def started_text() -> str:
