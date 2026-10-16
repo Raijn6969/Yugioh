@@ -48,7 +48,8 @@ class ArchetypeDatabase:
 
     def _load_profiles(self):
         """Lädt Profile aus JSON oder erstellt Default-Konfiguration"""
-        if os.path.exists(ARCHETYPES_FILE):
+        exists = os.path.exists(ARCHETYPES_FILE)
+        if exists:
             try:
                 with open(ARCHETYPES_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -57,10 +58,15 @@ class ArchetypeDatabase:
                     self.profiles[name] = ArchetypeProfile(config)
                 return
             except Exception:
-                pass
+                self.profiles.clear()
 
         self._create_default_profiles()
-        self._save_profiles()
+        if exists:
+            return  # unlesbare, evtl. von Hand bearbeitete Datei nicht mit den Standardwerten überschreiben
+        try:
+            self._save_profiles()
+        except OSError:
+            pass  # Ordner nicht beschreibbar: die Standardwerte gelten trotzdem (sonst käme kein Import zustande)
 
     def _create_default_profiles(self):
         """Erstellt die Standard-Profile aus den historischen Fixes"""

@@ -110,5 +110,46 @@ class HelperTest(unittest.TestCase):
                 self.assertEqual(ie.number_card_overrule(target, ocr), expected)
 
 
+class ArchetypeConfigFileTest(unittest.TestCase):
+    """archetypes_config.json: kaputte Datei nie überschreiben, schreibgeschützter Ordner bricht nichts ab."""
+
+    def load(self, content):
+        import os
+        import tempfile
+        from unittest import mock
+        import card_engine
+        folder = tempfile.mkdtemp()
+        path = os.path.join(folder, "archetypes_config.json")
+        if content is not None:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+        db = object.__new__(card_engine.ArchetypeDatabase)  # nicht der gemeinsame Singleton
+        db.profiles = {}
+        with mock.patch.object(card_engine, "ARCHETYPES_FILE", path):
+            db._load_profiles()
+        return db, path
+
+    def test_broken_file_is_kept_and_defaults_are_used(self):
+        db, path = self.load("{ das ist kein json")
+        self.assertIn("sky_striker", db.profiles)
+        with open(path, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "{ das ist kein json")
+
+    def test_missing_file_is_created(self):
+        db, path = self.load(None)
+        import json
+        with open(path, encoding="utf-8") as f:
+            self.assertIn("sky_striker", json.load(f)["archetypes"])
+
+    def test_unwritable_folder_keeps_the_defaults(self):
+        import card_engine
+        from unittest import mock
+        db = object.__new__(card_engine.ArchetypeDatabase)
+        db.profiles = {}
+        with mock.patch.object(card_engine, "ARCHETYPES_FILE", "Z:/gibt/es/nicht/a.json"):
+            db._load_profiles()
+        self.assertIn("sky_striker", db.profiles)
+
+
 if __name__ == "__main__":
     unittest.main()
