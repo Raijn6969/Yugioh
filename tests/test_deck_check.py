@@ -160,6 +160,39 @@ class FinalDeckCheckTest(unittest.TestCase):
         self.assertEqual([(c.zone, c.slot, c.match.cid) for c in core.final_scan.cards],
                          [("Main", 1, "1"), ("Main", 2, "4"), ("Extra", 1, "3"), ("Extra", 2, "3")])
 
+    def memory_core(self, deck):
+        core = make_check_core()
+        core.card_db = None  # Kartenliste nicht ladbar (offline, kein Zwischenspeicher)
+        core.memory = mock.Mock()
+        core.memory.deck.side_effect = deck
+        core._kid_names = {101: "Dracotail Flame", 104: "Dracotail Sting", 103: "Dracotail Arthalion"}
+        core._kid_passcodes = {101: "1", 104: "4", 103: "3"}
+        core._fix_deck = mock.Mock()
+        return core
+
+    def check(self, core):
+        frame = md_layout.Frame(0, 0, 1920, 1080)
+        deck = [DeckCard("1", "Dracotail Flame", 1), DeckCard("4", "Dracotail Sting", 1)]
+        zones = [("Main", [(543, 267)] * 2, 10), ("Extra", [(543, 845)] * 2, 10)]
+        with mock.patch.object(md_layout, "md_frame", return_value=frame), \
+                mock.patch.object(deck_export.DeckExporter, "_plan", lambda self, sct, fr, counts=None: zones), \
+                mock.patch("import_engine.win_api.set_cursor_pos"), \
+                mock.patch("import_engine.win_api.get_cursor_pos", return_value=(1292, 600)), \
+                mock.patch("import_engine.time.sleep"):
+            return core._final_deck_check(None, mock.Mock(), deck, "", "")
+
+    def test_memory_mode_without_card_list_reports_instead_of_fixing(self):
+        # _fix_deck braucht die Kartenliste (Prüfung vor dem Entfernen) – ohne sie nur melden
+        core = self.memory_core(lambda: ([101, 101], [103, 103]))  # Flame doppelt, Sting fehlt
+        problems = self.check(core)
+        core._fix_deck.assert_not_called()
+        self.assertTrue(any("zu viel" in p for p in problems) and any("fehlend" in p for p in problems))
+
+    def test_memory_lost_without_card_list_skips_the_check(self):
+        core = self.memory_core(OSError("Spiel beendet"))
+        self.assertIsNone(self.check(core))  # kein Absturz in db.match(None)
+        self.assertTrue(core.memory_fallback)
+
     def test_nothing_changed_when_a_card_was_not_read_safely(self):
         unsure = ExportedCard("Extra", 2, "dracotail?", CardMatch(None, "", False, "nichts erkannt"))
         cards = read("Main", ["Dracotail Flame", "Dracotail Sting"]) + read("Extra", ["Dracotail Arthalion"]) + [unsure]

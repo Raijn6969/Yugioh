@@ -1058,6 +1058,9 @@ class DeckImporterCore:
             self._park_cursor(automator, frame)
             # Speicher-Modus: Deck direkt aus dem Speicher (ohne Klicks), Bildschirm nur fürs Kartenraster
             memory_deck = self._memory_deck()
+            if memory_deck is None and self.card_db is None:  # Speicher ausgefallen: Texterkennung braucht die Liste
+                dlog("[KONTROLLE] Nicht möglich (Speicher ausgefallen, Kartenliste fehlt).")
+                return None
             try:
                 zones = exporter._plan(sct, frame, counts=tuple(map(len, memory_deck)) if memory_deck else None)
             except RuntimeError as e:
@@ -1076,8 +1079,9 @@ class DeckImporterCore:
             dlog(f"[KONTROLLE] Zu viel: {too_many or '-'} | Fehlt: {too_few or '-'} | unsicher gelesen: {len(unsure)}")
             if not too_many and not too_few:
                 break
-            if round_no == 2 or unsure:
-                # Unsicher gelesene Karten könnten genau die "fehlenden" sein → nichts automatisch ändern
+            if round_no == 2 or unsure or self.card_db is None:
+                # Unsicher gelesene Karten könnten genau die "fehlenden" sein → nichts automatisch ändern;
+                # ohne Kartenliste lässt sich auch nicht prüfen, ob an einem Platz die richtige Karte liegt
                 break
             fixed += self._fix_deck(sct, frame, automator, zones, cards, too_many, too_few, by_key, state)
 
