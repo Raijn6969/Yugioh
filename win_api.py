@@ -156,6 +156,11 @@ def mouse_button_down() -> bool:
     return any(_GetAsyncKeyState(key) & 0x8000 for key in (0x01, 0x02, 0x04))
 
 
+def escape_down() -> bool:
+    """Ist die Escape-Taste gerade gedrückt – egal welches Fenster den Fokus hat?"""
+    return bool(_GetAsyncKeyState(0x1B) & 0x8000)
+
+
 def mouse_event(flags: int) -> None:
     _mouse_event(flags, 0, 0, 0, 0)
 

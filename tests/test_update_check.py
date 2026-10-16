@@ -413,7 +413,10 @@ class FakePystray:
 
     class Icon:
         def __init__(self, name, image, title, menu):
-            self.menu, self.updated = menu, 0
+            self.menu, self.updated, self.native = menu, 0, []
+
+        def _on_notify(self, wparam, lparam):  # wie das Win32-Backend: Klick auf das Symbol
+            self.native.append(lparam)
 
         def run(self):
             pass
@@ -445,6 +448,23 @@ class TrayMenuTest(unittest.TestCase):
         self.assertEqual(opened, [True])
         self.assertEqual([i.label() for i in items if i.shown()],
                          ["MD Importer 9.2", "Update auf 9.10 installieren", "Neustart", "Beenden"])
+
+    def test_right_click_calls_on_menu_instead_of_native_menu(self):
+        calls = []
+        icon, _items = self.make(on_menu=lambda x, y: calls.append((x, y)))
+        with mock.patch.object(tray.win_api, "get_cursor_pos", return_value=(11, 22)):
+            icon._icon._on_notify(0, tray.WM_RBUTTONUP)
+        icon._icon._on_notify(0, 0x0202)  # Linksklick bleibt wie er ist
+        self.assertEqual((calls, icon._icon.native), ([(11, 22)], [0x0202]))
+
+    def test_right_click_stays_native_without_on_menu_or_win32_backend(self):
+        icon, _items = self.make()
+        icon._icon._on_notify(0, tray.WM_RBUTTONUP)
+        self.assertEqual(icon._icon.native, [tray.WM_RBUTTONUP])
+        class Other:  # anderes Backend: keine _on_notify
+            pass
+        with mock.patch.object(tray, "pystray", SimpleNamespace(Icon=Other)):
+            self.assertIs(tray._icon_class(lambda x, y: None), Other)
 
     def test_without_pystray_nothing_happens(self):
         with mock.patch.object(tray, "pystray", None):

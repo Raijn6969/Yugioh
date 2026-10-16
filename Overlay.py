@@ -169,7 +169,8 @@ class MasterDuelImporter:
                                  on_restart=lambda: self._run_on_ui(self.restart),
                                  on_quit=lambda: self._run_on_ui(self.close),
                                  on_update=lambda: self._run_on_ui(self._ask_update_when_idle),
-                                 on_report=lambda: self._run_on_ui(self._create_report))
+                                 on_report=lambda: self._run_on_ui(self._create_report),
+                                 on_menu=lambda x, y: self._run_on_ui(self._show_tray_menu, x, y))
 
         # Starte den unsichtbaren Radar für den Fenster-Fokus
         self.editor_watch.start()
@@ -326,6 +327,10 @@ class MasterDuelImporter:
             webbrowser.open(url or update_check.RELEASES_URL)
         except Exception as e:
             dlog(f"[UPDATE] Browser nicht geöffnet: {e}")
+
+    def _show_tray_menu(self, x: int, y: int):
+        if self.tray:  # kann zwischen Rechtsklick und Tk-Thread beendet worden sein
+            self.tray.show_menu(self.root, x, y)
 
     # --- FEHLERBERICHT (Tray-Menü) ---
     def _create_report(self):

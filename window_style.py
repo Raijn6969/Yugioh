@@ -76,9 +76,9 @@ def allow_typing(field: tk.Widget) -> None:
 
 class ClickOutside:
     """
-    Schließt ein Menü (Fenster mit no_activate()), sobald irgendwo außerhalb geklickt wird. Ersetzt das Schließen
-    bei Fokusverlust – ohne Fokus gibt es keinen. Klicks auf `anchor` (den Button, der das Menü öffnet) zählen nicht:
-    der schließt es selbst.
+    Schließt ein Menü (Fenster mit no_activate()), sobald irgendwo außerhalb geklickt oder Escape gedrückt wird.
+    Ersetzt das Schließen bei Fokusverlust – ohne Fokus gibt es keinen. Klicks auf `anchor` (den Button, der das
+    Menü öffnet) zählen nicht: der schließt es selbst.
     """
 
     POLL_MS = 40
@@ -98,6 +98,9 @@ class ClickOutside:
 
     def _check(self) -> None:
         if not self.is_open():
+            return
+        if win_api.escape_down():  # das Menü hat keinen Fokus → Escape lässt sich nur so abfangen
+            self.on_outside()
             return
         down = win_api.mouse_button_down()
         if down and not self._was_down:  # neuer Klick

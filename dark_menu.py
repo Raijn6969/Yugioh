@@ -1,31 +1,50 @@
 """
 Dunkles Auswahlmenü mit Goldrand (statt des nativen Windows-Menüs, dessen Rahmen Tk nicht färben kann).
 Gleiche Schnittstelle wie tk.Menu für das, was das Overlay braucht: add_command, add_radiobutton,
-add_checkbutton, invoke(index). RoundedButton(menu=…) klappt es über dem Button auf, popup_below darunter.
+add_checkbutton, invoke(index). RoundedButton(menu=…) klappt es über dem Button auf, popup_below darunter,
+popup_at(x, y) mit der unteren rechten Ecke an einem Punkt (Tray-Menü). Zusätzlich: add_label (ausgegraut, nicht
+klickbar) und add_separator. Die Zeile unter der Maus bekommt eine abgerundete, dunkelgoldene Fläche.
 """
 
 import tkinter as tk
-from typing import Callable, List, Optional
+import tkinter.font as tkfont
+from typing import Callable, Dict, List, Optional, Tuple
 
+from PIL import ImageTk
+
+import win_api
+from rounded_button import render_body
 from window_style import ClickOutside, apply_frame, no_activate
 
 BG = "#2b2b2b"
 FG = "white"
-ACTIVE_BG = "#007acc"
+HOVER_BG = "#5a4817"   # dunkles Gold, passt zum Goldrand
+DISABLED_FG = "#8a8a8a"
+SEPARATOR = "#4a4a4a"
 CHECK = "#00ff00"
+RADIUS = 6
 
 
 class DarkMenu:
-    def __init__(self, master: tk.Misc, font=None, gap: int = 4):
+    def __init__(self, master: tk.Misc, font=None, gap: int = 4, row_pady: int = 3):
         self.master = master
         self.font = font
         self.gap = gap  # Abstand zum Button
+        self.row_pady = row_pady  # Luft über/unter dem Text je Eintrag (Tray-Menü: größer)
+        self._images: Dict[tuple, ImageTk.PhotoImage] = {}  # Hover-Bilder (Referenz halten, sonst weg)
         self.items: List[dict] = []
         self.window: Optional[tk.Toplevel] = None
 
     # ── tk.Menu-kompatibel ──
-    def add_command(self, label: str, command: Callable):
-        self.items.append({"label": label, "command": command})
+    def add_command(self, label: str, command: Callable, hover: str = HOVER_BG):
+        self.items.append({"label": label, "command": command, "hover": hover})
+
+    def add_label(self, label: str):
+        """Ausgegrauter Text ohne Klick (z.B. Titel)."""
+        self.items.append({"label": label, "command": None, "disabled": True})
+
+    def add_separator(self):
+        self.items.append({"separator": True})
 
     def add_radiobutton(self, label: str, value, variable: tk.Variable, command: Optional[Callable] = None):
         self.items.append({"label": label, "command": command, "value": value, "variable": variable})
@@ -62,52 +81,80 @@ class DarkMenu:
         if self.is_open:
             self.close()  # zweiter Klick auf den Button schließt
             return
+
+        def place(win: tk.Toplevel) -> Tuple[int, int]:
+            # Breiter als der Button → rechtsbündig, damit es nicht über den Bildschirmrand hinausragt
+            x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - win.winfo_reqwidth())
+            if above:
+                return x, widget.winfo_rooty() - win.winfo_reqheight() - self.gap
+            return x, widget.winfo_rooty() + widget.winfo_height() + self.gap
+        self._open(place, widget)
+
+    def popup_at(self, x: int, y: int) -> None:
+        """Öffnet das Menü mit der unteren rechten Ecke bei (x, y) – so gehen Tray-Menüs über der Taskleiste auf.
+        Bleibt im Arbeitsbereich (ohne Taskleiste). Ein offenes Menü wird ersetzt."""
+        self.close()
+
+        def place(win: tk.Toplevel) -> Tuple[int, int]:
+            width, height = win.winfo_reqwidth(), win.winfo_reqheight()
+            left, top, right, bottom = win_api.work_area() or (0, 0, win.winfo_screenwidth(), win.winfo_screenheight())
+            return max(left, min(x - width, right - width)), max(top, min(y - height, bottom - height))
+        self._open(place, None)
+
+    def _open(self, place: Callable[[tk.Toplevel], Tuple[int, int]], anchor: Optional[tk.Widget]) -> None:
         win = tk.Toplevel(self.master, bg=BG)
         win.withdraw()  # erst zeigen, wenn es platziert ist (sonst kurz oben links → Taskleiste im Vollbild)
         win.overrideredirect(True)
         win.wm_attributes("-topmost", True)
         body = tk.Frame(win, bg=BG, padx=3, pady=4)
         body.pack()
+        font = tkfont.Font(root=self.master, font=self.font or "TkDefaultFont")
+        marks = any("variable" in item for item in self.items)
+        text_w = max((font.measure(item.get("label", "")) for item in self.items), default=0)
+        width = text_w + 2 * font.measure("0") * marks + 30
         for index, item in enumerate(self.items):
-            self._add_row(body, index, item)
+            if item.get("separator"):
+                tk.Frame(body, height=1, bg=SEPARATOR).pack(fill=tk.X, padx=8, pady=4)
+            else:
+                self._add_row(body, index, item, font, width, marks)
         win.update_idletasks()
-        # Breiter als der Button → rechtsbündig, damit es nicht über den Bildschirmrand hinausragt
-        x = min(widget.winfo_rootx(), widget.winfo_rootx() + widget.winfo_width() - win.winfo_reqwidth())
-        if above:
-            y = widget.winfo_rooty() - win.winfo_reqheight() - self.gap
-        else:
-            y = widget.winfo_rooty() + widget.winfo_height() + self.gap
+        x, y = place(win)
         win.geometry(f"+{x}+{max(0, y)}")
         win.deiconify()
         apply_frame(win)
         no_activate(win)  # Master Duel bleibt aktiv (sonst Taskleiste über dem Spiel)
         self.window = win
-        ClickOutside(win, widget, self.close, lambda: self.is_open)
+        ClickOutside(win, anchor or win, self.close, lambda: self.is_open)
 
     def close(self) -> None:
         if self.is_open:
             self.window.destroy()
         self.window = None
 
-    def _add_row(self, parent: tk.Frame, index: int, item: dict) -> None:
+    def _add_row(self, parent: tk.Frame, index: int, item: dict, font: tkfont.Font, width: int, marks: bool) -> None:
+        """Eine Zeile als Canvas: Text darüber, darunter bei Hover die abgerundete Fläche."""
         if item.get("toggle"):
             checked = bool(item["variable"].get())
         else:
             checked = "variable" in item and item["variable"].get() == item["value"]
-        row = tk.Frame(parent, bg=BG, cursor="hand2")
-        row.pack(fill=tk.X)
-        mark = tk.Label(row, text="✓" if checked else "", fg=CHECK, bg=BG, font=self.font, width=2)
-        mark.pack(side=tk.LEFT)
-        text = tk.Label(row, text=item["label"], fg=FG, bg=BG, font=self.font, anchor="w", padx=4, pady=3)
-        text.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        widgets = (row, mark, text)
-
-        def highlight(active: bool):
-            for w in widgets:
-                w.config(bg=ACTIVE_BG if active else BG)
-
-        for w in widgets:
-            w.bind("<Enter>", lambda e: highlight(True))
-            w.bind("<Leave>", lambda e: highlight(False))
-            w.bind("<ButtonRelease-1>", lambda e, i=index: self.invoke(i))
-
+        disabled = item.get("disabled", False)
+        height = font.metrics("linespace") + 2 * self.row_pady
+        row = tk.Canvas(parent, width=width, height=height, bg=BG, highlightthickness=0, bd=0,
+                        cursor="arrow" if disabled else "hand2")
+        row.pack()
+        mark_w = 2 * font.measure("0") if marks else 0
+        hover_bg = row.create_image(0, 0, anchor="nw", state="hidden")
+        if marks:
+            row.create_text(mark_w // 2 + 4, height // 2, text="✓" if checked else "", fill=CHECK, font=font)
+        row.create_text(mark_w + 8, height // 2, text=item["label"], anchor="w", font=font,
+                        fill=DISABLED_FG if disabled else FG)
+        if disabled:
+            return
+        color = item.get("hover", HOVER_BG)
+        key = (color, width, height)
+        if key not in self._images:
+            self._images[key] = ImageTk.PhotoImage(render_body(width, height, RADIUS, color, color, BG), master=row)
+        row.itemconfigure(hover_bg, image=self._images[key])
+        row.bind("<Enter>", lambda e: row.itemconfigure(hover_bg, state="normal"))
+        row.bind("<Leave>", lambda e: row.itemconfigure(hover_bg, state="hidden"))
+        row.bind("<ButtonRelease-1>", lambda e, i=index: self.invoke(i))

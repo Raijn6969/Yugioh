@@ -654,6 +654,18 @@ class WindowFrameTest(unittest.TestCase):
             root.destroy()
 
 
+    def test_menu_also_closes_on_escape(self):
+        import window_style
+        root = tk.Tk()
+        try:
+            closed = []
+            with mock.patch.object(window_style.win_api, "mouse_button_down", lambda: False),                     mock.patch.object(window_style.win_api, "escape_down", lambda: True):
+                window_style.ClickOutside(root, root, lambda: closed.append(True), lambda: not closed)._check()
+            self.assertEqual(closed, [True])
+        finally:
+            root.destroy()
+
+
 @unittest.skipUnless(HAS_TK, "Tk nicht verfügbar")
 class RoundedButtonTest(unittest.TestCase):
     def setUp(self):
@@ -732,6 +744,66 @@ class DarkMenuTest(unittest.TestCase):
         menu.popup_above(button)
         menu.popup_above(button)
         self.assertFalse(menu.is_open)
+
+
+    def test_popup_at_puts_bottom_right_corner_at_point_inside_work_area(self):
+        from dark_menu import DarkMenu
+        import dark_menu
+        menu = DarkMenu(self.root)
+        menu.add_command(label="Beenden", command=lambda: None)
+
+        def corner(x, y):
+            menu.popup_at(x, y)
+            self.root.update()
+            win = menu.window
+            return win.winfo_rootx() + win.winfo_width(), win.winfo_rooty() + win.winfo_height()
+        with mock.patch.object(dark_menu.win_api, "work_area", lambda: (0, 0, 800, 600)):
+            self.assertEqual(corner(500, 400), (500, 400))
+            self.assertEqual(corner(5000, 5000), (800, 600))   # Mauszeiger auf der Taskleiste → darüber
+            corner(5, 5)                                  # links oben abgeschnitten → nach rechts unten
+            self.assertEqual((menu.window.winfo_rootx(), menu.window.winfo_rooty()), (0, 0))
+        menu.close()
+        self.assertFalse(menu.is_open)
+
+    def test_label_is_not_clickable_and_rows_grow_with_row_pady(self):
+        from dark_menu import DarkMenu
+        clicked, heights = [], []
+        for pady in (3, 8):
+            menu = DarkMenu(self.root, row_pady=pady)
+            menu.add_label("Titel")
+            menu.add_separator()
+            menu.add_command(label="Neustart", command=lambda: clicked.append(True))
+            menu.popup_at(500, 500)
+            self.root.update()
+            rows = menu.window.winfo_children()[0].winfo_children()
+            rows[0].event_generate("<ButtonRelease-1>")   # Titel: keine Reaktion
+            self.assertTrue(menu.is_open)
+            heights.append(menu.window.winfo_height())
+            rows[2].event_generate("<ButtonRelease-1>")   # Neustart
+            self.assertFalse(menu.is_open)
+        self.assertEqual(len(clicked), 2)
+        self.assertGreater(heights[1], heights[0] * 1.3)
+
+    def test_tray_menu_content_and_actions(self):
+        import tray
+        calls = []
+        icon = tray.TrayIcon.__new__(tray.TrayIcon)
+        icon._icon, icon._menu, icon._title, icon._update_version = None, None, "MD Importer 9.5.2", None
+        icon._on_restart, icon._on_quit = lambda: calls.append("restart"), lambda: calls.append("quit")
+        icon._on_update, icon._on_report = lambda: calls.append("update"), lambda: calls.append("report")
+        icon.show_menu(self.root, 500, 500)
+        self.assertEqual([i.get("label") for i in icon._menu.items],
+                         ["MD Importer 9.5.2", None, "Fehlerbericht erstellen", "Neustart", "Beenden"])
+        self.assertTrue(icon._menu.items[0]["disabled"])
+        icon.set_update("9.6")
+        icon.show_menu(self.root, 500, 500)   # ersetzt das offene Menü
+        self.assertEqual(icon._menu.items[1]["label"], "Update auf 9.6 installieren")
+        icon._menu.invoke(1)
+        icon.show_menu(self.root, 500, 500)
+        icon._menu.invoke(len(icon._menu.items) - 1)
+        self.assertEqual(calls, ["update", "quit"])
+        self.assertEqual(icon._menu.items[-1]["hover"], tray.QUIT_HOVER)
+        icon.stop()
 
 
 class AppIconTest(unittest.TestCase):
