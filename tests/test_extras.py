@@ -1065,6 +1065,20 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.options_menu.invoke("Texterkennung")
         self.assertEqual(saved[-1]["READ_METHOD"], "ocr")
 
+    def test_close_to_tray_option_only_with_tray_and_saved(self):
+        saved = []
+        self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
+        self.panel._open_options()
+        self.root.update()
+        self.assertNotIn("✕ versteckt im Tray", self.panel.options_menu.buttons)  # ohne Tray nicht anbieten
+        self.panel.options_menu.close()
+        self.panel.has_tray = True
+        self.panel._open_options()
+        self.root.update()
+        self.panel.options_menu.invoke("✕ versteckt im Tray")
+        self.assertTrue(saved[-1]["CLOSE_TO_TRAY"])
+        self.panel.options_menu.close()
+
     def test_hover_scan_can_be_disabled_in_options(self):
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))

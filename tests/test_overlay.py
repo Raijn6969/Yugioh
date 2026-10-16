@@ -677,6 +677,34 @@ class OverlayTest(unittest.TestCase):
         tray.stop.assert_called_once()
         self.apps.remove(app)
 
+    def test_close_button_hides_in_tray_only_with_option_and_tray(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True}))
+        _, app = self.open_app()
+        app.tray = mock.Mock()
+        app.config["CLOSE_TO_TRAY"] = True
+        app._on_close_clicked()
+        self.assertTrue(app._hidden_by_x)
+        app.tray.stop.assert_not_called()          # Programm läuft weiter
+        self.assertTrue(app.root.winfo_exists())
+        # Versteckt, solange der Deck-Editor sichtbar bleibt; nach einer Pause ohne Overlay wieder da
+        self.assertFalse(app._should_show(False, True))
+        self.assertTrue(app._hidden_by_x)
+        self.assertFalse(app._should_show(False, False))
+        self.assertFalse(app._hidden_by_x)
+        self.assertTrue(app._should_show(False, True))
+        app.config["CLOSE_TO_TRAY"] = False        # Option aus: ✕ beendet
+        app._on_close_clicked()
+        self.assertEqual(app._after_ids, {})
+        self.apps.remove(app)
+
+    def test_close_button_quits_without_tray_even_with_option(self):
+        self.write_config(json.dumps({"IS_CALIBRATED": True, "CLOSE_TO_TRAY": True}))
+        _, app = self.open_app()
+        app.tray = None
+        app._on_close_clicked()
+        self.assertEqual(app._after_ids, {})
+        self.apps.remove(app)
+
     def test_review_notice_is_checked_after_the_start_message_and_cancelled_on_close(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()

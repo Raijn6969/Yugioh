@@ -39,9 +39,10 @@ class OptionsPopup:
         self.rows.append({"kind": "choice", "items": list(options), "variable": variable, "command": command,
                           "visible": visible})
 
-    def add_toggles(self, toggles: Sequence[Tuple[str, tk.BooleanVar]], command: Optional[Callable] = None) -> None:
+    def add_toggles(self, toggles: Sequence[Tuple[str, tk.BooleanVar]], command: Optional[Callable] = None,
+                    visible: Optional[Callable[[], bool]] = None) -> None:
         """An/Aus-Schalter nebeneinander: [(Beschriftung, Variable)]."""
-        self.rows.append({"kind": "toggles", "items": list(toggles), "command": command})
+        self.rows.append({"kind": "toggles", "items": list(toggles), "command": command, "visible": visible})
 
     def add_buttons(self, actions: Sequence[Tuple[str, Callable]]) -> None:
         """Aktionen nebeneinander: [(Beschriftung, Funktion)]."""

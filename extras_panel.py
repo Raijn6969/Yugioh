@@ -50,6 +50,7 @@ HOVER_SCAN_KEY = "DECK_HOVER_SCAN_ENABLED" # Einstellung: Hover-Karten-Scan an/a
 READ_METHOD_KEY = "READ_METHOD"
 READ_METHODS = {"memory": "Speicher lesen", "ocr": "Texterkennung"}
 SPEED_KEY = "SPEED_PROFILE"
+CLOSE_TO_TRAY_KEY = "CLOSE_TO_TRAY"  # Einstellung: ✕ der Hauptleiste versteckt das Overlay im Tray
 SPEEDS = {"fast": "Schnell", "normal": "Normal", "slow": "Langsam"}
 WATCH_AFTER_HOVER = 1.5  # So lange nach dem Hover-Fenster keine Deck-Prüfung (liegt evtl. über dem Deck; schont FPS)
 GUIDE_ARCHETYPES = 3   # Guides für die häufigsten Archetypen im Deck
@@ -96,8 +97,9 @@ class ExtrasPanel:
                  on_copy_code: Optional[Callable[[str], None]] = None,
                  on_side_swap: Optional[Callable[[List[str], str], None]] = None,
                  on_auto_calibrate: Optional[Callable[[], None]] = None,
-                 on_calibrate_manual: Optional[Callable[[], None]] = None):
+                 on_calibrate_manual: Optional[Callable[[], None]] = None, has_tray: bool = False):
         self.master = master
+        self.has_tray = has_tray  # ohne Tray-Icon beendet das ✕ immer (Option nicht anbieten)
         self.settings = settings if settings is not None else {}  # Config des Overlays (Optionen)
         self.save_settings = save_settings
         self.stats_db = stats_db
@@ -157,6 +159,7 @@ class ExtrasPanel:
         self.hover_scan_enabled = tk.BooleanVar(master=self.win, value=bool(self.settings.get(HOVER_SCAN_KEY, True)))
         self.read_method = tk.StringVar(master=self.win, value=self.settings.get(READ_METHOD_KEY, "ocr"))
         self.speed = tk.StringVar(master=self.win, value=self.settings.get(SPEED_KEY, "normal"))
+        self.close_to_tray = tk.BooleanVar(master=self.win, value=bool(self.settings.get(CLOSE_TO_TRAY_KEY, False)))
         self._build()
         self._place_over_card_list()
         apply_frame(self.win)
@@ -209,6 +212,9 @@ class ExtrasPanel:
                                        ("Analyse-Animation", self.animation),
                                        ("Spalte „2. Zug“", self.show_second)],
                                       command=self._on_option_changed)
+        self.options_menu.add_section("Programm", visible=lambda: self.has_tray)
+        self.options_menu.add_toggles([("✕ versteckt im Tray", self.close_to_tray)],
+                                      command=self._on_close_to_tray_changed, visible=lambda: self.has_tray)
         self.options_menu.add_section("", "Starter-Einstufung aus den Deck-Guides von Master Duel Meta")
         self.options_menu.add_buttons([("Aus Guides nachladen (online)", self.load_guides)])
         self.options_menu.add_section("", "Kalibrierung – nur nötig, wenn Klicks danebengehen")
@@ -374,6 +380,10 @@ class ExtrasPanel:
         self._rebuild_header()
         if self.analysis is not None:
             self._render()
+
+    def _on_close_to_tray_changed(self) -> None:
+        self.settings[CLOSE_TO_TRAY_KEY] = bool(self.close_to_tray.get())
+        self.save_settings()
 
     def _on_read_method_changed(self) -> None:
         """Lesemethode für Import, Deck-Scan und Export (gilt ab dem nächsten Lesen)."""

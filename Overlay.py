@@ -38,7 +38,7 @@ from calibration import CalibrationWizard
 from card_stats import CardStatsDB, take_recovery_notice
 from deck_analysis import current_changes
 from deck_export import DeckExporter, save_ydk
-from extras_panel import READ_METHOD_KEY, READ_METHODS, ExtrasPanel
+from extras_panel import CLOSE_TO_TRAY_KEY, READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
 from match_history import LOSS, RANKED, WIN, MatchWatcher
 from replay_recorder import ReplayRecorder
@@ -128,6 +128,7 @@ class MasterDuelImporter:
         self.tray = None
         self.is_running = False
         self.is_visible = True  # Status für den Smart Visibility Tracker
+        self._hidden_by_x = False  # ✕ hat das Overlay im Tray versteckt (bis der Deck-Editor wieder auftaucht)
         self._import_t0 = None  # Startzeit des laufenden Imports (für den Timer)
         self._moved = False  # Wurde das Fenster seit dem letzten Klick verschoben?
         self._position_warning = False  # Zeigt der Status gerade die Warnung "verdeckt …"?
@@ -532,7 +533,7 @@ class MasterDuelImporter:
         self._btn_frame, self._scale = btn_frame, scale
 
         # Etwas eingerückt, damit der abgerundete Goldrand im Eck frei bleibt
-        close_button(self.root, self.close, scale, font_x).place(
+        close_button(self.root, self._on_close_clicked, scale, font_x).place(
             relx=1.0, x=-int(5 * scale), y=int(5 * scale), anchor="ne")
 
         # Import-Dauer, dezent oben links (leer bis zum ersten Import)
@@ -657,9 +658,12 @@ class MasterDuelImporter:
         zeigt den Deck-Editor (unbekannt bzw. nicht prüfbar zählt als ja) – während eines Imports immer, ebenso
         während eines Updates (sonst sähe man den Fortschritt nicht).
         """
-        if own_window_in_front or self._update_running:
-            return True
-        return md_in_front and (self.is_running or self.editor_watch.visible is not False)
+        show = own_window_in_front or self._update_running or (
+            md_in_front and (self.is_running or self.editor_watch.visible is not False))
+        if self._hidden_by_x and not (self.is_running or self._update_running):
+            self._hidden_by_x = show  # erst nach einer Pause ohne Overlay (Editor verlassen) wieder zeigen
+            return False
+        return show
 
     # --- LESEMETHODE: Speicher (nur lesend) oder Texterkennung ---
     def _use_memory(self) -> bool:
@@ -920,6 +924,13 @@ class MasterDuelImporter:
             show_message(self.root, "Neustart fehlgeschlagen", str(e), kind="error")
             return
         self.close()
+
+    def _on_close_clicked(self):
+        """✕ der Hauptleiste: beendet das Programm – mit Option und Tray-Icon nur verstecken."""
+        if self.config.get(CLOSE_TO_TRAY_KEY) and self.tray:
+            self._hidden_by_x = True
+        else:
+            self.close()
 
     def close(self):
         """Alles schließen: Tray-Icon, wiederkehrende Timer, Fenster."""
@@ -1351,7 +1362,7 @@ class MasterDuelImporter:
                                   on_import_code=self._import_from_history, on_copy_code=self._copy_from_history,
                                   on_side_swap=self.start_side_swap,
                                   on_auto_calibrate=self.start_auto_calibration,
-                                  on_calibrate_manual=self.open_calibration)
+                                  on_calibrate_manual=self.open_calibration, has_tray=self.tray is not None)
         if not (self._last_scan and self.extras.try_reuse(self._last_scan)):
             self._start_extras_scan()
 
