@@ -625,15 +625,24 @@ class AnimationTest(unittest.TestCase):
                 self.assertNotIn(shield, self.finish(view))
 
     def test_attack_draws_an_arrow_to_the_target(self):
-        view = self.view(self.logged([act(10, 5, 0, 0, rc=1, zt=1)], cards=(row(1, 0, 5), row(2, 0, 1, team=1))),
-                         passcodes={5: "5", 1: "1"})
-        self.assertEqual(view.steps[1].text, "Ash Blossom greift Elfnote Lucina an")
+        view = self.view(self.logged([act(10, 5, 0, 0, rc=2, zt=1)], cards=(row(1, 0, 5), row(2, 0, 2, team=1))),
+                         passcodes={5: "5", 2: "2"})
+        self.assertEqual(view.steps[1].text, "Ash Blossom greift Elfnote Fortuna an")
         self.animate(view, 1, 0.9)
         arrows = [i for i in view.canvas.find_all() if view.canvas.type(i) == "line"
                   and view.canvas.itemcget(i, "arrow") == "last"]
         self.assertEqual(len(arrows), 1)
         self.finish(view)
         self.assertFalse([i for i in view.canvas.find_all() if view.canvas.type(i) == "line"])
+
+    def test_direct_attack_draws_no_arrow(self):
+        view = self.view(self.logged([act(10, 5, 0, 0, rc=1, zt=0)], cards=(row(1, 0, 5), row(2, 0, 1, team=1))),
+                         passcodes={5: "5"})
+        self.assertEqual(view.steps[1].text, "Ash Blossom greift direkt an")
+        self.animate(view, 1, 0.9)
+        self.assertFalse([i for i in view.canvas.find_all() if view.canvas.type(i) == "line"
+                          and view.canvas.itemcget(i, "arrow") == "last"])
+        self.finish(view)
 
     def test_card_not_in_the_picture_gives_only_text(self):
         view = self.view(self.logged([act(23, 999, 1, 0)]))

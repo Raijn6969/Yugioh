@@ -70,7 +70,7 @@ class Step(NamedTuple):
 class Mark(NamedTuple):
     kind: str                      # "kosten" | "ziel" | "negiert" | "zerstoert" | "angriff"
     focus: Move                    # uid -1: Karte im Bild nicht gefunden → nur im Text
-    other: Optional[Move] = None   # Angriff: das Ziel
+    other: Optional[Move] = None   # Angriff: das Ziel (None = direkter Angriff)
 
 
 def ease(t: float) -> float:
@@ -284,6 +284,11 @@ def _locate(card: int, team: int, zone: Optional[int], frame: dict, prev_frame: 
     return Move(-1, team, card, None, None, None, None, None, None)
 
 
+def _attacks_card(e: dict) -> bool:
+    """Angriff auf eine Karte? Bei direktem Angriff steht in rc der angegriffene Spieler (0/1), keine Konami-ID."""
+    return e.get("rc", 0) > 1
+
+
 def describe_event(kind_: str, e: dict, name_of: Callable[[int], Optional[str]], my_id: int,
                    type_of: Callable[[int], str] = lambda card: "", chain: Optional[dict] = None) -> str:
     """Text eines Protokolleintrags: "Gegner aktiviert Ash Blossom (Kette 2)", "X wird durch Kampf zerstört" …"""
@@ -308,8 +313,9 @@ def describe_event(kind_: str, e: dict, name_of: Callable[[int], Optional[str]],
         who = "Du übernimmst" if e.get("zt") == my_id else "Gegner übernimmt"
         return f"{who} die Kontrolle über {name}"
     if kind_ == "angriff":
-        target = (name_of(e["rc"]) if e.get("rc") else None) or "eine Karte"
-        return f"{name} greift {target} an" if e.get("rc") else f"{name} greift direkt an"
+        if not _attacks_card(e):
+            return f"{name} greift direkt an"
+        return f"{name} greift {name_of(e['rc']) or 'eine Karte'} an"
     focus = Move(-1, team, 0 if code == 1 else e.get("c", 0), None, None, None, None, None, None)
     text = describe(focus, kind_, name_of, my_id, "" if code != 1 else "Draw", type_of)
     if kind_ == "aktiviert":   # Gliednummer ab dem zweiten Glied: "(Kette 2)"
@@ -343,7 +349,7 @@ def _log_step(frame: dict, prev_frame: Optional[dict], chain: dict, moves_: Sequ
                                       "beschworen": summon_label(card_type).upper() or "BESCHWOREN",
                                       "kette": f"KETTE {main.get('n', 1)} LÖST AUF"}.get(kind_, "")
     marks = tuple(Mark(k, where(e), _locate(e["rc"], e.get("zt", 0), e.get("z"), frame, prev_frame, moves_)
-                       if k == "angriff" and e.get("rc") else None)
+                       if k == "angriff" and _attacks_card(e) else None)
                   for k, e in found if k in MARK_KINDS)[:8]
     return kind_, focus, " · ".join(parts), label, marks
 

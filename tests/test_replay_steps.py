@@ -282,6 +282,11 @@ class LogStepTest(unittest.TestCase):
         mark = log_steps(act(10, 100, 0, 1, rc=200, zt=1), cards=(row(1, 0, 1, 100), row(2, 1, 0, 200)))[1].marks[0]
         self.assertEqual((mark.kind, mark.focus.uid, mark.other.uid), ("angriff", 1, 2))
 
+    def test_direct_attack_with_the_player_number_in_rc(self):
+        self.assertEqual(self.one(act(10, 100, 0, 1, rc=1, zt=0))[1], "Ash Blossom greift direkt an")
+        mark = log_steps(act(10, 100, 0, 1, rc=1, zt=0))[1].marks[0]
+        self.assertEqual((mark.kind, mark.other), ("angriff", None))
+
     def test_unknown_codes_and_lp_are_neutral(self):
         for entry in (act(25, 100), act(30, 100), act(0, 0, value=-1000), {"k": "phase", "p": 2}):
             self.assertEqual(self.one(entry)[0], "still")
