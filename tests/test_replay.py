@@ -57,6 +57,9 @@ class FakeMemory:
     def duel_phase(self, worker):
         return self.phase
 
+    def reset_log_search(self):
+        self.resets = getattr(self, "resets", 0) + 1
+
     def duel_log_controller(self, worker):
         self.reads.append("log")
         if self.log_error:
@@ -102,6 +105,11 @@ class RecorderTest(unittest.TestCase):
         self.step(LIVE_DUEL, [card(1, 0, rr.HAND, kid=22116)])
         self.assertEqual(self.memory.reads, [])
         self.assertFalse(self.rec.recording)
+
+    def test_new_replay_resets_the_log_search_pause(self):
+        self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
+        self.step(REPLAY)
+        self.assertEqual(self.memory.resets, 1)  # einmal beim Start des Mitschnitts, nicht bei jedem Schritt
 
     def test_records_changes_and_saves_when_replay_ends(self):
         self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])

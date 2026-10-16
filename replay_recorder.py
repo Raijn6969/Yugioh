@@ -119,6 +119,7 @@ class ReplayRecorder:
                 return
             self.info, self.frames, self._last, self._t0 = info, [], None, self.clock()
             self._log_pos, self._log_failed = 0, False
+            memory.reset_log_search()
             dlog(f"[REPLAY] Mitschnitt gestartet (Start {info.start}).")  # keine Spielernamen ins Log (Fehlerbericht)
             self.on_started()
         worker = memory.duel_worker()

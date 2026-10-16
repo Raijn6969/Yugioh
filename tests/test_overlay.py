@@ -673,6 +673,7 @@ class DarkDialogTest(unittest.TestCase):
         with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
                 mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                mock.patch.object(Overlay.md_memory, "master_duel_pid", return_value=4711), \
                 mock.patch.object(Overlay.md_memory, "preload") as preload:
             app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
             app._preload_memory()
@@ -682,7 +683,12 @@ class DarkDialogTest(unittest.TestCase):
         preload.assert_called_once()
 
     def test_auto_calibration_error_unlocks_buttons_and_opens_wizard(self):
-        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")),                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),                 mock.patch.object(Overlay, "show_message"),                 mock.patch.object(Overlay, "ask_choice", return_value=None),                 mock.patch.object(Overlay, "auto_calibrate", side_effect=OSError("kein Bild")),                 mock.patch.object(Overlay.MasterDuelImporter, "open_calibration") as wizard:
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
+                mock.patch.object(Overlay, "show_message"), \
+                mock.patch.object(Overlay, "ask_choice", return_value=None), \
+                mock.patch.object(Overlay, "auto_calibrate", side_effect=OSError("kein Bild")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "open_calibration") as wizard:
             app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
             app.start_auto_calibration()
             self.assertEqual(str(app.start_btn.cget("state")), "disabled")
@@ -706,7 +712,10 @@ class DarkDialogTest(unittest.TestCase):
                 card = SimpleNamespace(match=SimpleNamespace(cid="1"))
                 self.finish(scan=SimpleNamespace(cards=[card]), error="")
 
-        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")),                 mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None),                 mock.patch.object(Overlay, "ask_choice", return_value=None),                 mock.patch.object(Overlay, "DeckExporter", FakeExporter):
+        with mock.patch.object(Overlay, "CONFIG_FILE", os.path.join(tempfile.mkdtemp(), "c.json")), \
+                mock.patch.object(Overlay.MasterDuelImporter, "_check_window_focus", lambda self: None), \
+                mock.patch.object(Overlay, "ask_choice", return_value=None), \
+                mock.patch.object(Overlay, "DeckExporter", FakeExporter):
             app = Overlay.MasterDuelImporter(tk.Toplevel(self.root))
             app.extras = mock.Mock()
             app.card_stats = mock.Mock()
@@ -1029,11 +1038,50 @@ class MatchStatusTest(unittest.TestCase):
         self.assertEqual(self.notify(match, match, day="Heute 3–1")[0], "2 Matches erfasst · Heute 3–1")
 
 
+class MemoryRetryBackoffTest(unittest.TestCase):
+    """Schlägt das Vorladen fehl, wird die Wartezeit je Fehlversuch verdoppelt (30 s … 10 min)."""
+
+    def attempts(self, failures, pid=4711, app=None):
+        from types import SimpleNamespace
+        app = app or SimpleNamespace(_memory_thread=None, _memory_preload_at=time.monotonic(), _memory_warned=True,
+                                     _memory_pid=pid)
+        started = []
+        with mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                mock.patch.object(Overlay.md_memory, "master_duel_pid", return_value=pid), \
+                mock.patch.object(Overlay.md_memory, "preload_failures", return_value=failures), \
+                mock.patch.object(Overlay.md_memory, "reset_preload_failures") as reset, \
+                mock.patch.object(Overlay.md_memory, "preload", lambda: started.append(1)):
+            for waited in (0, 29, 31, 119, 121, 590, 700):
+                app._memory_preload_at = time.monotonic() - waited
+                app._memory_thread = None
+                Overlay.MasterDuelImporter._preload_memory(app)
+                if app._memory_thread is not None:
+                    app._memory_thread.join()
+                    yield waited
+        self.reset = reset
+
+    def test_wait_doubles_with_every_failure_up_to_ten_minutes(self):
+        self.assertEqual(list(self.attempts(1)), [31, 119, 121, 590, 700])  # 30 s
+        self.assertEqual(list(self.attempts(2)), [119, 121, 590, 700])      # 60 s
+        self.assertEqual(list(self.attempts(3)), [121, 590, 700])           # 120 s
+        self.assertEqual(list(self.attempts(9)), [700])                     # gedeckelt: 600 s
+        self.assertEqual(list(self.attempts(40)), [700])
+        self.assertEqual(list(self.attempts(0)), [31, 119, 121, 590, 700])
+
+    def test_new_game_process_starts_over(self):
+        from types import SimpleNamespace
+        app = SimpleNamespace(_memory_thread=None, _memory_preload_at=time.monotonic(), _memory_warned=True,
+                              _memory_pid=100)
+        self.assertEqual(list(self.attempts(9, pid=200, app=app)), [0, 700])  # sofort, trotz 9 Fehlversuchen
+        self.reset.assert_called_once_with()
+
+
 class MemoryWarningTest(unittest.TestCase):
     """Verbindet sich der Speicher-Modus minutenlang nicht (Spiel-Update), einmal Bescheid geben."""
 
     def preload(self, app, failures):
         with mock.patch.object(Overlay.md_memory, "is_ready", return_value=False), \
+                mock.patch.object(Overlay.md_memory, "master_duel_pid", return_value=0), \
                 mock.patch.object(Overlay.md_memory, "preload_failures", return_value=failures), \
                 mock.patch.object(Overlay.md_memory, "preload", lambda: None):
             app._memory_preload_at = -1000.0
@@ -1042,7 +1090,8 @@ class MemoryWarningTest(unittest.TestCase):
 
     def make_app(self):
         from types import SimpleNamespace
-        app = SimpleNamespace(_memory_thread=None, _memory_preload_at=0.0, _memory_warned=False, shown=[], tray=[])
+        app = SimpleNamespace(_memory_thread=None, _memory_preload_at=0.0, _memory_warned=False, _memory_pid=0,
+                              shown=[], tray=[])
         app._offer_ocr_when_idle = None
         app._run_on_ui = lambda func: app.shown.append("popup")
         app.update_status = lambda text, color: app.shown.append(text)

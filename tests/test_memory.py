@@ -211,12 +211,53 @@ class DuelLogTest(unittest.TestCase):
 
     def test_failed_search_waits_before_the_next_one(self):
         self.r.find_pointers.return_value = []
-        with mock.patch.object(md_memory.time, "monotonic", side_effect=[100.0, 105.0, 111.0]):
+        with mock.patch.object(md_memory.time, "monotonic", side_effect=[100.0, 100.0, 105.0, 121.0]):
             self.assertEqual(self.memory.duel_log_controller(1), 0)
             self.assertEqual(self.memory.duel_log_controller(1), 0)       # nur 5 s später: keine Suche
             self.assertEqual(self.r.find_pointers.call_count, 1)
             self.r.find_pointers.return_value = [0x12000]
-            self.assertEqual(self.memory.duel_log_controller(1), 0x12000)  # 11 s später: neuer Versuch
+            self.assertEqual(self.memory.duel_log_controller(1), 0x12000)  # 21 s später (Pause 20 s): Versuch
+
+    def test_pause_doubles_after_each_failed_search_up_to_a_minute_and_resets(self):
+        self.r.find_pointers.return_value = []
+        clock = [100.0]
+        with mock.patch.object(md_memory.time, "monotonic", lambda: clock[0]):
+            pauses = []
+            for _ in range(6):
+                before = self.r.find_pointers.call_count
+                clock[0] += 1000                       # weit genug weg: der Versuch läuft
+                self.memory.duel_log_controller(1)
+                self.assertEqual(self.r.find_pointers.call_count, before + 1)
+                pauses.append(self.memory._log_pause)
+            self.assertEqual(pauses, [20.0, 40.0, 60.0, 60.0, 60.0, 60.0])
+            clock[0] += 59                              # noch in der Pause: keine Suche
+            before = self.r.find_pointers.call_count
+            self.memory.duel_log_controller(1)
+            self.assertEqual(self.r.find_pointers.call_count, before)
+            self.memory.reset_log_search()              # neues Replay: sofort und wieder mit 10 s
+            self.memory.duel_log_controller(1)
+            self.assertEqual(self.r.find_pointers.call_count, before + 1)
+            self.assertEqual(self.memory._log_pause, 20.0)
+            self.r.find_pointers.return_value = [0x12000]
+            clock[0] += 1000
+            self.assertEqual(self.memory.duel_log_controller(1), 0x12000)
+            self.assertEqual(self.memory._log_pause, md_memory.LOG_SEARCH_PAUSE)   # gefunden: zurück auf 10 s
+
+
+class ScanPriorityTest(unittest.TestCase):
+    def test_search_runs_with_lower_priority_and_restores_it(self):
+        reader = md_memory.ProcessReader.__new__(md_memory.ProcessReader)
+        reader.handle = None
+        reader.regions = lambda types=(): iter([(0x1000, 16)])
+        reader.read = lambda addr, size: struct.pack("<Q", 5) + bytes(8)
+
+        def priority():
+            return md_memory._k32.GetThreadPriority(md_memory._k32.GetCurrentThread())
+
+        before = priority()
+        during = [priority() for _ in reader.iter_pointers(5)]
+        self.assertEqual(during, [md_memory.THREAD_PRIORITY_BELOW_NORMAL])
+        self.assertEqual(priority(), before)
 
 
 class KonamiAliasTest(unittest.TestCase):

@@ -55,6 +55,7 @@ LOG_CLASS = ("YgomGame.Duel", "DuelLogController")
 ARRAY_ELEMENT_SIZE = 0x104   # Il2CppClass eines Arrays: Größe eines Elements (Struct-Listen)
 LOG_MAX = 50000              # Schutz vor kaputten Längen
 LOG_SEARCH_PAUSE = 10.0      # Sekunden Pause nach erfolgloser Suche nach dem Controller (die Suche dauert ~8 s)
+LOG_SEARCH_MAX_PAUSE = 60.0  # jede weitere erfolglose Suche verdoppelt die Pause bis hierhin
 LOG_BASE = struct.Struct("<Qi")   # LogBaseData: loglabel (String*), dataindex
 # Aufbau der Datensätze (aus einem echten Replay entschlüsselt; die Elementgröße des Spiels wird dazu geprüft):
 #   ShowAction (32 Byte): links LogDataSide {dataint i32, boolbits, zone, team, datatype}, rechts ebenso, dann
@@ -156,6 +157,12 @@ _k32.ReadProcessMemory.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.c_vo
                                    ctypes.POINTER(ctypes.c_size_t)]
 _k32.VirtualQueryEx.argtypes = [wintypes.HANDLE, ctypes.c_void_p, ctypes.POINTER(_MBI), ctypes.c_size_t]
 _k32.VirtualQueryEx.restype = ctypes.c_size_t
+_k32.GetCurrentThread.restype = wintypes.HANDLE
+_k32.GetThreadPriority.argtypes = [wintypes.HANDLE]
+_k32.GetThreadPriority.restype = ctypes.c_int
+_k32.SetThreadPriority.argtypes = [wintypes.HANDLE, ctypes.c_int]
+_k32.SetThreadPriority.restype = wintypes.BOOL
+THREAD_PRIORITY_BELOW_NORMAL = -1
 
 
 class ProcessReader:
@@ -212,17 +219,26 @@ class ProcessReader:
     def iter_pointers(self, value: int):
         """8-Byte-ausgerichtete Stellen im privaten Speicher, an denen `value` steht (der Reihe nach)."""
         needle = struct.pack("<Q", value)
-        for base, size in self.regions():
-            for off in range(0, size, CHUNK):
-                try:
-                    data = self.read(base + off, min(CHUNK, size - off))
-                except OSError:
-                    break
-                i = data.find(needle)
-                while i != -1:
-                    if i % 8 == 0:
-                        yield base + off + i
-                    i = data.find(needle, i + 1)
+        # Die Suche liest GB-weit: mit niedriger Priorität, damit sie das Spiel nicht bremst (nur dieser Thread,
+        # danach wieder wie vorher)
+        thread, normal = _k32.GetCurrentThread(), _k32.GetThreadPriority(_k32.GetCurrentThread()) == 0
+        if normal:
+            _k32.SetThreadPriority(thread, THREAD_PRIORITY_BELOW_NORMAL)
+        try:
+            for base, size in self.regions():
+                for off in range(0, size, CHUNK):
+                    try:
+                        data = self.read(base + off, min(CHUNK, size - off))
+                    except OSError:
+                        break
+                    i = data.find(needle)
+                    while i != -1:
+                        if i % 8 == 0:
+                            yield base + off + i
+                        i = data.find(needle, i + 1)
+        finally:
+            if normal:
+                _k32.SetThreadPriority(thread, 0)
 
     def find_pointers(self, value: int, limit: int = 5000) -> List[int]:
         hits = []
@@ -526,15 +542,22 @@ class DeckEditorMemory:
             return ctl
         self._log_ctl = 0
         now = time.monotonic()
-        if getattr(self, "_log_search_at", 0.0) and now - self._log_search_at < LOG_SEARCH_PAUSE:
+        pause = getattr(self, "_log_pause", LOG_SEARCH_PAUSE)
+        if getattr(self, "_log_search_at", 0.0) and now - self._log_search_at < pause:
             return 0
         self._log_search_at = now
         self._log_klass = getattr(self, "_log_klass", 0) or self.il.find_class(*LOG_CLASS)
         for addr in self.r.find_pointers(self._log_klass, limit=200):
             if self._log_controller_ok(addr, host):
-                self._log_ctl = addr
+                self._log_ctl, self._log_pause = addr, LOG_SEARCH_PAUSE
                 return addr
+        self._log_search_at = time.monotonic()  # die Pause zählt ab dem Ende der Suche
+        self._log_pause = min(2 * pause, LOG_SEARCH_MAX_PAUSE)  # weiter erfolglos: seltener suchen
         return 0
+
+    def reset_log_search(self) -> None:
+        """Neues Replay: wieder zügig nach dem Controller suchen (Pause auf Anfang)."""
+        self._log_search_at, self._log_pause = 0.0, LOG_SEARCH_PAUSE
 
     def _struct_list(self, lst: int) -> Tuple[int, int, int]:
         """List<Struct> → (Adresse des ersten Elements, Anzahl, Elementgröße); (0, 0, 0) bei unsinnigen Werten."""
@@ -757,6 +780,12 @@ def preload() -> Optional[str]:
     except Exception as e:  # Spiel noch im Ladebildschirm o.Ä. – später erneut versuchen
         _preload_failures, _last_error = _preload_failures + 1, str(e)
         return str(e)
+
+
+def reset_preload_failures() -> None:
+    """Master Duel wurde neu gestartet: Fehlversuche des alten Spiels zählen nicht mehr."""
+    global _preload_failures
+    _preload_failures = 0
 
 
 def preload_failures() -> int:

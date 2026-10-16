@@ -65,7 +65,8 @@ import updater
 import win_api
 
 MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
-MEMORY_WARN_AFTER = 6  # so viele Fehlversuche (je MEMORY_RETRY mit Master Duel vorne) bis zum Hinweis
+MEMORY_RETRY_MAX = 600.0  # jeder weitere Fehlversuch verdoppelt die Wartezeit bis hierhin (neues Spiel: zurück)
+MEMORY_WARN_AFTER = 4  # so viele Fehlversuche (mit Master Duel vorne) bis zum Hinweis
 STARTED_TOAST_MS = 5000  # Startmeldung "läuft jetzt" über der Taskleiste
 REMINDER_DELAY_MS = 6000  # erst das Ergebnis zeigen, dann die Erinnerung an die Match History
 SHORT_REMINDER = "Bitte Match History öffnen (Gegner-Decks)"
@@ -130,6 +131,7 @@ class MasterDuelImporter:
         self._last_scan = None   # Letzter Deck-Scan der Extras (wird übernommen, wenn das Deck gleich ist)
         self._memory_thread = None    # Vorladen für den Speicher-Modus (läuft im Hintergrund)
         self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
+        self._memory_pid = 0  # Prozess von Master Duel beim letzten Versuch (neu gestartet → Wartezeit zurücksetzen)
         self._memory_warned = False  # Hinweis "Speicher-Modus nicht verfügbar" schon gezeigt (einmal pro Sitzung)
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
         # Warteschlange, der Haupt-Thread arbeitet sie regelmäßig ab.
@@ -647,11 +649,18 @@ class MasterDuelImporter:
         """
         if md_memory.is_ready() or (self._memory_thread is not None and self._memory_thread.is_alive()):
             return
-        if time.monotonic() - self._memory_preload_at < MEMORY_RETRY:
-            return
-        if not self._memory_warned and md_memory.preload_failures() >= MEMORY_WARN_AFTER:
+        pid = md_memory.master_duel_pid()
+        if pid != self._memory_pid:  # Master Duel (neu) gestartet: wieder von vorn versuchen
+            self._memory_pid, self._memory_preload_at = pid, -MEMORY_RETRY
+            md_memory.reset_preload_failures()
+        failures = md_memory.preload_failures()
+        if not self._memory_warned and failures >= MEMORY_WARN_AFTER:
             self._memory_warned = True
             self._warn_memory_unavailable()
+        # nach jedem Fehlversuch doppelt so lange warten (30 s, 60 s, … höchstens MEMORY_RETRY_MAX)
+        if time.monotonic() - self._memory_preload_at < min(MEMORY_RETRY * 2 ** max(0, failures - 1),
+                                                           MEMORY_RETRY_MAX):
+            return
         self._memory_preload_at = time.monotonic()
         self._memory_thread = threading.Thread(target=md_memory.preload, daemon=True)
         self._memory_thread.start()
