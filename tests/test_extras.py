@@ -1079,6 +1079,19 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(saved[-1]["CLOSE_TO_TRAY"])
         self.panel.options_menu.close()
 
+    def test_calculator_is_collapsed_by_default_and_remembered(self):
+        saved = []
+        self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
+        self.assertEqual(self.panel.calc_body.winfo_manager(), "")
+        self.assertEqual(self.panel.calc_head.cget("text"), "▶ RECHNER")
+        self.panel.toggle_calculator()
+        self.assertEqual(self.panel.calc_body.winfo_manager(), "pack")
+        self.assertEqual(self.panel.calc_head.cget("text"), "▼ RECHNER")
+        self.assertTrue(saved[-1]["DECK_CALC_OPEN"])
+        self.panel.toggle_calculator()
+        self.assertEqual(self.panel.calc_body.winfo_manager(), "")
+        self.assertFalse(saved[-1]["DECK_CALC_OPEN"])
+
     def test_hover_scan_can_be_disabled_in_options(self):
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))

@@ -50,6 +50,7 @@ HOVER_SCAN_KEY = "DECK_HOVER_SCAN_ENABLED" # Einstellung: Hover-Karten-Scan an/a
 READ_METHOD_KEY = "READ_METHOD"
 READ_METHODS = {"memory": "Speicher lesen", "ocr": "Texterkennung"}
 SPEED_KEY = "SPEED_PROFILE"
+CALC_OPEN_KEY = "DECK_CALC_OPEN"  # Einstellung: Rechner-Kasten aufgeklappt (Standard: zu)
 CLOSE_TO_TRAY_KEY = "CLOSE_TO_TRAY"  # Einstellung: ✕ der Hauptleiste versteckt das Overlay im Tray
 SPEEDS = {"fast": "Schnell", "normal": "Normal", "slow": "Langsam"}
 WATCH_AFTER_HOVER = 1.5  # So lange nach dem Hover-Fenster keine Deck-Prüfung (liegt evtl. über dem Deck; schont FPS)
@@ -295,27 +296,44 @@ class ExtrasPanel:
         s = self.s
         box = tk.Frame(parent, bg=PANEL, padx=int(10 * s), pady=int(6 * s))
         box.pack(fill=tk.X, pady=(int(8 * s), 0))
-        tk.Label(box, text="RECHNER", fg=GOLD, bg=PANEL, font=self.font_small).grid(row=0, column=0, columnspan=8,
-                                                                                   sticky="w")
+        self.calc_head = tk.Label(box, fg=GOLD, bg=PANEL, font=font(SIZE_SMALL, s, bold=True), anchor="w",
+                                  cursor="hand2")
+        self.calc_head.pack(fill=tk.X)
+        self.calc_head.bind("<Button-1>", lambda e: self.toggle_calculator())
+        self.calc_body = tk.Frame(box, bg=PANEL)
         self.calc_vars = {}
         for col, (key, label, default, low, high) in enumerate((
                 ("deck", "Deck", 40, 1, 90), ("copies", "Kopien", 3, 0, 60),
                 ("hand", "Hand", HAND_FIRST, 1, 15), ("min", "mind.", 1, 1, 5))):
             var = tk.IntVar(value=default)
-            tk.Label(box, text=label, fg=MUTED, bg=PANEL, font=self.font_small).grid(row=1, column=col * 2,
+            tk.Label(self.calc_body, text=label, fg=MUTED, bg=PANEL, font=self.font_small).grid(row=0, column=col * 2,
                                                                                     padx=(0, int(3 * s)))
-            spin = tk.Spinbox(box, from_=low, to=high, textvariable=var, width=3, font=self.font_num, bg=BG,
+            spin = tk.Spinbox(self.calc_body, from_=low, to=high, textvariable=var, width=3, font=self.font_num, bg=BG,
                               fg=TEXT, buttonbackground=PANEL, insertbackground=TEXT, relief=tk.FLAT,
                               highlightthickness=1, highlightbackground=NEUTRAL, highlightcolor=INFO,
                               command=self._update_calculator)
-            spin.grid(row=1, column=col * 2 + 1, padx=(0, int(8 * s)))
+            spin.grid(row=0, column=col * 2 + 1, padx=(0, int(8 * s)))
             spin.bind("<KeyRelease>", lambda e: self._update_calculator())
             allow_typing(spin)
             self.calc_vars[key] = var
-        self.calc_result = tk.Label(box, text="", fg=INFO, bg=PANEL, font=self.font_num)
-        self.calc_result.grid(row=1, column=8, sticky="e")
-        box.grid_columnconfigure(8, weight=1)
+        self.calc_result = tk.Label(self.calc_body, text="", fg=INFO, bg=PANEL, font=self.font_num)
+        self.calc_result.grid(row=0, column=8, sticky="e")
+        self.calc_body.grid_columnconfigure(8, weight=1)
         self._update_calculator()
+        self._show_calculator()
+
+    def toggle_calculator(self) -> None:
+        self.settings[CALC_OPEN_KEY] = not self.settings.get(CALC_OPEN_KEY, False)
+        self.save_settings()
+        self._show_calculator()
+
+    def _show_calculator(self) -> None:
+        opened = bool(self.settings.get(CALC_OPEN_KEY, False))
+        self.calc_head.config(text=("▼ RECHNER" if opened else "▶ RECHNER"))
+        if opened:
+            self.calc_body.pack(fill=tk.X)
+        else:
+            self.calc_body.pack_forget()
 
     def _rebuild_header(self) -> None:
         s = self.s
