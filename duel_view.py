@@ -1308,7 +1308,9 @@ class DuelView:
             fi = items.get(f.uid) or old.get(f.uid)
             if fi is not None and fi.group == "hand" and not fi.mine:  # kleine Gegnerhand-Karte: Mitte behalten
                 spot = (spot[0] - int(cw * (1 - OPP_HAND)) // 2, spot[1] - int(ch * (1 - OPP_HAND)) // 2)
-            self._draw_activation(spot, p, step.label, red, f.card, cw, ch)
+            defense = fi is not None and fi.group == "board" and fi.card["zone"] in rs.MONSTER                 and not fi.card["attack"]
+            self._draw_activation(spot, p, step.label, red, f.card, cw, ch,
+                                  (90 if f.team == self.replay.my_id else 270) if defense else 0)
         elif spot is not None and step.kind == "beschworen":
             self._shield(spot[0] + cw // 2, max(int(12 * s), spot[1] - int(10 * s)), step.label, SUMMON_BLUE,
                          min(1.0, p * 4))
@@ -1384,13 +1386,15 @@ class DuelView:
             self._shield(cx, max(int(12 * s), y - int(10 * s)), rs.LOG_LABELS[mark.kind], color, a)
 
     def _draw_activation(self, spot: Tuple[int, int], p: float, label: str, red: bool, card_id: int, cw: int,
-                         ch: int) -> None:
-        """Aktivierung: Karte hebt sich vergrößert an, goldener Rahmen pulsiert, eine Lichtwelle breitet sich aus."""
+                         ch: int, angle: int = 0) -> None:
+        """Aktivierung: Karte hebt sich vergrößert an, goldener Rahmen pulsiert, eine Lichtwelle breitet sich aus.
+        angle: Drehung des Bildes (Verteidiger bleiben quer)."""
         c, s = self.canvas, self.s
         color = ACT_RED if red else ACT_GOLD
         lift = math.sin(math.pi * min(1.0, p * 1.15))
         grow = 1 + 0.35 * round(lift * 4) / 4  # nur 5 feste Stufen: die vergrößerten Bilder bleiben im Cache
-        bw, bh = int(cw * grow), int(ch * grow)
+        iw, ih = int(cw * grow), int(ch * grow)
+        bw, bh = (ih, iw) if angle % 180 else (iw, ih)  # Rahmen: Größe nach dem Drehen
         cx, cy = spot[0] + cw // 2, spot[1] + ch // 2 - int(ch * 0.12 * lift)
         cy = max(cy, bh // 2 + int(30 * s))  # Karte aus der flachen Gegnerhand + Beschriftung bleiben im Bild
         cy = min(cy, self.size[1] - bh // 2 - int(17 * s))  # unten: der äußerste Ring bleibt im Bild
@@ -1403,7 +1407,7 @@ class DuelView:
             c.create_rectangle(cx - bw // 2 - d, cy - bh // 2 - d, cx + bw // 2 + d, cy + bh // 2 + d,
                                outline=rs.blend(color, FIELD, lift * (1.1 - k * 0.18)), width=2)
         passcode = self.passcode(card_id) if card_id else None
-        image = self._card_image(passcode, bw, bh, 0) if passcode else None
+        image = self._card_image(passcode, iw, ih, angle) if passcode else None
         if image is not None:
             c.create_image(cx, cy, image=image)
         else:

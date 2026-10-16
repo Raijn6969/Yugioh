@@ -440,6 +440,20 @@ class AnimationTest(unittest.TestCase):
         self.assertEqual(spots, [(item.x, item.y)])                          # Aktivierung am Ziel, nicht in der Hand
         self.assertIn("AKTIVIERT", self.animate(view, 1, 0.7))
 
+    def test_defense_monster_stays_sideways_while_it_activates(self):
+        from unittest import mock
+        for team, angle in ((0, 90), (1, 270)):
+            with self.subTest(team=team):
+                defender = row(1, 0, team=team)
+                defender[6] = 0
+                frames = [frame(defender), dict(frame(defender), log=[act(11, 100, team=team, zone=0)])]
+                view = self.view(frames, {100: "123"})
+                self.assertEqual(view.steps[1].kind, "aktiviert")
+                with mock.patch.object(view, "_card_image", return_value=None) as image:
+                    self.animate(view, 1, 0.5)
+                big = [c.args for c in image.call_args_list if c.args[1] > view._geometry()[0]]  # vergrößert
+                self.assertTrue(big and all(a[3] == angle for a in big), image.call_args_list)
+
     def test_lp_change_floats_next_to_the_display(self):
         view = self.view()
         self.assertIn("−1000", self.animate(view, 3, 0.5))
