@@ -96,10 +96,10 @@ class ClickFocusTest(unittest.TestCase):
         a.check_user_interruption = lambda: None
         return a
 
-    def click(self, md_in_front):
+    def click(self, md_in_front, hwnd=123):
         import input_utils
         events = []
-        with mock.patch.object(wa, "find_md_window", return_value=123), \
+        with mock.patch.object(wa, "find_md_window", return_value=hwnd), \
                 mock.patch.object(input_utils, "md_in_front", return_value=md_in_front), \
                 mock.patch.object(input_utils, "FOCUS_TIMEOUT", 0.05), \
                 mock.patch.object(win_api, "set_foreground_window", lambda hwnd: False), \
@@ -113,6 +113,12 @@ class ClickFocusTest(unittest.TestCase):
 
     def test_clicks_while_master_duel_is_in_front(self):
         self.assertEqual(len(self.click(md_in_front=True)), 3)  # Klick runter/hoch + 1 Raste
+
+    def test_no_click_when_master_duel_was_closed(self):
+        # Spiel mitten im Import beendet: Klicks würden auf dem Desktop / in einem anderen Programm landen
+        import input_utils
+        with self.assertRaises(input_utils.FocusLostError):
+            self.click(md_in_front=False, hwnd=None)
 
     def test_no_click_when_another_window_stays_in_front(self):
         import input_utils

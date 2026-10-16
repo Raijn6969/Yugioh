@@ -107,9 +107,9 @@ class WindowAutomator:
 
     def check_focus(self):
         """Vor jedem Klick wie vor jeder Tastatureingabe: Master Duel muss vorne sein. Hat sich ein anderes Fenster
-        davorgeschoben, wird Master Duel zurückgeholt; klappt das nicht → FocusLostError (Import hält an)."""
-        if find_md_window():
-            focus_master_duel()
+        davorgeschoben, wird Master Duel zurückgeholt; klappt das nicht oder ist das Spiel beendet → FocusLostError
+        (Import hält an, sonst landeten Klicks auf dem Desktop oder in einem anderen Programm)."""
+        focus_master_duel()
 
     def iron_grip_click(self, x: int, y: int, button: str = 'left'):
         self.check_user_interruption()
