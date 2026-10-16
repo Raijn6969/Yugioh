@@ -251,15 +251,15 @@ class MatchupPanelTest(unittest.TestCase):
         self.root.update()
         text = "\n".join(self.texts(self.panel._tip))
         self.assertIn("Handtrap · in 2 von 3 Gegner-Decks", text)
-        self.assertIn("Gegen Decks mit der Karte: 50 % (1–1)", text)
+        self.assertIn("Gegen Decks mit der Karte: 50 % · 1–1", text)
         self.assertIn("als Erster 100 % · als Zweiter 0 %", text)
-        self.assertIn("Ohne die Karte: 100 % (1–0)", text)
+        self.assertIn("Ohne die Karte: 100 % · 1–0", text)
         self.panel._hide_tip()
         self.assertIsNone(self.panel._tip)
 
     def test_hint_how_many_opponent_decks_come_from_replays(self):
         self.assertNotIn("Replays", self.panel.info_label.cget("text"))
-        for did, ago, cards, expected in ((6, 5000, kids(ASH, POT), "4 Duelle"), (7, 9000, kids(IMPERM), "5 Duelle")):
+        for did, ago, cards, expected in ((6, 5000, kids(ASH, POT), "4 Matches"), (7, 9000, kids(IMPERM), "5 Matches")):
             add(self.db, did, mh.WIN, True, [], at=time.time() - ago)    # live erfasst, ohne Gegner-Deck
             add_replay(self.db, int(time.time()) - ago - 120, cards)
             self.panel.refresh()
@@ -274,6 +274,12 @@ class MatchupPanelTest(unittest.TestCase):
         self.panel.refresh()
         self.wait()
         self.assertIn("Match History", self.panel.info_label.cget("text"))
+        self.assertEqual((self.panel.tiles_frame.winfo_manager(), self.panel.footer.winfo_manager()), ("", ""))
+        self.panel.deck_name = "Ryzeal"
+        self.panel.refresh()
+        self.wait()
+        self.assertEqual((self.panel.tiles_frame.winfo_manager(), self.panel.footer.winfo_manager()),
+                         ("pack", "pack"))
 
 
 if __name__ == "__main__":

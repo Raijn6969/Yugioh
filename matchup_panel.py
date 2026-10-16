@@ -21,6 +21,7 @@ import matchup_analysis
 from card_grid import CardGrid
 from match_history import RANKED
 from rounded_button import RoundedButton
+from winrate_panel import matches_text
 from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
                           BAD)
 from winrate_panel import MODE_KEY
@@ -42,8 +43,8 @@ def rate_text(wins: int, matches: int) -> str:
 
 
 def record_text(record: matchup_analysis.Record) -> str:
-    text = f"{rate_text(record.wins, record.matches)} ({record.wins}–{record.losses}"
-    return text + (f"–{record.draws})" if record.draws else ")")
+    text = f"{rate_text(record.wins, record.matches)} · {record.wins}–{record.losses}"
+    return text + (f"–{record.draws}" if record.draws else "")
 
 
 class MatchupPanel:
@@ -102,7 +103,7 @@ class MatchupPanel:
                                    anchor="w", justify=tk.LEFT, wraplength=int(490 * s))
         self.info_label.pack(fill=tk.X, pady=(int(4 * s), 0))
 
-        tiles = tk.Frame(body, bg=BG)
+        self.tiles_frame = tiles = tk.Frame(body, bg=BG)
         tiles.pack(fill=tk.X, pady=(int(6 * s), int(4 * s)))
         self.tiles = {}
         for key, caption in (("opponents", "GEGNER-DECKS"), ("per_deck", "STÖRKARTEN Ø"),
@@ -115,10 +116,12 @@ class MatchupPanel:
             self.tiles[key] = value
 
         # Hinweis unten zuerst packen, damit ihn das Raster (füllt den Rest) nicht verdrängt
-        tk.Label(body, text="Unter der Karte: so viele Gegner-Decks spielen sie · deine Winrate gegen diese Decks "
-                            "(rot = deutlich schlechter als sonst). Wenige Duelle = nur eine grobe Richtung.",
-                 fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
-                 wraplength=int(480 * s)).pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
+        self.footer = tk.Label(body, text="Unter der Karte: so viele Gegner-Decks spielen sie · deine Winrate gegen "
+                                          "diese Decks (rot = deutlich schlechter als sonst). Wenige Matches = nur "
+                                          "eine grobe Richtung.",
+                               fg=MUTED, bg=BG, font=self.font_small, anchor="w", justify=tk.LEFT,
+                               wraplength=int(480 * s))
+        self.footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * s), 0))
         self.grid = CardGrid(body, BG, PANEL, TEXT, self.photos, s, COLUMNS, self.font_small_bold, GOLD,
                              self.font_small)
 
@@ -187,17 +190,21 @@ class MatchupPanel:
         matchup = self.matchup
         whose = f"mit „{self.deck_name}“" if self.only_deck else "aller Decks"
         if not matchup.opponents:
-            text, color = (f"Noch keine Gegner-Decks ({whose}). Die Decks deiner Gegner kommen aus der Match History "
-                           f"von Master Duel – öffne sie ab und zu, sie hält die letzten 20 Duelle.", WARN)
+            text, color = f"Noch keine Gegner-Decks ({whose}) – Match History in Master Duel öffnen.", WARN
         else:
-            text, color = (f"{matchup.opponents} Duelle {whose} mit bekanntem Gegner-Deck", MUTED)
+            text, color = (f"{matches_text(matchup.opponents)} {whose} mit bekanntem Gegner-Deck", MUTED)
             if matchup.unknown:
-                text += (f" · {matchup.unknown} weitere ohne Gegner-Deck (Match History in Master Duel öffnen, "
-                         f"dann kommen sie dazu)")
+                text += f" · {matchup.unknown} weitere ohne Gegner-Deck – Match History in Master Duel öffnen"
             if matchup.from_replays:
                 text += (f"\n{matchup.from_replays} Gegnerdeck{'s' if matchup.from_replays != 1 else ''} vollständig "
                          f"aus Replays")
         self.info_label.config(text=text, fg=color)
+        if matchup.opponents:  # ohne Daten wären Kacheln und Fußsatz nur Null-Werte und Erklärung ohne Bezug
+            self.tiles_frame.pack(fill=tk.X, pady=(int(6 * self.s), int(4 * self.s)), after=self.info_label)
+            self.footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * self.s), 0), before=self.grid.canvas.master)
+        else:
+            self.tiles_frame.pack_forget()
+            self.footer.pack_forget()
         overall = matchup.overall
         self.tiles["opponents"].config(text=str(matchup.opponents))
         self.tiles["per_deck"].config(text=f"{matchup.per_deck:.1f}".replace(".", ","))
@@ -234,7 +241,7 @@ class MatchupPanel:
             order.append(f"als Zweiter {rate_text(against.second_wins, against.second)}")
         if order:
             lines.append("   " + " · ".join(order))
-        lines.append(f"Ohne die Karte: {record_text(without)}" if without.matches else "Ohne die Karte: keine Duelle")
+        lines.append(f"Ohne die Karte: {record_text(without)}" if without.matches else "Ohne die Karte: keine Matches")
         tip = tk.Toplevel(self.win, bg=GOLD)
         tip.overrideredirect(True)
         tip.wm_attributes("-topmost", True)
