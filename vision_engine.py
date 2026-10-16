@@ -12,13 +12,18 @@ import numpy as np
 import pytesseract
 from PIL import Image
 
-from debug_log import dlog
+from debug_log import clear_changed, dlog_changed
 
 # Erlaubte Zeichen für Tesseract (Kartennamen). Für Deutsch kommen Umlaute und ß hinzu.
 _WHITELIST = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-':&,.!?/@"
 _WHITELIST_DE = _WHITELIST + "äöüÄÖÜß"
 DIGITS = "0123456789"
 OCR_TIMEOUT = 8  # Sekunden; normal dauert ein Aufruf ~0,1 s
+
+
+class TimedOut(str):
+    """Leeres Ergebnis nach einem Timeout: utils.get_cached_ocr merkt es sich nicht (sonst bliebe das Bild leer)."""
+    timed_out = True
 
 
 def check_tesseract(tesseract_cmd: str, lang: str = "eng") -> Optional[str]:
@@ -77,12 +82,16 @@ def do_ocr(image: Image.Image, tesseract_cmd: str, lang: str = "eng", whitelist:
     # Den aufbereiteten OpenCV-Scan an Tesseract übergeben. Hängt Tesseract (PC völlig
     # ausgelastet, Virenscanner), zählt der Read als leer statt den Import einzufrieren.
     try:
-        return pytesseract.image_to_string(thresh, lang=lang, config=custom_config, timeout=OCR_TIMEOUT)
+        text = pytesseract.image_to_string(thresh, lang=lang, config=custom_config, timeout=OCR_TIMEOUT)
     except RuntimeError as e:
         if "timeout" not in str(e).lower():
             raise
-        dlog(f"[OCR] Texterkennung brauchte länger als {OCR_TIMEOUT}s → als leer gewertet.")
-        return ""
+        # Nur einmal je Hänger loggen: Der Editor-Wächter liest sonst bei dauerhaft hängendem Tesseract im Takt
+        dlog_changed("ocr-timeout", f"[OCR] Texterkennung brauchte länger als {OCR_TIMEOUT}s → als leer gewertet.")
+        return TimedOut("")
+    clear_changed("ocr-timeout")
+    return text
+
 
 def read_screen_text(sct, monitor: dict, tesseract_cmd: str, lang: str = "eng",
                      whitelist: Optional[str] = None) -> str:
@@ -90,8 +99,10 @@ def read_screen_text(sct, monitor: dict, tesseract_cmd: str, lang: str = "eng",
     shot = sct.grab(monitor)
     gray = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX").convert("L")
     inverted = Image.eval(gray, lambda p: 255 - p)
+    timed_out = False
     for image in (inverted.point(lambda p: 0 if p < 150 else 255), inverted):
         text = do_ocr(image, tesseract_cmd, lang, whitelist)
         if text.strip():
             return text
-    return ""
+        timed_out = timed_out or getattr(text, "timed_out", False)
+    return TimedOut("") if timed_out else ""

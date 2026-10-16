@@ -36,6 +36,8 @@ def read_deck_count(sct, frame: md_layout.Frame, point: Tuple[float, float], tes
 def deck_editor_visible(sct, frame: md_layout.Frame, tesseract_cmd: str) -> bool:
     """Steht oben im Deck-Bereich "Main Deck" (bzw. "…deck" in anderen Sprachen)?"""
     text = vision_engine.read_screen_text(sct, frame.region(*md_layout.MAIN_HEADER_REGION), tesseract_cmd)
+    if getattr(text, "timed_out", False):  # nach einem Hänger "leer" ≠ "kein Editor" (der Wächter merkt sich das)
+        raise RuntimeError("Die Texterkennung hat nicht rechtzeitig geantwortet.")
     return "deck" in clean_text(text)
 
 

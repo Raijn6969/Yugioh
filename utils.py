@@ -253,6 +253,8 @@ def get_cached_ocr(img_hash, ocr_func, img):
     if img_hash in _ocr_cache:
         return _ocr_cache[img_hash]
     text = ocr_func(img)
+    if getattr(text, "timed_out", False):  # Hänger der Texterkennung (vision_engine.TimedOut): nicht merken
+        return text
     if len(_ocr_cache) >= OCR_CACHE_LIMIT:
         _ocr_cache.clear()
     _ocr_cache[img_hash] = text

@@ -206,6 +206,50 @@ class HangingOcrTest(unittest.TestCase):
             self.assertEqual(vision_engine.do_ocr(Image.new("L", (100, 20)), "tesseract.exe"), "")
         self.assertEqual(ocr.call_args.kwargs["timeout"], vision_engine.OCR_TIMEOUT)
 
+    def hanging(self, call):
+        import debug_log
+        import vision_engine
+        timeout = RuntimeError("Tesseract process timeout")
+        debug_log.clear_changed("ocr-timeout")
+        with mock.patch.object(vision_engine.pytesseract, "image_to_string", side_effect=timeout), \
+                mock.patch.object(debug_log.logger, "info") as write:
+            results = [call() for _ in range(3)]
+        return results, write
+
+    def test_timeout_is_logged_once_not_on_every_read(self):
+        import vision_engine
+        from PIL import Image
+        results, write = self.hanging(lambda: vision_engine.do_ocr(Image.new("L", (100, 20)), "tesseract.exe"))
+        self.assertEqual(results, ["", "", ""])
+        self.assertEqual(write.call_count, 1)
+
+    def test_timeout_is_not_cached_as_empty_text(self):
+        import utils
+        import vision_engine
+        calls = []
+
+        def ocr(image):
+            calls.append(1)
+            return vision_engine.TimedOut("") if len(calls) == 1 else "bonfire"
+
+        self.assertEqual(utils.get_cached_ocr("hang-test", ocr, None), "")
+        self.assertEqual(utils.get_cached_ocr("hang-test", ocr, None), "bonfire")  # nicht aus dem Cache: neu gelesen
+        self.assertEqual(utils.get_cached_ocr("hang-test", ocr, None), "bonfire")
+        self.assertEqual(len(calls), 2)
+
+    def test_hanging_ocr_is_no_answer_for_the_editor_check(self):
+        # "Leer" nach einem Hänger darf der Editor-Wächter nicht als "kein Editor" merken (er würde das Overlay
+        # im Editor ausblenden, bis sich das Bild ändert)
+        import auto_calibration
+        import md_layout
+        import vision_engine
+        timed_out = vision_engine.TimedOut("")
+        with mock.patch("auto_calibration.vision_engine.read_screen_text", return_value=timed_out):
+            with self.assertRaises(RuntimeError):
+                auto_calibration.deck_editor_visible(None, md_layout.Frame(0, 0, 1920, 1080), "tesseract.exe")
+        with mock.patch("auto_calibration.vision_engine.read_screen_text", return_value=""):
+            self.assertFalse(auto_calibration.deck_editor_visible(None, md_layout.Frame(0, 0, 1920, 1080), "t"))
+
 
 class DeckCounterTest(unittest.TestCase):
     def test_disabled_without_calibration(self):
