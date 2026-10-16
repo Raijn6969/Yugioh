@@ -58,6 +58,7 @@ class MatchupPanel:
         self.on_close = on_close
         self.deck_name = deck_name        # Deck im Deck-Fenster (None = keins)
         self.only_deck = deck_name is not None
+        self._note = ""                   # Hinweis über dem Info-Satz (Wechsel auf "Alle Decks" ohne Daten)
         self.closed = False
         self.matchup: Optional[matchup_analysis.Matchup] = None
         self.s = s = max(1.0, master.winfo_screenheight() / 1080.0)
@@ -132,6 +133,7 @@ class MatchupPanel:
             self.save_settings()
         else:
             self.only_deck = key == "deck"
+        self._note = ""
         self.refresh()
 
     def refresh(self) -> None:
@@ -168,6 +170,7 @@ class MatchupPanel:
         self._poll_job = None
         if self.closed:
             return
+        fallback = False
         while not self._results.empty():
             generation, result = self._results.get()
             if generation != self._generation:
@@ -181,7 +184,14 @@ class MatchupPanel:
                 self.info_label.config(text=result, fg=BAD)
             else:
                 self.matchup = result
+                if not result.opponents and self.only_deck:  # nichts für dieses Deck: gleich alle Decks zeigen
+                    self.only_deck, fallback = False, True
+                    self._note = f"Noch keine Gegner-Decks mit „{self.deck_name}“ – hier alle Decks:"
+                    break
                 self._show()
+        if fallback:
+            self.refresh()
+            return
         if (self._thread is not None and self._thread.is_alive()) or not self._results.empty():
             self._poll_job = self.win.after(POLL_MS, self._poll)
 
@@ -198,7 +208,7 @@ class MatchupPanel:
             if matchup.from_replays:
                 text += (f"\n{matchup.from_replays} Gegnerdeck{'s' if matchup.from_replays != 1 else ''} vollständig "
                          f"aus Replays")
-        self.info_label.config(text=text, fg=color)
+        self.info_label.config(text=f"{self._note}\n{text}" if self._note else text, fg=color)
         if matchup.opponents:  # ohne Daten wären Kacheln und Fußsatz nur Null-Werte und Erklärung ohne Bezug
             self.tiles_frame.pack(fill=tk.X, pady=(int(6 * self.s), int(4 * self.s)), after=self.info_label)
             self.footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(int(4 * self.s), 0), before=self.grid.canvas.master)

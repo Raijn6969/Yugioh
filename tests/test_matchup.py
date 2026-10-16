@@ -225,6 +225,20 @@ class MatchupPanelTest(unittest.TestCase):
         self.assertIn("Noch keine Gegner-Decks", panel.info_label.cget("text"))
         panel.close()
 
+    def test_deck_without_data_switches_to_all_decks_with_note(self):
+        self.panel.close()
+        from matchup_panel import MatchupPanel
+        panel = MatchupPanel(self.root, self.db, {}, lambda: None, on_close=lambda: None, deck_name="Ohne Daten",
+                             image_folder=tempfile.mkdtemp())
+        wait_for_matchup(self.root, panel)
+        self.assertFalse(panel.only_deck)
+        text = panel.info_label.cget("text")
+        self.assertIn("Noch keine Gegner-Decks mit „Ohne Daten“", text)
+        self.assertIn("Gegner-Deck", text.splitlines()[1])
+        self.assertTrue(panel.tiles_frame.winfo_manager())  # Kacheln der Alle-Decks-Ansicht da
+        panel.close()
+        self.panel = MatchupPanel(self.root, self.db, {}, lambda: None, on_close=lambda: None)
+
     def texts(self, widget):
         result = []
         for child in widget.winfo_children():
@@ -270,12 +284,12 @@ class MatchupPanelTest(unittest.TestCase):
                           "Replays", text)
 
     def test_no_opponent_decks_yet(self):
-        self.panel.deck_name = "Neu"
+        self.panel.deck_name, self.panel.db = "Neu", make_db()  # auch alle Decks ohne Daten
         self.panel.refresh()
         self.wait()
         self.assertIn("Match History", self.panel.info_label.cget("text"))
         self.assertEqual((self.panel.tiles_frame.winfo_manager(), self.panel.footer.winfo_manager()), ("", ""))
-        self.panel.deck_name = "Ryzeal"
+        self.panel.deck_name, self.panel.db, self.panel.only_deck = "Ryzeal", self.db, True
         self.panel.refresh()
         self.wait()
         self.assertEqual((self.panel.tiles_frame.winfo_manager(), self.panel.footer.winfo_manager()),
