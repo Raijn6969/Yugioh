@@ -128,7 +128,10 @@ class DescribeTest(unittest.TestCase):
         self.assertEqual(self.text("gesetzt", team=1, card=0), "Gegner setzt eine Karte")
         self.assertEqual(self.text("friedhof", team=1, card=300), "Gegner: Triple Tactics Talent → Friedhof")
         self.assertEqual(self.text("verbannt"), "Du: Ash Blossom → Verbannt")
-        self.assertEqual(self.text("umgedreht", team=1), "Gegner deckt Ash Blossom auf")
+        flip = lambda team, face: rs.describe(self.move(team)._replace(face_after=face),  # noqa: E731
+                                              "umgedreht", name_of, 0)
+        self.assertEqual(flip(1, 1), "Gegner deckt Ash Blossom auf")
+        self.assertEqual(flip(0, 0), "Du drehst Ash Blossom um")                        # Zurückdrehen: nie "aufdecken"
         self.assertEqual(self.text("zug"), "Du bewegst Ash Blossom")
 
     def test_draw_search_and_unknown_names(self):
@@ -164,6 +167,20 @@ class BuildStepsTest(unittest.TestCase):
         self.assertEqual(steps[3].lp, {1: -1000})
         self.assertEqual([s.dur for s in steps], [0.0, 0.0, 0.7, 0.5])       # LP-Schritt dauert kurz
         self.assertEqual(steps[0].text, "")
+
+    def test_flip_belongs_to_set_or_activation_and_has_no_row_of_its_own(self):
+        z = rr.SPELL_ZONES[0]
+        cards = [(row(1, 0, rr.HAND, 100),), (row(1, 0, z, 100, 0),), (row(1, 0, z, 100, 1),), (row(1, 0, z, 100, 0),),
+                 (row(1, 0, z, 100, 1),)]
+        act = {"uid": 1, "team": 0, "card": 100}
+        steps = rs.build_steps([frame(*c) for c in cards], [state()] * 4 + [state(act)], 0, name_of, type_of)
+        self.assertEqual([s.kind for s in steps], ["still", "gesetzt", "still", "still", "aktiviert"])
+        self.assertEqual([s.text for s in steps if s.text], ["Du setzt eine Karte", "Du aktivierst Ash Blossom"])
+
+    def test_plain_flip_back_never_says_reveal(self):
+        z = rr.SPELL_ZONES[0]
+        steps = rs.build_steps([frame(row(1, 0, z, 100, 1)), frame(row(1, 0, z, 100, 0))], [state()] * 2, 0, name_of)
+        self.assertEqual((steps[1].kind, steps[1].text), ("umgedreht", "Du drehst Ash Blossom um"))
 
     def test_activation_without_a_move_still_has_a_focus(self):
         frames = [frame(), frame()]

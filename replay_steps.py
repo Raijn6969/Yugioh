@@ -200,8 +200,9 @@ def describe(focus: Optional[Move], kind_: str, name_of: Callable[[int], Optiona
         return f"{who} {verb('beschwörst', 'beschwört')} {card}" + (f" ({how})" if how else "")
     if kind_ == "gesetzt":
         return f"{who} setzt eine Karte"
-    if kind_ == "umgedreht":
-        return f"{who} {verb('deckst', 'deckt')} {card} auf"
+    if kind_ == "umgedreht":   # "aufdecken" nur beim Aufdecken (verdeckt → offen), nie beim Zurückdrehen
+        return (f"{who} {verb('deckst', 'deckt')} {card} auf" if focus.face_after == 1
+                else f"{who} {verb('drehst', 'dreht')} {card} um")
     if kind_ in ("friedhof", "verbannt"):
         return f"{who}: {card} → {'Friedhof' if kind_ == 'friedhof' else 'Verbannt'}"
     if kind_ == "hand":
@@ -406,4 +407,12 @@ def build_steps(frames: List[dict], states: Sequence[dict], my_id: int,
                                 dur=duration("still", bool(a.lp)))
             out[i + 1] = b._replace(kind="aktiviert", text=a.text, label=a.label, marks=a.marks,
                                     dur=duration("aktiviert", bool(b.lp), True))
+    # Aufdecken ist keine eigene Zeile: nach dem Setzen zeigt MD die Karte und dreht sie zurück, vor dem Aktivieren
+    # gehört es zur Aktivierung (die zeigt die Karte offen)
+    for i, s in enumerate(out):
+        near = (("gesetzt", out[max(0, i - 3):i]), ("aktiviert", out[i + 1:i + 4]))
+        if s.kind == "umgedreht" and any(o.kind == k and o.focus is not None and o.focus.uid == s.focus.uid
+                                         for k, os_ in near for o in os_):
+            out[i] = s._replace(kind="still", text="", focus=None, label="", marks=(),
+                                dur=duration("still", bool(s.lp)))
     return out
