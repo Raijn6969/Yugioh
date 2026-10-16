@@ -16,7 +16,6 @@ from typing import Dict
 
 from starter_rules import _DECK, _sentences, _split_effect
 
-KEYS = ("ash", "imperm", "droll", "ogre")
 ASH = re.compile(rf"\b(?:add|special summon|send)\b[^.;]*?{_DECK}"
                  # Material aus dem Deck ("using 2 monsters from your hand, Deck, or field as material"), nicht Extra Deck
                  r"|\busing\b[^.;]*?from your [^.;]*?(?<!extra )\bdeck\b[^.;]*?\bas (?:\w+ )?materials?\b")

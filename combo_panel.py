@@ -101,20 +101,6 @@ def odds_text(odds: Optional[float]) -> Tuple[str, str]:
     return f"{odds * 100:.0f} % als Erster", GREEN if odds >= GOOD_ODDS else NEON
 
 
-def entry_text(entry: mdm_combos.Entry) -> str:
-    return f"{entry.card} – {entry.label}" if entry.card and entry.label else entry.card or entry.label
-
-
-def step_text(step: mdm_combos.Step) -> str:
-    """Einträge eines Schritts, verbunden mit → bzw. + (der Verbinder steht am Eintrag davor)."""
-    text = ""
-    for i, entry in enumerate(step.entries):
-        text += entry_text(entry)
-        if i < len(step.entries) - 1:
-            text += " + " if entry.connector == "plus" else " → "
-    return text
-
-
 def walk_steps(steps: List[mdm_combos.Step], level: int = 0) -> Iterator[Tuple[int, str, object, int]]:
     """(Einrückung, Art, Inhalt, Nummer): "step" = Step (nummeriert), "cond"/"branch" = Textzeile zur Verzweigung."""
     for i, step in enumerate(steps, 1):
@@ -124,12 +110,6 @@ def walk_steps(steps: List[mdm_combos.Step], level: int = 0) -> Iterator[Tuple[i
             for branch in step.branches:
                 yield level + 1, "branch", f"▸ {branch.label}", 0
                 yield from walk_steps(branch.steps, level + 2)
-
-
-def step_lines(steps: List[mdm_combos.Step]) -> List[Tuple[int, str, str]]:
-    """Textfassung: [(Einrückung, Text, Art)] mit Art "step", "cond" (Verzweigung) oder "branch" (Zweig)."""
-    return [(level, f"{number}. {step_text(item)}" if kind == "step" else item, kind)
-            for level, kind, item, number in walk_steps(steps)]
 
 
 def card_names(combo: mdm_combos.Combo) -> List[str]:
@@ -378,13 +358,6 @@ class ComboPanel:
                                pady=int(2 * s), radius=int(6 * s))
         button.pack(side=tk.LEFT, padx=(0, int(6 * s)))
         return button
-
-    def _click(self, widget: tk.Misc, command) -> None:
-        """Klick auf das Widget und alles darin."""
-        widget.bind("<Button-1>", lambda e: command())
-        widget.config(cursor="hand2")
-        for child in widget.winfo_children():
-            self._click(child, command)
 
     def render(self) -> None:
         """Liste der Combos des gewählten Deck-Typs."""
