@@ -284,7 +284,8 @@ class ReplayStateTracker:
                     dest = dest_zones.get(uid)
                     info = self._card_info(c["card"])
                     card_type = (info.card_type or "").lower() if info else ""
-                    is_spell_trap = any(t in card_type for t in ("spell", "trap")) or (prev_z in (*rr.SPELL_ZONES, rr.FIELD_ZONE))
+                    is_spell_trap = (any(t in card_type for t in ("spell", "trap"))
+                                     or (prev_z in (*rr.SPELL_ZONES, rr.FIELD_ZONE)))
                     if dest == rr.BANISHED:
                         if uid not in ban_uids[team]:
                             if uid in gy_uids[team]:
@@ -1317,7 +1318,8 @@ class DuelView:
             fi = items.get(f.uid) or old.get(f.uid)
             if fi is not None and fi.group == "hand" and not fi.mine:  # kleine Gegnerhand-Karte: Mitte behalten
                 spot = (spot[0] - int(cw * (1 - OPP_HAND)) // 2, spot[1] - int(ch * (1 - OPP_HAND)) // 2)
-            defense = fi is not None and fi.group == "board" and fi.card["zone"] in rs.MONSTER                 and not fi.card["attack"]
+            defense = (fi is not None and fi.group == "board" and fi.card["zone"] in rs.MONSTER
+                       and not fi.card["attack"])
             self._draw_activation(spot, p, step.label, red, f.card, cw, ch,
                                   (90 if f.team == self.replay.my_id else 270) if defense else 0)
         elif spot is not None and step.kind == "beschworen":
@@ -1570,7 +1572,8 @@ class DuelView:
         s = self.s
         replay = self.replay
         is_mine = (team == replay.my_id)
-        team_name = replay.names[team] if team < len(replay.names) and replay.names[team] else ("Du" if is_mine else "Gegner")
+        team_name = (replay.names[team] if team < len(replay.names) and replay.names[team]
+                     else ("Du" if is_mine else "Gegner"))
 
         win = tk.Toplevel(self.win, bg="#101018")
         win.overrideredirect(True)
@@ -1625,7 +1628,8 @@ class DuelView:
                 row_frame = tk.Frame(inner, bg=PANEL, bd=1, relief=tk.SOLID, padx=int(6 * s), pady=int(4 * s))
                 row_frame.pack(fill=tk.X, pady=int(3 * s), padx=int(4 * s))
 
-                tk.Label(row_frame, text=f"#{card_num}", fg=GOLD, bg=PANEL, font=self.font_small_bold, width=4).pack(side=tk.LEFT)
+                tk.Label(row_frame, text=f"#{card_num}", fg=GOLD, bg=PANEL, font=self.font_small_bold,
+                         width=4).pack(side=tk.LEFT)
 
                 thumb_w, thumb_h = int(28 * s), int(41 * s)
                 img = self._card_image(p, thumb_w, thumb_h, 0) if p else None
@@ -1652,7 +1656,8 @@ class DuelView:
                     except Exception:
                         pass
                 if info_text:
-                    tk.Label(info_frame, text=info_text, fg=MUTED, bg=PANEL, font=self.font_small, anchor="w").pack(fill=tk.X)
+                    tk.Label(info_frame, text=info_text, fg=MUTED, bg=PANEL, font=self.font_small,
+                             anchor="w").pack(fill=tk.X)
 
             def bind_wheel(widget):  # das Mausrad soll auch über den Zeilen scrollen, nicht nur über der Canvas
                 widget.bind("<MouseWheel>", wheel)

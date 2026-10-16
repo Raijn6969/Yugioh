@@ -30,10 +30,12 @@ SIGNALS = [
     ("summon", re.compile(rf"\bspecial summon\b(?P<what>[^.;]*?){_DECK}")),
     ("set", re.compile(rf"\bset (?P<what>(?:1|one|up to \w+) [^.;]*?){_DECK}")),
     # z.B. Elfnote Fortuna, Maiden of White: Karte aus dem Deck offen aufs Feld legen
-    ("place", re.compile(rf"\bplace (?P<what>(?:1|one) [^.;]*?){_DECK}[^.;]*?(?:on your field|spell & trap zone|field zone)")),
+    ("place", re.compile(rf"\bplace (?P<what>(?:1|one) [^.;]*?){_DECK}"
+                         rf"[^.;]*?(?:on your field|spell & trap zone|field zone)")),
     # Beschwörung mit Material aus dem Deck (z.B. Branded Fusion). Zählt nicht, wenn das Material nur aus Hand/Feld
     # kommen darf oder das beschworene Monster schon auf der Hand sein muss (z.B. Mitsurugi Ritual)
-    ("material", re.compile(rf"(?P<what>fusion|synchro|ritual|xyz|link) summon (?:(?!from your hand(?!(?:,| or) deck))[^.;])*?"
+    ("material", re.compile(rf"(?P<what>fusion|synchro|ritual|xyz|link) summon "
+                            rf"(?:(?!from your hand(?!(?:,| or) deck))[^.;])*?"
                             rf"(?:using|tributing|banishing|shuffling|sending)[^.;]*?{_DECK}")),
 ]
 # Nur bei Monstern

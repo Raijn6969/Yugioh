@@ -34,7 +34,8 @@ def card(uid, team, zone, index=0, kid=0, face=1, attack=1, atk=0, def_=0):
 
 class FakeMemory:
     def __init__(self):
-        self.views, self.board, self.lp, self.phase = ["HomeViewController"], [], {0: 8000, 1: 8000}, ("Turn 1", "Main 1")
+        self.views, self.board = ["HomeViewController"], []
+        self.lp, self.phase = {0: 8000, 1: 8000}, ("Turn 1", "Main 1")
         self.reads = []
         self.log = []          # alle Protokollzeilen des Spiels (eine Zeile = ein Eintrag)
         self.log_error = None

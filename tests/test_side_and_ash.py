@@ -172,7 +172,8 @@ class AshPrioTest(unittest.TestCase):
         variant, sheets, note = ash_prio.load(dict(DECK), self.path + ".fehlt", snapshot=target)
         self.assertEqual((variant.key, [s.hand for s in sheets]), ("v1", ["Hand 0", "Hand 1"]))
         self.assertTrue(note.startswith("Stand der Factory vom"))
-        self.assertEqual(ash_prio.advice(sheets[0], "ash"), ash_prio.advice(ash_prio.load(DECK, self.path)[1][0], "ash"))
+        self.assertEqual(ash_prio.advice(sheets[0], "ash"),
+                         ash_prio.advice(ash_prio.load(DECK, self.path)[1][0], "ash"))
         self.assertIsNone(ash_prio.load({"999": 40}, self.path + ".fehlt", snapshot=target)[0])
         self.assertIsNone(ash_prio.load(DECK, self.path + ".fehlt", snapshot=target + ".fehlt")[0])
 

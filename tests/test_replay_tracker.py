@@ -115,23 +115,28 @@ class TestReplayTracker(unittest.TestCase):
         from card_stats import CardInfo
         # Handtraps with discard / send to GY cost
         ash = CardInfo("1", "Ash Blossom", "Effect Monster", "effect", "Zombie", 3, "",
-                       "When a card or effect is activated (Quick Effect): You can discard this card; negate that effect.")
+                       "When a card or effect is activated (Quick Effect): "
+                       "You can discard this card; negate that effect.")
         self.assertTrue(is_discard_cost(ash))
 
         maxx_c = CardInfo("2", "Maxx \"C\"", "Effect Monster", "effect", "Insect", 2, "",
-                          "During either player's turn (Quick Effect): You can send this card from your hand to the GY; this turn...")
+                          "During either player's turn (Quick Effect): "
+                          "You can send this card from your hand to the GY; this turn...")
         self.assertTrue(is_discard_cost(maxx_c))
 
         # Zauber und Fallen werden auf das Spielfeld gelegt, nicht abgeworfen!
-        spell = CardInfo("3", "Raigeki", "Spell Card", "spell", "Normal", None, "", "Destroy all monsters your opponent controls.")
+        spell = CardInfo("3", "Raigeki", "Spell Card", "spell", "Normal", None, "",
+                         "Destroy all monsters your opponent controls.")
         self.assertFalse(is_discard_cost(spell))
 
-        trap = CardInfo("4", "Mirror Force", "Trap Card", "trap", "Normal", None, "", "When an opponent's monster declares an attack...")
+        trap = CardInfo("4", "Mirror Force", "Trap Card", "trap", "Normal", None, "",
+                        "When an opponent's monster declares an attack...")
         self.assertFalse(is_discard_cost(trap))
 
         # Monster that activates in hand without discard cost (reveals itself)
         danger = CardInfo("5", "Danger! Bigfoot!", "Effect Monster", "effect", "Beast", 8, "",
-                          "You can reveal this card in your hand; your opponent randomly chooses 1 card from your entire hand...")
+                          "You can reveal this card in your hand; "
+                          "your opponent randomly chooses 1 card from your entire hand...")
         self.assertFalse(is_discard_cost(danger))
 
     def test_handtrap_discard_cost_enters_gy_on_activation(self):
@@ -173,7 +178,8 @@ class TestReplayTracker(unittest.TestCase):
     def test_spell_stays_on_field_until_resolved(self):
         from unittest import mock
         from card_stats import CardInfo
-        raigeki = CardInfo("3", "Raigeki", "Spell Card", "spell", "Normal", None, "", "Destroy all monsters your opponent controls.")
+        raigeki = CardInfo("3", "Raigeki", "Spell Card", "spell", "Normal", None, "",
+                           "Destroy all monsters your opponent controls.")
         mock_db = mock.Mock()
         mock_db.info.return_value = raigeki
 
@@ -207,7 +213,8 @@ class TestReplayTracker(unittest.TestCase):
     def test_monster_destroyed_from_field_enters_gy_not_activating(self):
         from unittest import mock
         from card_stats import CardInfo
-        aleister = CardInfo("22964", "Aleister the Reminiscent", "Effect Monster", "effect", "Spellcaster", 4, "", "Special summon...")
+        aleister = CardInfo("22964", "Aleister the Reminiscent", "Effect Monster", "effect", "Spellcaster", 4, "",
+                            "Special summon...")
         mock_db = mock.Mock()
         mock_db.info.return_value = aleister
 
@@ -231,7 +238,8 @@ class TestReplayTracker(unittest.TestCase):
     def test_extra_deck_monster_banished_enters_banished_not_activating(self):
         from unittest import mock
         from card_stats import CardInfo
-        raidjin = CardInfo("12845", "Invoked Raidjin", "Fusion Monster", "fusion", "Warrior", 5, "", "Target 1 monster...")
+        raidjin = CardInfo("12845", "Invoked Raidjin", "Fusion Monster", "fusion", "Warrior", 5, "",
+                           "Target 1 monster...")
         mock_db = mock.Mock()
         mock_db.info.return_value = raidjin
 
@@ -255,8 +263,10 @@ class TestReplayTracker(unittest.TestCase):
     def test_field_spell_activation_and_chain_resolution(self):
         from unittest import mock
         from card_stats import CardInfo
-        meltdown = CardInfo("3763", "Magical Meltdown", "Spell Card", "spell", "Field", None, "", "When this card is activated: You can add 1 'Aleister'...")
-        aleister = CardInfo("22964", "Aleister the Invoker", "Effect Monster", "effect", "Spellcaster", 4, "", "When normal summoned...")
+        meltdown = CardInfo("3763", "Magical Meltdown", "Spell Card", "spell", "Field", None, "",
+                            "When this card is activated: You can add 1 'Aleister'...")
+        aleister = CardInfo("22964", "Aleister the Invoker", "Effect Monster", "effect", "Spellcaster", 4, "",
+                            "When normal summoned...")
         mock_db = mock.Mock()
         mock_db.info.side_effect = lambda p: meltdown if p == "3763" else aleister
 
@@ -295,7 +305,8 @@ class TestReplayTracker(unittest.TestCase):
     def test_continuous_trap_stays_on_field_and_chain_clears(self):
         from unittest import mock
         from card_stats import CardInfo
-        skill_drain = CardInfo("82732", "Skill Drain", "Trap Card", "trap", "Continuous", None, "", "Pay 1000 LP; negate...")
+        skill_drain = CardInfo("82732", "Skill Drain", "Trap Card", "trap", "Continuous", None, "",
+                               "Pay 1000 LP; negate...")
         mock_db = mock.Mock()
         mock_db.info.return_value = skill_drain
 

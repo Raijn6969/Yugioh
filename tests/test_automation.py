@@ -70,7 +70,6 @@ class WinApiTest(unittest.TestCase):
     def test_startup_does_not_load_pyautogui_and_requests(self):
         # Beide kosten Startzeit und werden erst später gebraucht (Tastenkürzel, Netzzugriff). Die DPI-Behandlung
         # (System-DPI-aware, wie früher durch den Import von pyautogui) muss trotzdem schon beim Start stehen
-        import ctypes
         import subprocess
         import sys
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -1,4 +1,5 @@
-"""Fehlerbericht: ZIP mit Logs, Einstellungen und Infos; Gegnernamen geschwärzt; nichts überschrieben, keine Datenbanken."""
+"""Fehlerbericht: ZIP mit Logs, Einstellungen und Infos; Gegnernamen geschwärzt; nichts überschrieben,
+keine Datenbanken."""
 
 import os
 import tempfile

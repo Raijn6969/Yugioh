@@ -359,7 +359,8 @@ class DeckExporter:
         self.status_callback("Deck exportiert!", "#00ff00")
         return result
 
-    def _plan(self, sct, frame: md_layout.Frame, counts: Optional[Tuple[int, int]] = None) -> List[Tuple[str, list, int]]:
+    def _plan(self, sct, frame: md_layout.Frame,
+              counts: Optional[Tuple[int, int]] = None) -> List[Tuple[str, list, int]]:
         """Kartenzahlen lesen und die Kartenplätze berechnen (und prüfen). counts: Zahlen schon bekannt (Speicher)."""
         if counts is not None:
             main_n, extra_n = counts

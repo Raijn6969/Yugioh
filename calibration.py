@@ -46,7 +46,8 @@ class CalibrationWizard:
     def _build_ui(self):
         header = tk.Frame(self.top, bg="#007acc", height=35)
         header.pack(fill=tk.X)
-        tk.Label(header, text="Kalibrierungs-Assistent", fg="white", bg="#007acc", font=("Helvetica", 11, "bold")).pack(pady=8)
+        tk.Label(header, text="Kalibrierungs-Assistent", fg="white", bg="#007acc",
+                 font=("Helvetica", 11, "bold")).pack(pady=8)
 
         list_frame = tk.Frame(self.top, bg="#1e1e1e", padx=15, pady=10)
         list_frame.pack(fill=tk.BOTH, expand=True)
@@ -58,7 +59,8 @@ class CalibrationWizard:
             lbl.pack(anchor="w", pady=3)
             self.labels.append(lbl)
 
-        self.info_lbl = tk.Label(self.top, text="Klicke Start und zeige mit der Maus\nauf das Ziel. (3s Timer)", fg="#aaaaaa", bg="#1e1e1e", font=("Helvetica", 10))
+        self.info_lbl = tk.Label(self.top, text="Klicke Start und zeige mit der Maus\nauf das Ziel. (3s Timer)",
+                                 fg="#aaaaaa", bg="#1e1e1e", font=("Helvetica", 10))
         self.info_lbl.pack(pady=2)
 
         self.action_btn = RoundedButton(self.top, text="Start: Suchleiste", bg="#007acc",
@@ -125,7 +127,8 @@ class CalibrationWizard:
             self.action_btn.config(text=f"Start: {next_desc}", bg="#007acc", state=tk.NORMAL)
         else:
             self.skip_btn.pack_forget()
-            self.action_btn.config(text="Speichern & Beenden", bg="#00ff00", fg="black", state=tk.NORMAL, command=self.finish)
+            self.action_btn.config(text="Speichern & Beenden", bg="#00ff00", fg="black", state=tk.NORMAL,
+                                   command=self.finish)
             self.info_lbl.config(text="Alle Punkte erfolgreich erfasst!", fg="#00ff00")
 
     def cancel_wizard(self):

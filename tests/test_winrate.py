@@ -104,7 +104,8 @@ class StoreMatchesTest(unittest.TestCase):
         mh.store_matches(self.db, self.records)  # Match History: letztes Duell bei 400
         live = lambda did, at: (mh.MatchRecord(str(did), at, mh.RANKED, mh.WIN, True, 0, 0, [], [], [], [],  # noqa
                                                "", "live"), "Ryzeal", "", "", "")
-        self.db.add_matches([live(1000 + i, 500 + i) for i in range(14)] + [live(999, 100)])  # 99: älter als die History
+        # 99: älter als die History
+        self.db.add_matches([live(1000 + i, 500 + i) for i in range(14)] + [live(999, 100)])
         self.assertEqual(self.db.unconfirmed_matches(), 14)
         self.assertEqual(mh.history_reminder(14), "")
         self.db.add_matches([live(1014, 514)])

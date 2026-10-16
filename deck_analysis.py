@@ -170,7 +170,8 @@ def slot_at(frame: md_layout.Frame, zones, x: int, y: int) -> Optional[Tuple[str
         row = round((ry - first_y) / md_layout.ROW_PITCH)
         if not (0 <= col < columns and row >= 0):
             continue
-        if abs(rx - (first_x + col * step)) > min(w, step) / 2 or abs(ry - (first_y + row * md_layout.ROW_PITCH)) > h / 2:
+        if (abs(rx - (first_x + col * step)) > min(w, step) / 2
+                or abs(ry - (first_y + row * md_layout.ROW_PITCH)) > h / 2):
             continue
         index = row * columns + col
         if index < len(positions):

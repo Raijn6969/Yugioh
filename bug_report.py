@@ -11,7 +11,8 @@ Gegnernamen: Ältere Logs enthalten beim Mitschnitt eines Replays die Spielernam
 werden im Log-Text durch "<Gegner>" ersetzt. (Die "Gegner-Decks" der Matches sind Deck-Namen aus den Archetypen,
 keine Spielernamen – die bleiben, sonst wären die Kartennamen im Log unleserlich.)
 
-Benutzerordner: der Windows-Benutzerordner (Logs, Tracebacks, Datenordner) wird überall durch %USERPROFILE% ersetzt (hide_user).
+Benutzerordner: der Windows-Benutzerordner (Logs, Tracebacks, Datenordner) wird überall durch %USERPROFILE%
+ersetzt (hide_user).
 """
 
 import ctypes

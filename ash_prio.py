@@ -231,7 +231,8 @@ def load(deck: Mapping[str, int], path: str = FACTORY_DB,
             if variant is None:
                 close = find_variant(con, normalized, tested=False)
                 if close is not None:
-                    return None, [], (f"Die Factory kennt eine passende Liste („{close.name}“, {close.overlap * 100:.0f} % "
+                    return None, [], (f"Die Factory kennt eine passende Liste („{close.name}“, "
+                                      f"{close.overlap * 100:.0f} % "
                                       f"gleiche Karten), hat sie aber noch nicht gegen Handtraps geprüft. Sobald sie "
                                       f"das getan hat, erscheint sie hier.")
                 return None, [], "Die Factory hat dieses Deck noch nicht durchgerechnet."

@@ -4,7 +4,8 @@ Ash-Prio ohne Factory-Daten: Welche Effekte einer Karte kann eine Handtrap treff
 - Ash Blossom: ein Effekt, der aus dem Deck der Hand hinzufügt, aus dem Deck beschwört oder aus dem Deck auf den
   Friedhof legt – auch Karten aus dem Deck als Material (Branded Fusion). Nur die Wirkung zählt, nicht die Kosten
   vor dem ";".
-- Droll & Lock Bird: ein Effekt, der aus dem Deck der Hand hinzufügt (danach geht nichts mehr aus dem Deck auf die Hand).
+- Droll & Lock Bird: ein Effekt, der aus dem Deck der Hand hinzufügt (danach geht nichts mehr aus dem Deck auf
+  die Hand).
 - Imperm/Veiler: ein Monster-Effekt, der auf dem Feld aktiviert wird (nicht aus Hand oder Friedhof).
 - Ghost Ogre: ein Monster, das auf dem Feld seinen Effekt aktiviert, oder ein offener Dauer-/Feldzauber bzw. eine
   Dauerfalle, die ihren Effekt aktiviert.
@@ -17,7 +18,8 @@ from typing import Dict
 from starter_rules import _DECK, _sentences, _split_effect
 
 ASH = re.compile(rf"\b(?:add|special summon|send)\b[^.;]*?{_DECK}"
-                 # Material aus dem Deck ("using 2 monsters from your hand, Deck, or field as material"), nicht Extra Deck
+                 # Material aus dem Deck ("using 2 monsters from your hand, Deck, or field as material"),
+                 # nicht Extra Deck
                  r"|\busing\b[^.;]*?from your [^.;]*?(?<!extra )\bdeck\b[^.;]*?\bas (?:\w+ )?materials?\b")
 DROLL = re.compile(rf"\badd\b[^.;]*?{_DECK}")
 # Effekte, die nicht auf dem Feld aktiviert werden (Hand, Friedhof, verbannt)

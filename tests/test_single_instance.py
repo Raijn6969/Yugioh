@@ -50,7 +50,10 @@ class SecondStartTest(unittest.TestCase):
     def test_second_start_shows_short_note_and_opens_no_overlay(self):
         import Overlay
         shown = []
-        with mock.patch.object(Overlay.single_instance, "acquire", return_value=False),                 mock.patch.object(Overlay, "STARTED_TOAST_MS", 10),                 mock.patch.object(Overlay, "show_toast", lambda master, text, **k: shown.append(text)),                 mock.patch.object(Overlay, "MasterDuelImporter") as importer:
+        with mock.patch.object(Overlay.single_instance, "acquire", return_value=False), \
+                mock.patch.object(Overlay, "STARTED_TOAST_MS", 10), \
+                mock.patch.object(Overlay, "show_toast", lambda master, text, **k: shown.append(text)), \
+                mock.patch.object(Overlay, "MasterDuelImporter") as importer:
             Overlay.main()
         self.assertEqual(shown, [f"MD-Importer {Overlay.APP_VERSION} läuft jetzt."])
         importer.assert_not_called()

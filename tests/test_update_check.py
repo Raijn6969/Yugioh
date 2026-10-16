@@ -337,7 +337,8 @@ class OverlayHookTest(unittest.TestCase):
         with mock.patch.object(Overlay, "show_toast"):
             Overlay.MasterDuelImporter._queue_toast(app, "x")
         (wait, _), = app.later
-        self.assertTrue(4000 <= wait <= Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS, wait)   # Startmeldung steht 5 s
+        # Startmeldung steht 5 s
+        self.assertTrue(4000 <= wait <= Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS, wait)
         late = self.make_app(uptime_ms=60000)
         with mock.patch.object(Overlay, "show_toast"):
             Overlay.MasterDuelImporter._queue_toast(late, "x")

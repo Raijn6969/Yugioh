@@ -300,8 +300,8 @@ class MasterDuelImporter:
                      f"{error}\n\nDie neue Version lässt sich von Hand laden: Tray-Symbol → Update.", kind="error")
 
     def _queue_toast(self, text):
-        """Hinweis über der Taskleiste. Mehrere (Startmeldung, Update, Rückblick) kommen nacheinander, nicht übereinander
-        (alle säßen an derselben Stelle)."""
+        """Hinweis über der Taskleiste. Mehrere (Startmeldung, Update, Rückblick) kommen nacheinander,
+        nicht übereinander (alle säßen an derselben Stelle)."""
         now = time.monotonic()
         start = max(now, self._toast_free_at)
         self._toast_free_at = start + (STARTED_TOAST_MS + TOAST_GAP_MS) / 1000
@@ -337,7 +337,8 @@ class MasterDuelImporter:
         self._queue_toast(f"Rückblick für {season_review.MONTHS[month - 1]} ist fertig – Deck → Winrate → Rückblick")
 
     def _show_update_failed(self):
-        """Das Update-Skript konnte nicht alles kopieren (update_failed.txt im Programmordner): einmal Bescheid geben."""
+        """Das Update-Skript konnte nicht alles kopieren (update_failed.txt im Programmordner): einmal Bescheid
+        geben."""
         if self._md_in_front():
             self._after_ids["update_failed"] = self.root.after(MD_FRONT_RETRY_MS, self._show_update_failed)
             return

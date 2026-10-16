@@ -80,7 +80,8 @@ TEXTS = {
     "mitsurugi_ritual": ("Spell Card", "spell", None, "Ritual",
                          "Activate 1 of these effects;\n● Ritual Summon 1 Reptile Ritual Monster from your Deck, by "
                          "Tributing Reptile monsters from your hand or field whose total Levels equal the Level of the "
-                         "Ritual Monster.\n● Ritual Summon 1 Reptile Ritual Monster from your hand, by Tributing up to 2 "
+                         "Ritual Monster.\n● Ritual Summon 1 Reptile Ritual Monster from your hand, by "
+                         "Tributing up to 2 "
                          "Reptile monsters from your hand, Deck, or field, whose total Levels equal the Level of the "
                          "Ritual Monster."),
     "branded_fusion": ("Spell Card", "spell", None, "Normal",
@@ -435,7 +436,8 @@ def make_scan(main_names, extra_names=(), signatures=None):
     cards = []
     for zone, names in (("Main", main_names), ("Extra", extra_names)):
         for i, name in enumerate(names):
-            cid = None if name is None else str(1000 + sorted(set(filter(None, main_names + list(extra_names)))).index(name))
+            cid = (None if name is None
+                   else str(1000 + sorted(set(filter(None, main_names + list(extra_names)))).index(name)))
             cards.append(deck_export.ExportedCard(zone, i + 1, name or "", CardMatch(cid, name or "", cid is not None)))
     zones = [("Main", md_layout.deck_slot_positions(len(main_names), md_layout.MAIN_FIRST_CARD[1], 5),
               md_layout.deck_columns(len(main_names), 5)),
@@ -787,7 +789,8 @@ class ExtrasPanelTest(unittest.TestCase):
         self.pump(0.1)
         self.assertIsNone(self.panel.history)
         analysis = self.panel.analysis
-        self.assertEqual((analysis.main_size, [(e.key, e.copies) for e in analysis.entries()]), (6, [("1", 3), ("2", 2), ("9", 1)]))
+        self.assertEqual((analysis.main_size, [(e.key, e.copies) for e in analysis.entries()]),
+                         (6, [("1", 3), ("2", 2), ("9", 1)]))
         self.assertTrue(self.panel.offline)
         self.assertIsNone(self.panel.watcher)  # nicht das Deck im Spiel → keine Prüfung, kein Mouseover
         self.assertIn("Aus dem Verlauf", self.panel.status_label.cget("text"))
@@ -969,7 +972,9 @@ class ExtrasPanelTest(unittest.TestCase):
         import extras_panel
         self.panel.set_scan(self.scan)
         clock = [100.0]
-        with mock.patch.object(self.panel.hover, "show") as show,                 mock.patch.object(self.panel.hover, "hide") as hide,                 mock.patch.object(extras_panel.time, "monotonic", lambda: clock[0]):
+        with mock.patch.object(self.panel.hover, "show") as show, \
+                mock.patch.object(self.panel.hover, "hide") as hide, \
+                mock.patch.object(extras_panel.time, "monotonic", lambda: clock[0]):
             for i in range(8):  # schnell über die erste Reihe wischen: 50 ms pro Karte
                 self.cursor = FRAME.point(*self.scan.zones[0][1][i])
                 self.panel._update_hover()

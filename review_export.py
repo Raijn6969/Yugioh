@@ -71,7 +71,8 @@ def render(review: Review, mode_label: str = "") -> str:
             f'<tr><td><b>{html.escape(deck.deck_name or "Unbekanntes Deck")}</b></td><td>{deck.stats.matches}</td>'
             f'<td>{html.escape(record_text(deck.stats))}</td>'
             f'<td style="color:{_color(deck.stats.wins, deck.stats.matches)}">'
-            f'{rate_text(deck.stats.wins, deck.stats.matches)}</td><td class="w">{_bar(deck.stats.wins, deck.stats.matches)}'
+            f'{rate_text(deck.stats.wins, deck.stats.matches)}</td>'
+            f'<td class="w">{_bar(deck.stats.wins, deck.stats.matches)}'
             f'</td></tr>' for deck in review.decks)
         more = (f' (die {len(review.decks)} meistgespielten von {review.deck_count})'
                 if review.deck_count > len(review.decks) else "")
@@ -116,7 +117,8 @@ PAGE = r"""<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>__TITLE__</title>
 <style>
-:root{--bg:#0e0f17;--panel:#1a1c28;--edge:#2a2d40;--text:#e8eaf5;--muted:#969cba;--gold:#f0be46;--good:#5fd38d;--warn:#f0be46}
+:root{--bg:#0e0f17;--panel:#1a1c28;--edge:#2a2d40;--text:#e8eaf5;--muted:#969cba;--gold:#f0be46;
+--good:#5fd38d;--warn:#f0be46}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font-family:Helvetica,Arial,sans-serif;line-height:1.4}
 .wrap{max-width:720px;margin:0 auto;padding:0 16px 24px}
@@ -145,7 +147,8 @@ footer{color:var(--muted);font-size:11px;padding:18px 0 0;text-align:center}
 <div class="wrap">
 <header><h1>__TITLE__</h1><p>__SUB__</p></header>
 __BODY__
-<footer>Erstellt mit dem MD-Importer __VERSION__ · eine Season ist ein Kalendermonat · Gegner nur als Deck-Namen</footer>
+<footer>Erstellt mit dem MD-Importer __VERSION__ · eine Season ist ein Kalendermonat ·
+Gegner nur als Deck-Namen</footer>
 </div>
 </body>
 </html>

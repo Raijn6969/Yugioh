@@ -67,13 +67,15 @@ class MatchValidator:
         if target in ocr and len(ocr) > len(target):
             max_allowed_delta = max(2, int(len(target) * 0.25))
             if (len(ocr) - len(target)) > max_allowed_delta:
-                dlog(f"        [AUDIT] VETO: Base-Card Hijacking! '{target}' in '{ocr}' gefunden, aber OCR ist zu lang (Delta {len(ocr)-len(target)} > {max_allowed_delta}).\n")
+                dlog(f"        [AUDIT] VETO: Base-Card Hijacking! '{target}' in '{ocr}' gefunden, "
+                     f"aber OCR ist zu lang (Delta {len(ocr)-len(target)} > {max_allowed_delta}).\n")
                 return False, "NONE"
 
         # --- TRUNCATION-ERKENNUNG: Abgeschnittene ultra-lange Namen ---
         if len(target) > len(ocr) * 1.5 and len(ocr) >= 10:
             prefix_ratio = SequenceMatcher(None, target[:len(ocr)], ocr).ratio()
-            dlog(f"        [AUDIT] Truncation-Check: target[:{len(ocr)}]='{target[:len(ocr)]}' vs ocr='{ocr}' ratio={prefix_ratio:.3f}\n")
+            dlog(f"        [AUDIT] Truncation-Check: target[:{len(ocr)}]='{target[:len(ocr)]}' vs "
+                 f"ocr='{ocr}' ratio={prefix_ratio:.3f}\n")
             if prefix_ratio >= 0.85:
                 dlog(f"        [AUDIT] -> FUZZY (TRUNCATED_PREFIX, ratio={prefix_ratio:.3f})\n")
                 return True, "FUZZY"
@@ -91,7 +93,8 @@ class MatchValidator:
             if len(target_suffix) >= 2 and is_hijack_danger and len(ocr_suffix) >= (len(target_suffix) * 0.4):
                 suf_ratio = SequenceMatcher(None, target_suffix, ocr_suffix).ratio()
                 if suf_ratio < 0.50:
-                    dlog(f"        [AUDIT] VETO: Archetypen-Hijack! Suffix '{target_suffix}' vs '{ocr_suffix}' zu unterschiedlich (Ratio {suf_ratio:.2f}).\n")
+                    dlog(f"        [AUDIT] VETO: Archetypen-Hijack! Suffix '{target_suffix}' vs "
+                         f"'{ocr_suffix}' zu unterschiedlich (Ratio {suf_ratio:.2f}).\n")
                     return False, "NONE"
 
         is_fuzzy = False
@@ -195,7 +198,8 @@ class MatchValidator:
             return False
 
         # --- DYNAMISCHER STAMM-SCHILD IM FALLBACK ---
-        match_fb = SequenceMatcher(None, target_clean, first_slot_text).find_longest_match(0, len(target_clean), 0, len(first_slot_text))
+        match_fb = SequenceMatcher(None, target_clean, first_slot_text).find_longest_match(
+            0, len(target_clean), 0, len(first_slot_text))
         if match_fb.size >= 6:
             t_suf_fb = target_clean[match_fb.a + match_fb.size:]
             o_suf_fb = first_slot_text[match_fb.b + match_fb.size:]
@@ -205,7 +209,8 @@ class MatchValidator:
             if len(t_suf_fb) >= 2 and is_hijack_danger_fb and len(o_suf_fb) >= (len(t_suf_fb) * 0.4):
                 suf_ratio_fb = SequenceMatcher(None, t_suf_fb, o_suf_fb).ratio()
                 if suf_ratio_fb < 0.50:
-                    dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Archetypen-Hijack (Suffix '{t_suf_fb}' vs '{o_suf_fb}', Ratio {suf_ratio_fb:.2f}).\n")
+                    dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Archetypen-Hijack "
+                         f"(Suffix '{t_suf_fb}' vs '{o_suf_fb}', Ratio {suf_ratio_fb:.2f}).\n")
                     return False
 
         sm_fallback = SequenceMatcher(None, target_clean, first_slot_text)
@@ -239,7 +244,8 @@ class MatchValidator:
 
         max_delta = max(2, int(len(target_clean) * 0.25))
         if target_clean in first_slot_text and delta > max_delta:
-            dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Suffix-Hijacking (Delta {delta} > Limit {max_delta}).\n")
+            dlog(f"    [FAILSAFE BLOCK] Fallback blockiert wegen Suffix-Hijacking "
+                 f"(Delta {delta} > Limit {max_delta}).\n")
             return False
 
         for tag, i1, i2, j1, j2 in sm_fallback.get_opcodes():
@@ -264,10 +270,12 @@ class MatchValidator:
                 overlap = common_chars / len(target_clean)
 
                 if overlap >= 0.80:
-                    dlog(f"    [FALLBACK ACTIVE] Slot 00 OCR Scramble valid (sim={similarity:.3f}, delta={delta}, overlap={overlap:.2f}). Erzwinge Klick.\n")
+                    dlog(f"    [FALLBACK ACTIVE] Slot 00 OCR Scramble valid (sim={similarity:.3f}, "
+                         f"delta={delta}, overlap={overlap:.2f}). Erzwinge Klick.\n")
                     return True
                 else:
-                    dlog(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen zu geringem Char-Overlap (overlap={overlap:.2f} < 0.80).\n")
+                    dlog(f"    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen zu geringem Char-Overlap "
+                         f"(overlap={overlap:.2f} < 0.80).\n")
                     return False
             else:
                 dlog("    [FAILSAFE BLOCK] Fallback Scramble blockiert wegen Prefix-Mismatch (Schild aktiv).\n")

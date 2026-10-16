@@ -17,7 +17,8 @@ import pyperclip
 from PIL import Image, ImageOps
 
 from input_utils import FocusLostError, submit_search, type_card_name
-from utils import (DeckCodeError, clean_text, search_text, sanitize_name, parse_clipboard, fetch_card_names, fetch_card_types,
+from utils import (DeckCodeError, clean_text, search_text, sanitize_name, parse_clipboard, fetch_card_names,
+                   fetch_card_types,
                    get_cached_ocr, is_extra_deck_type)
 from card_engine import CardMatcher
 from window_automation import UserInterrupt, WindowAutomator, get_md_window_size
@@ -1309,7 +1310,8 @@ class DeckImporterCore:
             time.sleep(0.125 * self.speed_mult)
         else:
             new_slot0_text = last_seen_slot_00
-            dlog(f"    [BATCH] WARNUNG: Such-Prefix '{prefix_clean}' nicht in Slot 0 erkannt nach 2.5s. Fahre trotzdem fort.\n")
+            dlog(f"    [BATCH] WARNUNG: Such-Prefix '{prefix_clean}' nicht in Slot 0 erkannt nach 2.5s. "
+                 f"Fahre trotzdem fort.\n")
             self._report_trouble("Archetyp-Suche nicht rechtzeitig geladen")
 
         self._last_frame_hash = ""
@@ -1367,7 +1369,9 @@ class DeckImporterCore:
                 second_ratio = candidates[1][1]
                 if second_ratio >= BATCH_MATCH_THRESHOLD and (best_ratio - second_ratio) < AMBIGUITY_MARGIN:
                     is_ambiguous = True
-                    dlog(f"    [BATCH] Slot {slot:02d} '{s_c}' AMBIGUOUS - mehrere Karten matchen via Truncation ({best_key!r}={best_ratio:.3f} vs {candidates[1][0]!r}={second_ratio:.3f}). Überspringe → Einzel-Scan.\n")
+                    dlog(f"    [BATCH] Slot {slot:02d} '{s_c}' AMBIGUOUS - mehrere Karten matchen via Truncation "
+                         f"({best_key!r}={best_ratio:.3f} vs {candidates[1][0]!r}={second_ratio:.3f}). "
+                         f"Überspringe → Einzel-Scan.\n")
 
             hit = None
             if best_key and best_ratio >= BATCH_MATCH_THRESHOLD and not is_ambiguous:
@@ -1387,7 +1391,8 @@ class DeckImporterCore:
                 tag, source, key, ratio = hit
                 cid, _, amount = source.pop(key)
                 match_type = "EXACT" if ratio >= 0.99 else "FUZZY"
-                dlog(f"    [{tag}] Slot {slot:02d} '{s_c}' ==> MATCH '{key}' ({amount}x, {match_type}, ratio={ratio:.3f})\n")
+                dlog(f"    [{tag}] Slot {slot:02d} '{s_c}' ==> MATCH '{key}' "
+                     f"({amount}x, {match_type}, ratio={ratio:.3f})\n")
                 stalled = self._add_card(automator, target_x, target_y, amount, key, cid)
                 self._pause_after_insert()
                 found_cids.add(cid)
@@ -1712,7 +1717,8 @@ class DeckImporterCore:
             time.sleep(0.05 * m)
         return None, last_click
 
-    def _sync_and_stabilize_slot_00(self, sct, automator, monitor, target_x, target_y, last_seen_slot_00, clean_name) -> Tuple[str, str, bool, bool]:
+    def _sync_and_stabilize_slot_00(self, sct, automator, monitor, target_x, target_y, last_seen_slot_00,
+                                    clean_name) -> Tuple[str, str, bool, bool]:
         retries = 0
         empty_reads = 0
         stable_ocr = 0

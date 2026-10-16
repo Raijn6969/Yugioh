@@ -344,7 +344,8 @@ class SidePanel:
         if not self.cards_out and not self.cards_in:
             return "Links Karten raus und rechts Karten rein wählen."
         too_many = [cid for cid in self.cards_in
-                     if self.deck.get(cid, 0) - self.cards_out.get(cid, 0) + self.cards_in[cid] > side_profiles.MAX_COPIES]
+                    if self.deck.get(cid, 0) - self.cards_out.get(cid, 0) + self.cards_in[cid]
+                    > side_profiles.MAX_COPIES]
         if too_many:
             return f"{self.names.get(too_many[0], too_many[0])} wäre danach mehr als 3× im Deck."
         sizes = self._sizes()

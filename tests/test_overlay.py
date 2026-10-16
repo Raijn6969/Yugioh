@@ -383,7 +383,8 @@ class OverlayTest(unittest.TestCase):
         stats.starter.return_value = StarterInfo(True, "sucht", False)
         stats.handtrap.return_value = HandtrapInfo(False, "", False)
         app.card_stats = stats
-        with mock.patch.object(Overlay, "DeckExporter", FakeExporter),                 mock.patch("extras_panel.DeckWatcher.start", lambda self: None):
+        with mock.patch.object(Overlay, "DeckExporter", FakeExporter), \
+                mock.patch("extras_panel.DeckWatcher.start", lambda self: None):
             app.toggle_extras()
             self.pump(root, 0.3)
 
@@ -549,7 +550,9 @@ class OverlayTest(unittest.TestCase):
             self.assertEqual(app.extras.analysis.main_size, 40)
             self.assertFalse(app.is_running)
             # Import startet → Extras gehen zu
-            with mock.patch.object(Overlay, "parse_clipboard", return_value=None),                     mock.patch.object(Overlay.resume_state, "load_progress", return_value=None),                     mock.patch.object(Overlay, "DeckImporterCore") as core:
+            with mock.patch.object(Overlay, "parse_clipboard", return_value=None), \
+                    mock.patch.object(Overlay.resume_state, "load_progress", return_value=None), \
+                    mock.patch.object(Overlay, "DeckImporterCore") as core:
                 app.start_import_thread()
                 self.pump(root, 0.1)
             core.assert_called_once()
@@ -919,7 +922,8 @@ class WindowFrameTest(unittest.TestCase):
         root = tk.Tk()
         try:
             closed = []
-            with mock.patch.object(window_style.win_api, "mouse_button_down", lambda: False),                     mock.patch.object(window_style.win_api, "escape_down", lambda: True):
+            with mock.patch.object(window_style.win_api, "mouse_button_down", lambda: False), \
+                    mock.patch.object(window_style.win_api, "escape_down", lambda: True):
                 window_style.ClickOutside(root, root, lambda: closed.append(True), lambda: not closed)._check()
             self.assertEqual(closed, [True])
         finally:

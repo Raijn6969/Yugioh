@@ -287,7 +287,8 @@ class RealScriptRunTest(TempTest):
 
 @unittest.skipUnless(os.name == "nt", "update.cmd gibt es nur unter Windows")
 class LockedFileTest(TempTest):
-    """Eine gesperrte Datei im Programmordner: Das Skript meldet es per update_failed.txt und startet die exe trotzdem."""
+    """Eine gesperrte Datei im Programmordner: Das Skript meldet es per update_failed.txt und startet die exe
+    trotzdem."""
 
     def test_locked_file_leaves_a_marker_and_still_starts_the_exe(self):
         import ctypes

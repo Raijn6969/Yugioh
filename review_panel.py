@@ -201,7 +201,8 @@ class ReviewPanel:
             if opponent is not None:
                 stats = opponent.stats
                 self._row(f"{label}: {opponent.opp_name}",
-                          f"{sr.rate_text(stats.wins, stats.matches)} ({sr.record_text(stats)}) · {stats.matches} Duelle",
+                          f"{sr.rate_text(stats.wins, stats.matches)} ({sr.record_text(stats)}) "
+                          f"· {stats.matches} Duelle",
                           ROW_ALT if i % 2 else BG, color=GREEN if i == 0 else RED)
         self._section("SERIEN UND AKTIVSTER TAG")
         facts: List[Tuple[str, str]] = [("Längste Siegserie", f"{review.win_streak} in Folge"),

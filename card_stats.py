@@ -955,7 +955,8 @@ class CardStatsDB:
 
     def matches(self, deck_name: Optional[str] = None, mode: Optional[int] = None,
                 limit: int = 200, since: Optional[float] = None, until: Optional[float] = None) -> List[MatchEntry]:
-        """Gespeicherte Matches, das letzte zuerst (optional nur ein Deck, ein Modus bzw. von/bis zu einem Zeitpunkt)."""
+        """Gespeicherte Matches, das letzte zuerst (optional nur ein Deck, ein Modus bzw. von/bis zu einem
+        Zeitpunkt)."""
         where, args = self._match_filter(deck_name, mode, since, until)
         with self._connect() as con:
             rows = con.execute(f"""SELECT did, played_at, mode, result, first, turns, finish, deck_name, deck_code,

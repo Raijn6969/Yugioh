@@ -204,7 +204,8 @@ font-size:14px;cursor:pointer}
 align-items:center;justify-content:center;font-size:9px;text-align:center;color:var(--text);overflow:hidden}
 .badge{position:absolute;right:0;bottom:0;background:#101018;border:1px solid var(--gold);color:var(--gold);
 font-size:10px;font-weight:bold;padding:0 3px}
-.stats{position:absolute;left:0;right:0;bottom:-14px;text-align:center;font-size:10px;font-weight:bold;color:var(--gold)}
+.stats{position:absolute;left:0;right:0;bottom:-14px;text-align:center;font-size:10px;font-weight:bold;
+color:var(--gold)}
 .player{position:absolute;font-size:12px;font-weight:bold}
 .player b{display:block;font-size:17px;color:var(--text)}
 .phase{position:absolute;border-radius:50%;background:#8a1c1c;border:2px solid var(--gold);display:flex;

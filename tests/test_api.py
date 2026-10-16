@@ -33,7 +33,8 @@ class FakeApi:
             main = ALT_ART.get(cid, cid)
             if main in names:
                 data.append({"id": int(main), "name": names[main],
-                             "card_images": [{"id": int(main)}] + [{"id": int(a)} for a, m in ALT_ART.items() if m == main]})
+                             "card_images": [{"id": int(main)}]
+                             + [{"id": int(a)} for a, m in ALT_ART.items() if m == main]})
         response = mock.Mock(status_code=200 if data else 400)
         response.json.return_value = {"data": data} if data else {"error": "No card matching"}
         return response

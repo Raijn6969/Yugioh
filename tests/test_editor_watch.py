@@ -126,7 +126,8 @@ class ShouldShowTest(unittest.TestCase):
         self.assertTrue(self.decide(own=False, md=True, editor=None))     # unbekannt → zeigen
         self.assertTrue(self.decide(own=False, md=True, editor=False, running=True))  # Import läuft
         self.assertTrue(self.decide(own=True, md=False, editor=False))    # Importer selbst angeklickt
-        self.assertTrue(self.decide(own=False, md=False, editor=False, updating=True))  # Update lädt: Fortschritt zeigen
+        # Update lädt: Fortschritt zeigen
+        self.assertTrue(self.decide(own=False, md=False, editor=False, updating=True))
 
 
 if __name__ == "__main__":

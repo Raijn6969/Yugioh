@@ -1075,7 +1075,8 @@ class ExtrasPanel:
         if entry.copies >= 2:
             rows.append(HoverRow("2+ KOPIEN (1. ZUG)", pct(stats.two_first), MUTED))
         starter = stats.starter
-        badge = {True: ("STARTER ✓", GREEN), False: ("KEIN STARTER", MUTED), None: ("STARTER ?", AMBER)}[starter.starter]
+        badge = {True: ("STARTER ✓", GREEN), False: ("KEIN STARTER", MUTED),
+                 None: ("STARTER ?", AMBER)}[starter.starter]
         # Bei "kein Starter" keine Begründung (nur bei Ja bzw. unbekannt interessant)
         note = "" if starter.starter is False else ("von dir festgelegt" if starter.manual else starter.reason)
         # Handtrap nur anzeigen, wenn sie eine ist (mit Begründung)

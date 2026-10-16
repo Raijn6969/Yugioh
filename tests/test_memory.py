@@ -591,7 +591,8 @@ class DirectJumpTest(unittest.TestCase):
         core, game = memory_core({}, [])
         scroll = ListScroll(6251.8, 56371.0, 143.0, 6, 100.0)  # gemessen: oberste Reihe ≈ 43,7
         self.assertIsNone(core._memory_point(game.automator, 43 * 6, scroll))      # oben angeschnitten
-        self.assertEqual(core._memory_point(game.automator, 276, scroll), (100, 100 + round((46 * 143 - 6251.8) / 143 * 140)))
+        self.assertEqual(core._memory_point(game.automator, 276, scroll),
+                         (100, 100 + round((46 * 143 - 6251.8) / 143 * 140)))
         self.assertEqual(core._memory_point(game.automator, 7, ListScroll(0, 0, 143.0, 6, 100.0)), (188, 240))
 
 
