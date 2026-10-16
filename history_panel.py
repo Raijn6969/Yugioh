@@ -112,10 +112,13 @@ class HistoryPanel:
         bar.pack(fill=tk.X, pady=(int(6 * s), 0))
         small = dict(font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.action_buttons = {}
-        for label, role, action in (("Laden", "neutral", self._open), ("Importieren", "primary", self._import),
-                                    ("Kopieren", "neutral", self._copy), ("Löschen", "danger", self._delete)):
+        # Laden links; Importieren, Kopieren, Löschen rechtsbündig (von rechts nach links gepackt)
+        for label, role, action, side in (("Laden", "success", self._open, tk.LEFT),
+                                          ("Löschen", "danger", self._delete, tk.RIGHT),
+                                          ("Kopieren", "neutral", self._copy, tk.RIGHT),
+                                          ("Importieren", "primary", self._import, tk.RIGHT)):
             button = RoundedButton(bar, text=label, command=lambda a=action: self._act(a), role=role, **small)
-            button.pack(side=tk.LEFT, padx=(0, int(6 * s)))
+            button.pack(side=side, padx=(0, int(6 * s)) if side == tk.LEFT else (int(6 * s), 0))
             self.action_buttons[label] = button
 
         self.count_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w")
