@@ -282,6 +282,7 @@ class MatchWatcher:
             if decks:
                 db.remember_md_decks(decks)
         records = []
+        saved = self._pending, self._pending_deck  # _live_record verbraucht sie – bei einem Fehler zurücklegen
         if top == RESULT_VIEW or changed or not self._started:
             record = self._live_record(memory, db)
             if record is not None:
@@ -291,7 +292,11 @@ class MatchWatcher:
             self._last_history = now
             records += parse_history(memory.client_work("DuelHistory"))
         self._started = True
-        new = store_matches(db, records, lambda ids: self._ensure(db, ids)) if records else []
+        try:
+            new = store_matches(db, records, lambda ids: self._ensure(db, ids)) if records else []
+        except Exception:  # z.B. Datenbank gesperrt: im nächsten Durchgang mit derselben Münzwurf-Info nochmal
+            self._pending, self._pending_deck = saved
+            raise
         if new:
             dlog(f"[MATCHES] {len(new)} neue(s) Match(es) erfasst.")
             self.on_new(new)

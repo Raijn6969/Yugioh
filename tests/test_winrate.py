@@ -428,6 +428,18 @@ class MatchWatcherTest(unittest.TestCase):
         self.step(["HomeViewController", mh.HISTORY_VIEW], DuelHistory=history)
         self.assertEqual(self.db.ensure.call_count, 2)             # nach 10 Minuten wieder ein Versuch
 
+    def test_coin_toss_survives_a_failed_save(self):
+        menu = ["HomeViewController"]
+        self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1, "pvp_choice": {"choice": 0}})
+        self.step(menu + ["DuelClient"], Duel={})
+        self.memory.data.pop("Duel")
+        with mock.patch.object(mh, "store_matches", side_effect=OSError("database is locked")):
+            with self.assertRaises(OSError):
+                self.step(menu + [mh.RESULT_VIEW], DuelResult=duel_result(95, mh.WIN))
+        self.assertEqual(self.step(menu + [mh.RESULT_VIEW]), 1)    # nächster Durchgang speichert
+        match = self.new[0][0]
+        self.assertEqual((match.coin, match.first), (True, True))  # Münzwurf-Info ging nicht verloren
+
     def test_choice_read_after_the_coin_toss_result(self):
         menu = ["HomeViewController"]
         self.step(menu + [mh.COIN_TOSS_VIEW], Duel={"myid": 1, "choice": 1})  # gewonnen, wählt noch
