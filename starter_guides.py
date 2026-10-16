@@ -10,7 +10,7 @@ oder "isn't a starter on her own" gesucht.
 import re
 from typing import Dict, Iterable, List, NamedTuple, Optional
 
-import requests
+from lazy_requests import requests
 
 API_URL = "https://www.masterduelmeta.com/api/v1"
 GUIDES_PER_ARCHETYPE = 2   # neueste Guides je Archetyp

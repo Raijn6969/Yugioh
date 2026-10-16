@@ -23,7 +23,7 @@ from contextlib import contextmanager
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from urllib.request import pathname2url
 
-import requests
+from lazy_requests import requests
 
 from app_paths import BUNDLE_DIR, DATA_DIR
 from debug_log import dlog

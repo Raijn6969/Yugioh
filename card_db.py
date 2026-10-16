@@ -12,7 +12,7 @@ import os
 import time
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
-import requests
+from lazy_requests import requests
 
 from app_paths import DATA_DIR
 from debug_log import dlog

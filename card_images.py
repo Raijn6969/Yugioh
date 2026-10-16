@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Iterable, Optional, Tuple
 
 from PIL import Image, ImageTk
-import requests
+from lazy_requests import requests
 
 from app_paths import DATA_DIR
 

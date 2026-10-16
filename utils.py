@@ -7,7 +7,7 @@ import re
 import time
 import unicodedata
 import pyperclip
-import requests
+from lazy_requests import requests
 import base64
 import struct
 import json

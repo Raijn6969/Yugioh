@@ -10,7 +10,7 @@ das Deck die meisten Karten teilt. Verglichen wird über den Kartennamen (Altern
 import time
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 
-import requests
+from lazy_requests import requests
 
 from card_stats import name_key
 from starter_guides import API_URL

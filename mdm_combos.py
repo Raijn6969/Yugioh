@@ -12,7 +12,7 @@ from itertools import combinations
 from math import comb
 from typing import Dict, List, NamedTuple, Optional
 
-import requests
+from lazy_requests import requests
 
 from card_stats import name_key
 from starter_guides import API_URL

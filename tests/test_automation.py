@@ -67,18 +67,24 @@ class WinApiTest(unittest.TestCase):
         import pyautogui
         self.assertEqual(win_api.screen_size(), tuple(pyautogui.size()))
 
-    def test_startup_does_not_load_pyautogui(self):
-        # pyautogui kostet Startzeit und wird erst für Tastenkürzel gebraucht; die DPI-Behandlung (System-DPI-aware,
-        # wie früher durch den Import) muss trotzdem schon beim Start stehen
+    def test_startup_does_not_load_pyautogui_and_requests(self):
+        # Beide kosten Startzeit und werden erst später gebraucht (Tastenkürzel, Netzzugriff). Die DPI-Behandlung
+        # (System-DPI-aware, wie früher durch den Import von pyautogui) muss trotzdem schon beim Start stehen
         import ctypes
         import subprocess
         import sys
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         code = ("import ctypes, sys; sys.path.insert(0, sys.argv[1]); import Overlay; aw = ctypes.c_int(-1); "
                 "ctypes.windll.shcore.GetProcessDpiAwareness(0, ctypes.byref(aw)); "
-                "print('pyautogui' in sys.modules, aw.value)")
+                "print('pyautogui' in sys.modules, 'requests' in sys.modules, aw.value)")
         out = subprocess.run([sys.executable, "-c", code, root], capture_output=True, text=True, timeout=60)
-        self.assertEqual(out.stdout.split(), ["False", "1"], out.stderr)
+        self.assertEqual(out.stdout.split(), ["False", "False", "1"], out.stderr)
+
+    def test_lazy_requests_is_the_real_module(self):
+        import requests
+        from lazy_requests import requests as lazy
+        self.assertIs(lazy.get, requests.get)
+        self.assertIs(lazy.Session, requests.Session)
 
 
 class ClickFocusTest(unittest.TestCase):
