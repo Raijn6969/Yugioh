@@ -772,28 +772,35 @@ class CardStatsDB:
     REPLAY_BEFORE = 1800   # Live erfasste Matches tragen die Zeit des Ergebnisses: Start bis 30 Min. davor
     REPLAY_AFTER = 10      # Match History: Startzeit (wenige Sekunden Abweichung)
 
-    def save_replay(self, info, frames: List[dict]) -> bool:
+    def save_replay(self, info, frames: List[dict], partial: bool = False) -> bool:
         """
-        Mitschnitt speichern. Gibt es zu diesem Duell schon einen längeren, bleibt der – außer die neue Aufnahme hat
-        Duell-Protokoll ("log"), die alte keins und die neue erreicht mindestens 80 % der alten Schritte. Ein gleich
-        langer ersetzt den alten, außer der alte hat ein Protokoll und der neue nicht.
+        Mitschnitt speichern. partial: beim Beenden mitten im Replay abgebrochen (steht als "partial" im letzten
+        Schritt). Eine unvollständige Aufnahme ersetzt nie eine vorhandene, eine vorhandene unvollständige ersetzt
+        jede vollständige. Sonst gewinnt der längere (gleich lang: der neue); mit Duell-Protokoll ("log") zählt der
+        neue schon ab 80 % der alten Schritte, ohne Protokoll gegen eine alte mit Protokoll erst ab 125 %.
         Returns: gespeichert?
         """
         import zlib
         with self._connect() as con:
             old = con.execute("SELECT steps, frames FROM replays WHERE start = ?", (info.start,)).fetchone()
-            if old is not None and old[0] >= len(frames):
-                has_log = lambda fs: any("log" in f for f in fs)  # noqa: E731
-                try:
-                    old_log = has_log(json.loads(zlib.decompress(old[1]).decode()))
-                except (zlib.error, ValueError):
-                    old_log = False
-                if old[0] == len(frames):
-                    keep = old_log and not has_log(frames)
-                else:
-                    keep = old_log or not has_log(frames) or len(frames) < 0.8 * old[0]
-                if keep:
+            try:
+                old_frames = None if old is None else json.loads(zlib.decompress(old[1]).decode())
+            except (zlib.error, ValueError):
+                old_frames = None   # unlesbar: zählt als nicht vorhanden
+            if old_frames is not None:
+                if partial:
                     return False
+                if not (old_frames and old_frames[-1].get("partial")):
+                    has_log = lambda fs: any("log" in f for f in fs)  # noqa: E731
+                    old_log, new_log = has_log(old_frames), has_log(frames)
+                    if old_log == new_log:
+                        keep = len(frames) < old[0]
+                    else:
+                        keep = len(frames) < (0.8 if new_log else 1.25) * old[0]
+                    if keep:
+                        return False
+            if partial and frames:
+                frames = frames[:-1] + [dict(frames[-1], partial=True)]
             con.execute("INSERT OR REPLACE INTO replays VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (info.start, info.replay_did, info.my_id, info.first_player, json.dumps(info.names),
                          json.dumps(info.decks), zlib.compress(json.dumps(frames, separators=(",", ":")).encode()),

@@ -139,7 +139,9 @@ class RecorderTest(unittest.TestCase):
         self.assertFalse(self.rec.recording)
         (info, steps), = self.saved
         self.assertEqual(steps, 3)
-        self.assertEqual(len(self.db.replay_at(info.start).frames), 3)
+        frames = self.db.replay_at(info.start).frames
+        self.assertEqual(len(frames), 3)
+        self.assertEqual([f.get("partial") for f in frames], [None, None, True])   # beim Beenden: unvollständig
 
     def test_stop_discards_a_too_short_recording_and_survives_errors(self):
         self.step(REPLAY, [card(1, 0, rr.HAND, kid=22116)])
@@ -156,11 +158,11 @@ class RecorderTest(unittest.TestCase):
             self.step(REPLAY, [card(1, 0, rr.HAND, kid=kid)])
         real, tries = self.db.save_replay, []
 
-        def flaky(info, frames):
+        def flaky(info, frames, partial=False):
             tries.append(1)
             if len(tries) == 1:
                 raise sqlite3.OperationalError("database is locked")
-            return real(info, frames)
+            return real(info, frames, partial)
         self.db.save_replay = flaky
         with self.assertRaises(sqlite3.OperationalError):
             self.step(["HomeViewController"])                # Replay zu Ende, Speichern scheitert
@@ -250,6 +252,25 @@ class StorageTest(unittest.TestCase):
             self.assertEqual(db.save_replay(info, new), saved)
             kept = db.replay_at(info.start).frames
             self.assertEqual(any("log" in f for f in kept), (new if saved else old) is logged)
+
+    def test_partial_recording_never_replaces_and_is_replaced_by_any_complete_one(self):
+        info = rr.replay_info(DUEL)
+        plain = lambda n: [{"cards": [], "lp": {}, "turn": "", "phase": "", "t": i} for i in range(n)]  # noqa: E731
+        logged = lambda n: [dict(f, log=[{"k": "phase", "p": 1}]) for f in plain(n)]  # noqa: E731
+        db = make_db()
+        self.assertTrue(db.save_replay(info, plain(5), partial=True))           # keine vorhanden: normal gespeichert
+        self.assertTrue(db.replay_at(info.start).frames[-1]["partial"])
+        self.assertFalse(db.save_replay(info, plain(9), partial=True))          # unvollständig ersetzt nie
+        self.assertEqual(len(db.replay_at(info.start).frames), 5)
+        self.assertTrue(db.save_replay(info, plain(3)))                         # jede vollständige ersetzt sie
+        self.assertNotIn("partial", db.replay_at(info.start).frames[-1])
+        self.assertFalse(db.save_replay(info, plain(9), partial=True))          # auch keine vollständige
+        self.assertEqual(len(db.replay_at(info.start).frames), 3)
+        db = make_db()
+        db.save_replay(info, logged(10))
+        self.assertFalse(db.save_replay(info, plain(12)))              # ohne Protokoll: erst ab 125 %
+        self.assertTrue(db.save_replay(info, plain(13)))
+        self.assertEqual(len(db.replay_at(info.start).frames), 13)
 
     def test_each_replay_belongs_to_one_match(self):
         db = make_db()

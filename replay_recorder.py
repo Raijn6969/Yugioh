@@ -86,7 +86,7 @@ class ReplayRecorder:
         self._t0 = 0.0
         self._log_pos = 0          # so viele Protokollzeilen des Spiels sind schon gelesen
         self._log_failed = False   # Fehler beim Protokoll wurde schon ins Log geschrieben
-        self._unsaved = None       # (info, Schritte), wenn das Speichern scheiterte: nächster finish() versucht es neu
+        self._unsaved = None       # (info, Schritte, partial), wenn das Speichern scheiterte: finish() versucht es neu
         self._stop = threading.Event()
 
     @property
@@ -103,7 +103,7 @@ class ReplayRecorder:
             # shortcut: läuft im aufrufenden Thread, evtl. parallel zu einem Durchgang des Rekorder-Threads – im
             # schlimmsten Fall wird derselbe Mitschnitt zweimal gespeichert (INSERT OR REPLACE), ausbauen mit Sperre
             try:
-                self.finish()
+                self.finish(partial=True)
             except Exception as e:  # Beenden darf daran nie scheitern
                 dlog(f"[REPLAY] Mitschnitt beim Beenden nicht gespeichert: {e}")
 
@@ -157,23 +157,23 @@ class ReplayRecorder:
                 dlog(f"[REPLAY] Duell-Protokoll nicht lesbar: {e}")
             return []
 
-    def finish(self) -> None:
-        """Mitschnitt beenden und speichern (zu kurze verwerfen)."""
+    def finish(self, partial: bool = False) -> None:
+        """Mitschnitt beenden und speichern (zu kurze verwerfen); partial: beim Beenden des Importers abgebrochen."""
         info, frames = self.info, self.frames
         self.info, self.frames, self._last, self._log_pos = None, [], None, 0
         if info is None:
-            info, frames = self._unsaved or (None, [])
+            info, frames, partial = self._unsaved or (None, [], False)
         self._unsaved = None
         if info is None or len(frames) < MIN_STEPS:
             return
         try:
             db = self.get_db()
-            saved = None if db is None else db.save_replay(info, frames)
+            saved = None if db is None else db.save_replay(info, frames, partial)
         except Exception:  # Datenbank gesperrt o. Ä.: der Mitschnitt darf nicht verloren gehen
-            self._unsaved = (info, frames)
+            self._unsaved = (info, frames, partial)
             raise
         if saved is None:
-            self._unsaved = (info, frames)
+            self._unsaved = (info, frames, partial)
         elif saved:
             dlog(f"[REPLAY] Mitschnitt gespeichert: {len(frames)} Schritte.")
             self.on_saved(info, len(frames))
