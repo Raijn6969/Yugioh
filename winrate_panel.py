@@ -594,7 +594,7 @@ class WinratePanel:
         if self.duel is not None:
             self.duel.close()
         self.duel = DuelView(self.win, self.db, list(self._shown_matches), index, on_close=self._on_duel_closed,
-                             replay=replay)
+                             replay=replay, settings=self.settings, save_settings=self.save_settings)
 
     def _on_duel_closed(self) -> None:
         self.duel = None

@@ -556,6 +556,22 @@ class AnimationTest(unittest.TestCase):
         button.invoke()
         self.assertEqual((view.speed, button.cget("text")), (1.0, "1×"))
 
+    def test_speed_is_remembered_and_saved_on_change(self):
+        settings, saved = {dv.SPEED_KEY: 2}, []
+        view = dv.DuelView(self.root, mock_db(), [entry(1)], 0, image_folder=self.folder,
+                           settings=settings, save_settings=lambda: saved.append(dict(settings)))
+        self.addCleanup(view.close)
+        self.assertEqual((view.speed, view.ctrl_buttons["speed"].cget("text")), (2, "2×"))
+        view.ctrl_buttons["speed"].invoke()
+        self.assertEqual(settings[dv.SPEED_KEY], 4.0)
+        self.assertEqual(saved, [{dv.SPEED_KEY: 4.0}])
+
+    def test_invalid_saved_speed_falls_back_to_1x(self):
+        view = dv.DuelView(self.root, mock_db(), [entry(1)], 0, image_folder=self.folder,
+                           settings={dv.SPEED_KEY: 3})
+        self.addCleanup(view.close)
+        self.assertEqual((view.speed, view.ctrl_buttons["speed"].cget("text")), (1.0, "1×"))
+
     def test_keys(self):
         view = self.view()
         view.key("Right")                                 # Schritt 1: ohne sichtbare Änderung, springt

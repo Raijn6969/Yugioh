@@ -59,6 +59,7 @@ LP_DOWN, LP_UP = "#ff6464", "#78e68c"
 FRAME_MS = 33            # Animation: ein Bild alle 33 ms
 LEFT_ROOM = 220          # Platz links vom Feld für Schritt-Text und Ketten-Leiste (bei 1080p)
 SPEEDS = (0.5, 1.0, 1.5, 2.0, 4.0)   # Wiedergabe-Tempo, der Knopf schaltet der Reihe nach weiter
+SPEED_KEY = "REPLAY_SPEED"           # Einstellung: gemerktes Replay-Tempo
 STEP_ROW = "#463a18"     # aktuelle Zeile der Schrittliste
 
 PILES = {
@@ -416,13 +417,16 @@ class ReplayStateTracker:
 class DuelView:
     def __init__(self, master: tk.Misc, db, matches: List[MatchEntry], index: int = 0,
                  on_close: Callable[[], None] = lambda: None, image_folder: str = card_images.FOLDER,
-                 replay: bool = False):
+                 replay: bool = False, settings: Optional[dict] = None,
+                 save_settings: Callable[[], None] = lambda: None):
         self.master = master
         self.want_replay = replay         # nur dann wird der Mitschnitt gezeigt, sonst nur die Decklisten
         self.db = db
         self.matches = matches            # das letzte zuerst (wie in der Winrate-Liste)
         self.index = index
         self.on_close = on_close
+        self.settings = {} if settings is None else settings
+        self.save_settings = save_settings
         self.closed = False
         self.names: Dict[str, str] = {}
         self._loaded = None               # Index, dessen Bilder der Hintergrund-Thread fertig geladen hat
@@ -442,7 +446,8 @@ class DuelView:
         self._starts: Optional[Dict[str, int]] = None      # Duell-ID → Start des Mitschnitts (erst bei replay=True)
         self.frame_no = 0
         self.mode = "decks"               # "replay" (Mitschnitt vorhanden) oder "decks"
-        self.speed = 1.0                  # Wiedergabe-Tempo (0,5× … 4×)
+        saved = self.settings.get(SPEED_KEY, 1)
+        self.speed = saved if saved in SPEEDS else 1.0   # Wiedergabe-Tempo (0,5× … 4×), ungültig → 1×
         self.steps: List[rs.Step] = []    # Art/Text/Dauer je Frame (replay_steps)
         self.playing = False
         self._job = None                  # der einzige after-Job für Animation und Abspielen
@@ -494,7 +499,7 @@ class DuelView:
                                    ("play", "▶ Abspielen", self.toggle_play),
                                    ("next", "▶", lambda: self.manual(self.frame_no + 1)),
                                    ("last", "⏭", lambda: self.manual(len(self.replay.frames) - 1, False)),
-                                   ("speed", "1×", self._cycle_speed)):
+                                   ("speed", f"{self.speed:g}×".replace(".", ","), self._cycle_speed)):
             button = RoundedButton(self.controls, text=text, command=command, **small)
             button.pack(side=tk.LEFT, padx=(int(8 * s) if key == "first" else 0, int(4 * s)), pady=int(4 * s))
             self.ctrl_buttons[key] = button
@@ -678,6 +683,8 @@ class DuelView:
             a["dur"] = self.steps[self.frame_no].dur / new
             a["t0"] = now - done * a["dur"]
         self.speed = new
+        self.settings[SPEED_KEY] = new
+        self.save_settings()
         self.ctrl_buttons["speed"].config(text=f"{new:g}×".replace(".", ","))
 
     def _build_steplist(self) -> None:
