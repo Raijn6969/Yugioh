@@ -23,6 +23,7 @@ from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TE
                           HIGHLIGHT, PRIMARY, NEUTRAL, allow_typing)
 
 PLACEHOLDER = "Suchen: Deck, Archetyp oder Karte …"
+SHOWN = 50  # mehr Zeilen kosten spürbar Zeit (je Zeile 3 Knöpfe); die Suche geht über alle
 SEARCH_DELAY_MS = 150  # Erst suchen, wenn kurz nicht getippt wurde
 
 
@@ -139,15 +140,19 @@ class HistoryPanel:
             if query:
                 self.count_label.config(text=f"{len(self.entries)} Treffer für „{query}“", fg=MUTED)
             else:
-                self.count_label.config(text=f"{len(self.entries)} Deck(s) – das letzte oben", fg=MUTED)
+                count = len(self.entries)
+                self.count_label.config(text=f"{count} Deck{'' if count == 1 else 's'} – das letzte oben", fg=MUTED)
         for child in self.inner.winfo_children():
             child.destroy()
         if not self.entries:
             text = "Nichts gefunden" if query else "Noch keine Decks importiert"
             tk.Label(self.inner, text=text, fg=MUTED, bg=BG, font=self.font).pack(pady=int(20 * self.s))
         self.rows = []
-        for i, entry in enumerate(self.entries):
+        for i, entry in enumerate(self.entries[:SHOWN]):
             self.rows.append(self._add_row(entry, ROW_ALT if i % 2 else BG, latest=(i == 0 and not query)))
+        if len(self.entries) > SHOWN:
+            tk.Label(self.inner, text=f"+ {len(self.entries) - SHOWN} weitere – Suche nutzen", fg=MUTED, bg=BG,
+                     font=self.font_small).pack(pady=int(8 * self.s))
         self.canvas.yview_moveto(0)
 
     def _add_row(self, entry: HistoryEntry, bg: str, latest: bool) -> None:

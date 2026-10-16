@@ -785,6 +785,17 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertEqual((self.panel.title_label.cget("text"), self.panel.deck_body.winfo_manager(),
                           self.panel.rescan_btn.winfo_manager()), ("◆ DECK", "pack", "pack"))
 
+    def test_history_shows_at_most_50_decks_and_names_the_rest(self):
+        import history_panel
+        for i in range(60):
+            self.db.add_history(f"#main\n{i + 1}\n", [str(i + 1)], now=i + 1)
+        self.panel.history_btn.invoke()
+        history = self.panel.history
+        self.assertEqual((len(history.entries), len(history.rows)), (60, history_panel.SHOWN))
+        self.assertEqual(history.count_label.cget("text"), "60 Decks – das letzte oben")
+        labels = [w.cget("text") for w in history.inner.winfo_children() if isinstance(w, tk.Label)]
+        self.assertEqual(labels, ["+ 10 weitere – Suche nutzen"])
+
     def test_history_button_left_of_options_opens_deck_without_game(self):
         import extras_panel
         imported = []
