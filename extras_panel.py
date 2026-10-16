@@ -200,27 +200,23 @@ class ExtrasPanel:
                                              radius=int(6 * s))
             self.matchup_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
         self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
-        self.options_menu.add_section("Karten lesen", "für Import, Deck-Scan und Export")
-        self.options_menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
-                                     command=self._on_read_method_changed)
+        menu = self.options_menu
         memory = lambda: self.read_method.get() == "memory"  # noqa: E731
-        self.options_menu.add_section("Tempo", "nur Reserve: „Langsam“ für langsame PCs",
-                                      visible=memory)
-        self.options_menu.add_choice([(label, key) for key, label in SPEEDS.items()], self.speed,
-                                     command=self._on_speed_changed, visible=memory)
-        self.options_menu.add_section("Anzeige")
-        self.options_menu.add_toggles([("Karten-Hover-Scan", self.hover_scan_enabled),
-                                       ("Analyse-Animation", self.animation),
-                                       ("Spalte „2. Zug“", self.show_second)],
-                                      command=self._on_option_changed)
-        self.options_menu.add_section("Programm", visible=lambda: self.has_tray)
-        self.options_menu.add_toggles([("✕ versteckt im Tray", self.close_to_tray)],
-                                      command=self._on_close_to_tray_changed, visible=lambda: self.has_tray)
-        self.options_menu.add_section("", "Starter-Einstufung aus den Deck-Guides von Master Duel Meta")
-        self.options_menu.add_buttons([("Aus Guides nachladen (online)", self.load_guides)])
-        self.options_menu.add_section("", "Kalibrierung – nur nötig, wenn Klicks danebengehen")
-        self.options_menu.add_buttons([("Automatisch kalibrieren", lambda: self._calibrate(self.on_auto_calibrate)),
-                                       ("Assistent (von Hand)", lambda: self._calibrate(self.on_calibrate_manual))])
+        menu.add_section("Lesen & Tempo", "für Import, Scan und Export · Tempo nur beim Speicher lesen")
+        menu.add_choice([(label, key) for key, label in READ_METHODS.items()], self.read_method,
+                        command=self._on_read_method_changed)
+        menu.add_choice([(label, key) for key, label in SPEEDS.items()], self.speed,
+                        command=self._on_speed_changed, visible=memory)
+        menu.add_section("Deck-Fenster")
+        menu.add_toggles([("Hover-Scan", self.hover_scan_enabled), ("Animation", self.animation),
+                          ("Spalte „2. Zug“", self.show_second)], command=self._on_option_changed)
+        menu.add_buttons([("Starter online laden", self.load_guides)])
+        menu.add_section("Programm", "✕ beendet sonst das Programm", visible=lambda: self.has_tray)
+        menu.add_toggles([("✕ versteckt im Tray", self.close_to_tray)], command=self._on_close_to_tray_changed,
+                         visible=lambda: self.has_tray)
+        menu.add_section("Kalibrierung", "nur nötig, wenn Klicks danebengehen")
+        menu.add_buttons([("Automatisch", lambda: self._calibrate(self.on_auto_calibrate)),
+                          ("Von Hand", lambda: self._calibrate(self.on_calibrate_manual))])
 
         # Fuß zuerst packen: er behält seinen Platz, die Deck-Ansicht bzw. die gewählte Ansicht füllt den Rest
         footer = tk.Frame(self.win, bg=BG)

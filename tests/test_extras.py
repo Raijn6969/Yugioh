@@ -1096,7 +1096,7 @@ class ExtrasPanelTest(unittest.TestCase):
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
         self.assertTrue(self.panel.hover_scan_enabled.get())
-        self.panel.options_menu.invoke("Karten-Hover-Scan")
+        self.panel.options_menu.invoke("Hover-Scan")
         self.assertFalse(self.panel.hover_scan_enabled.get())
         self.assertEqual(saved[-1]["DECK_HOVER_SCAN_ENABLED"], False)
 
@@ -1107,18 +1107,18 @@ class ExtrasPanelTest(unittest.TestCase):
         self.root.update()
         menu = self.panel.options_menu
         self.assertTrue(menu.is_open)
-        self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Karten-Hover-Scan",
-                                             "Spalte „2. Zug“", "Analyse-Animation",
-                                             "Aus Guides nachladen (online)", "Automatisch kalibrieren",
-                                             "Assistent (von Hand)"})
+        self.assertEqual(set(menu.buttons), {"Speicher lesen", "Texterkennung", "Hover-Scan",
+                                             "Spalte „2. Zug“", "Animation",
+                                             "Starter online laden", "Automatisch",
+                                             "Von Hand"})
         # Buttons einer Reihe nebeneinander
         self.assertIs(menu.buttons["Speicher lesen"].master, menu.buttons["Texterkennung"].master)
         menu.invoke("Speicher lesen")
         self.assertTrue(menu.is_open)  # Umschalten lässt das Fenster offen
         self.assertEqual(menu.buttons["Speicher lesen"]._opts["fill"], options_popup.CHOSEN)
         self.assertEqual(menu.buttons["Texterkennung"]._opts["fill"], options_popup.OFF)
-        menu.invoke("Analyse-Animation")  # war an → aus
-        self.assertEqual(menu.buttons["Analyse-Animation"]._opts["fill"], options_popup.OFF)
+        menu.invoke("Animation")  # war an → aus
+        self.assertEqual(menu.buttons["Animation"]._opts["fill"], options_popup.OFF)
         menu.close()
         self.assertFalse(menu.is_open)
 
@@ -1128,12 +1128,12 @@ class ExtrasPanelTest(unittest.TestCase):
         menu = self.panel.options_menu
         self.panel._open_options()
         self.root.update()
-        menu.invoke("Automatisch kalibrieren")
+        menu.invoke("Automatisch")
         auto.assert_called_once_with()
         self.assertFalse(menu.is_open)  # schließt sich vor der Kalibrierung
         self.panel._open_options()
         self.root.update()
-        menu.invoke("Assistent (von Hand)")
+        menu.invoke("Von Hand")
         manual.assert_called_once_with()
         self.assertFalse(menu.is_open)
 
@@ -1157,7 +1157,7 @@ class ExtrasPanelTest(unittest.TestCase):
 
     def test_animation_can_be_switched_off(self):
         self.panel.set_scan(self.scan)
-        self.panel.options_menu.invoke("Analyse-Animation")  # aus
+        self.panel.options_menu.invoke("Animation")  # aus
         self.assertFalse(self.panel.settings["DECK_HOVER_ANIMATION"])
         self.cursor = FRAME.point(*self.scan.zones[0][1][1])
         self.pump(0.3)
@@ -1214,7 +1214,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(self.panel.analysis.starter(lukias).starter)
         found = Verdict("Lukias", False, "Lukias isn't a starter on his own.", "Dracotail Guide")
         with mock.patch.object(extras_panel.starter_guides, "lookup", return_value=[found]) as lookup:
-            self.panel.options_menu.invoke("Aus Guides nachladen (online)")
+            self.panel.options_menu.invoke("Starter online laden")
             self.panel._guide_thread.join(5)
             self.pump(0.15)
         self.assertEqual(lookup.call_args.args[0], ["Dracotail"])  # Archetyp mit 3 Karten im Deck
