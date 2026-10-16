@@ -25,6 +25,7 @@ SIGNATURE_SIZE = (48, 12)
 SAME_IMAGE = 6.0        # mittlere Abweichung (0–255), bis zu der zwei Ausschnitte als gleich gelten
 CACHE_SIZE = 12
 NEGATIVE_CONFIRM = 2
+GRACE_AFTER_FOCUS = 1.5  # nach dem Zurückwechseln nicht prüfen: das Spiel zeichnet neu (schwarz/halb) → Flackern
 
 
 def header_signature(image: Image.Image) -> bytes:
@@ -87,6 +88,8 @@ class EditorWatcher:
         self.detector: Optional[EditorDetector] = None
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self._was_front = False
+        self._grace_until = 0.0
 
     @property
     def visible(self) -> Optional[bool]:
@@ -99,6 +102,15 @@ class EditorWatcher:
     def stop(self) -> None:
         self._stop.set()
 
+    def _should_check(self, now: float) -> bool:
+        """Prüfen? Nicht im Hintergrund, nicht pausiert und nicht in der Schonzeit nach dem Zurückwechseln."""
+        if not self.md_front:
+            self._was_front = False
+            return False
+        if not self._was_front:
+            self._was_front, self._grace_until = True, now + GRACE_AFTER_FOCUS
+        return not self.paused and now >= self._grace_until
+
     def _run(self) -> None:
         with mss.MSS() as sct:  # mss-Instanzen gehören zu ihrem Thread
             state = {"frame": None}
@@ -109,7 +121,7 @@ class EditorWatcher:
             self.detector = EditorDetector(read_text)
             while not self._stop.wait(CHECK_INTERVAL):
                 try:
-                    if not self.md_front or self.paused:
+                    if not self._should_check(time.monotonic()):
                         continue
                     frame = md_layout.md_frame()
                     state["frame"] = frame

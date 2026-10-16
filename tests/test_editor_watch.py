@@ -63,6 +63,33 @@ class EditorDetectorTest(unittest.TestCase):
         self.assertIsNone(self.tick(header("Neu", shade=200), seconds=2))
 
 
+class GraceAfterFocusTest(unittest.TestCase):
+    def test_transition_image_after_switching_back_is_ignored(self):
+        watcher = editor_watch.EditorWatcher("tesseract")
+        answers = [True, False]
+        watcher.detector = editor_watch.EditorDetector(lambda: answers.pop(0), clock=lambda: now)
+        now = 100.0
+        watcher.md_front = True
+        self.assertFalse(watcher._should_check(now))  # erste Sekunden nach dem Start: Schonzeit
+        now += editor_watch.GRACE_AFTER_FOCUS
+        self.assertTrue(watcher._should_check(now))
+        self.assertTrue(watcher.detector.update(header("Main Deck")))
+        watcher.md_front = False                       # Alt-Tab weg
+        self.assertFalse(watcher._should_check(now + 60))
+        now += 60
+        watcher.md_front = True                        # zurück: Spiel zeichnet noch schwarz
+        for _ in range(3):
+            now += editor_watch.CHECK_INTERVAL
+            if watcher._should_check(now):             # (so wie _run) nur dann das Bild prüfen
+                watcher.detector.update(header("", shade=0))
+        self.assertEqual(answers, [False])             # Übergangsbild wurde nicht gelesen
+        self.assertTrue(watcher.visible)               # alter Wert bleibt, kein Ausblenden
+        now += editor_watch.GRACE_AFTER_FOCUS
+        self.assertTrue(watcher._should_check(now))    # danach normal
+        watcher.paused = True
+        self.assertFalse(watcher._should_check(now))
+
+
 class ShouldShowTest(unittest.TestCase):
     def decide(self, own, md, editor, running=False, updating=False):
         fake = type("App", (), {})()
