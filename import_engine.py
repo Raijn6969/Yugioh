@@ -1191,7 +1191,10 @@ class DeckImporterCore:
         time.sleep(0.4)
         automator.iron_grip_click(*self.config["TRASH_CONFIRM"])
         time.sleep(0.5)
-        if not automator.is_crafting_active():
+        active = automator.is_crafting_active()
+        if active is None:  # Pixel nicht lesbar: nicht klicken (der Klick schaltet um, evtl. wäre er schon aktiv)
+            dlog("[DECK LEEREN] Crafting-Knopf: Farbe nicht lesbar → Zustand unbekannt, nicht angeklickt.")
+        elif not active:
             automator.iron_grip_click(*self.config["UNOWNED_BTN"])
             time.sleep(0.15)
 

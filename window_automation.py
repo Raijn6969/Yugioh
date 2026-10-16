@@ -182,13 +182,13 @@ class WindowAutomator:
             on_time = on_time + 1 if time.perf_counter() - t < 0.035 else 0
         time.sleep(0.25)  # Master Duel braucht nach einem Hänger meist noch ein paar Frames
 
-    def is_crafting_active(self):
-        """Ist der Crafting-Button aktiv (grün)? Liest die Pixelfarbe an UNOWNED_BTN."""
+    def is_crafting_active(self) -> Optional[bool]:
+        """Ist der Crafting-Button aktiv (grün)? Liest die Pixelfarbe an UNOWNED_BTN. None = nicht lesbar."""
         try:
             rgb = win_api.get_pixel(*self.config["UNOWNED_BTN"])
             if rgb is None:
-                return False
+                return None
             r, g, b = rgb
             return g > 100 and g > r + 20 and g > b + 20
         except Exception:
-            return False
+            return None

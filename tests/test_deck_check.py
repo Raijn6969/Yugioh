@@ -88,6 +88,25 @@ def read(zone, names):
     return [ExportedCard(zone, i + 1, name, CardMatch(str(i), name, True)) for i, name in enumerate(names)]
 
 
+class ClearDeckTest(unittest.TestCase):
+    def clear(self, crafting_active):
+        core = make_core()
+        core.config = {"TRASH_BTN": [1, 1], "TRASH_CONFIRM": [2, 2], "UNOWNED_BTN": [3, 3]}
+        automator = mock.Mock()
+        automator.is_crafting_active.return_value = crafting_active
+        with mock.patch("import_engine.time.sleep"):
+            core._clear_existing_deck(automator)
+        return [c.args for c in automator.iron_grip_click.call_args_list]
+
+    def test_crafting_button_is_switched_on_only_when_known_to_be_off(self):
+        self.assertEqual(self.clear(False), [(1, 1), (2, 2), (3, 3)])
+        self.assertEqual(self.clear(True), [(1, 1), (2, 2)])
+
+    def test_unreadable_button_is_not_clicked(self):
+        # Der Klick schaltet um: War der Knopf schon aktiv, würde er ausgeschaltet
+        self.assertEqual(self.clear(None), [(1, 1), (2, 2)])
+
+
 class FinalDeckCheckTest(unittest.TestCase):
     def run_check(self, reads):
         core = make_check_core()

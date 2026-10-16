@@ -126,6 +126,21 @@ class ClickFocusTest(unittest.TestCase):
             self.click(md_in_front=False)
 
 
+class CraftingButtonTest(unittest.TestCase):
+    def state(self, pixel):
+        a = wa.WindowAutomator.__new__(wa.WindowAutomator)
+        a.config = {"UNOWNED_BTN": [10, 10]}
+        with mock.patch.object(win_api, "get_pixel", return_value=pixel):
+            return a.is_crafting_active()
+
+    def test_green_is_active_other_color_is_not(self):
+        self.assertIs(self.state((40, 200, 60)), True)
+        self.assertIs(self.state((90, 90, 90)), False)
+
+    def test_unreadable_pixel_is_unknown_not_inactive(self):
+        self.assertIsNone(self.state(None))
+
+
 class UserInterruptionTest(unittest.TestCase):
     def test_first_check_with_none_pos_does_not_interrupt(self):
         a = wa.WindowAutomator.__new__(wa.WindowAutomator)
