@@ -217,6 +217,37 @@ class OldTableTest(unittest.TestCase):
         self.assertEqual((old.did, old.md_deck, old.opp_name, old.coin), ("1", "", "Snake-Eye", None))
         self.assertEqual(latest.coin, None)
 
+    def test_indexes_are_added_to_an_existing_database(self):
+        import sqlite3
+        path = os.path.join(tempfile.mkdtemp(), "stats.db")
+        CardStatsDB(path, base_path=None, fetch=lambda ids: {})
+        with sqlite3.connect(path) as con:
+            con.execute("DROP INDEX matches_by_deck")
+            con.execute("DROP INDEX matches_by_time")
+        con.close()
+        CardStatsDB(path, base_path=None, fetch=lambda ids: {})
+        with sqlite3.connect(path) as con:
+            names = {row[1] for row in con.execute("PRAGMA index_list(matches)")}
+        con.close()
+        self.assertLessEqual({"matches_by_deck", "matches_by_time"}, names)
+
+    def test_md_decks_are_only_written_when_changed(self):
+        from card_stats import MdDeck
+        db = CardStatsDB(os.path.join(tempfile.mkdtemp(), "stats.db"), base_path=None, fetch=lambda ids: {})
+
+        def seen():
+            with db._connect() as con:
+                return con.execute("SELECT seen_at FROM md_decks WHERE deck_id = '13'").fetchone()[0]
+        deck = MdDeck("13", "Ryzeal", [1, 2], [3])
+        db.remember_md_decks([deck])
+        first = seen()
+        with mock.patch("card_stats.time.time", return_value=first + 100):
+            db.remember_md_decks([deck])
+            self.assertEqual(seen(), first)  # unverändert: nichts geschrieben
+            db.remember_md_decks([deck._replace(main=[1, 2, 2])])
+            self.assertEqual(seen(), first + 100)
+        self.assertEqual(db.md_deck("13").main, [1, 2, 2])
+
 
 class FakeIl2Cpp:
     NAMES = {0x10: "Dictionary`2", 0x20: "List`1", 0x30: "String", 0x40: "Int64", 0x50: "Boolean", 0x60: "ClientWork"}

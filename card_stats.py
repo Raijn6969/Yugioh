@@ -19,7 +19,7 @@ import os
 import re
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from urllib.request import pathname2url
 
@@ -193,6 +193,9 @@ def create_tables(con: sqlite3.Connection) -> None:
     for column, kind in (("md_deck", "TEXT DEFAULT ''"), ("source", "TEXT DEFAULT 'history'"), ("coin", "INTEGER")):
         if column not in columns:
             con.execute(f"ALTER TABLE matches ADD COLUMN {column} {kind}")
+    # Für ORDER BY played_at und die Unterabfragen je Deck (deck_win_stats) – sonst Vollscan bei vielen Matches
+    con.execute("CREATE INDEX IF NOT EXISTS matches_by_time ON matches (played_at, did)")
+    con.execute("CREATE INDEX IF NOT EXISTS matches_by_deck ON matches (deck_name, played_at)")
     # Decks in Master Duel (aus der Deck-Auswahl gelesen): Welches Deck gerade gewählt ist, steht nur als ID im Spiel
     con.execute("""CREATE TABLE IF NOT EXISTS md_decks (
                        deck_id TEXT PRIMARY KEY, name TEXT, main TEXT, extra TEXT, seen_at REAL)""")
@@ -273,6 +276,7 @@ class CardStatsDB:
         self._info_cache: Dict[str, Optional[CardInfo]] = {}
         self._konami_names_cache: Optional[Dict[int, str]] = None
         self._konami_passcodes_cache: Optional[Dict[int, str]] = None
+        self._names_cache: Optional[Dict[str, List[str]]] = None  # name_key → IDs (ids_by_name)
         with self._connect() as con:
             create_tables(con)
 
@@ -351,7 +355,8 @@ class CardStatsDB:
         for base in self._sources():
             with self._connect(base) as con:
                 for cid, name in con.execute(
-                        """SELECT id, name FROM cards WHERE name LIKE ? AND id IN (SELECT id FROM konami)
+                        """SELECT id, name FROM cards WHERE name LIKE ?
+                             AND EXISTS (SELECT 1 FROM konami WHERE konami.id = cards.id)
                            ORDER BY name LIKE ? DESC, length(name) LIMIT ?""", (pattern, text + "%", limit * 3)):
                     if name not in found or int(cid) < int(found[name]):
                         found[name] = cid
@@ -388,6 +393,7 @@ class CardStatsDB:
             return len(missing)
         now = time.time()
         self._info_cache.update(found)
+        self._names_cache = None
         with self._connect() as con:
             con.executemany("INSERT OR REPLACE INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [(*info, now) for info in found.values()])
@@ -401,6 +407,7 @@ class CardStatsDB:
         found = self._fetch(sorted({str(i) for i in ids if i}))
         now = time.time()
         self._info_cache.update(found)
+        self._names_cache = None
         with self._connect() as con:
             con.executemany("INSERT OR REPLACE INTO cards VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                             [(*info, now) for info in found.values()])
@@ -410,15 +417,16 @@ class CardStatsDB:
 
     def ids_by_name(self, names: Iterable[str]) -> Dict[str, List[str]]:
         """{Name: [IDs]} – alle Artworks einer Karte, Schreibweise wie in name_key()."""
-        wanted = {name_key(n): n for n in names}
-        result: Dict[str, List[str]] = {}
-        for base in self._sources():
-            with self._connect(base) as con:
-                for cid, name in con.execute("SELECT id, name FROM cards"):
-                    original = wanted.get(name_key(name or ""))
-                    if original is not None and cid not in result.get(original, []):
-                        result.setdefault(original, []).append(cid)
-        return result
+        if self._names_cache is None:  # Vollscan + name_key je Karte (21 ms): einmal merken
+            index: Dict[str, List[str]] = {}
+            for base in self._sources():
+                with self._connect(base) as con:
+                    for cid, name in con.execute("SELECT id, name FROM cards"):
+                        ids = index.setdefault(name_key(name or ""), [])
+                        if cid not in ids:
+                            ids.append(cid)
+            self._names_cache = index
+        return {n: list(self._names_cache[name_key(n)]) for n in names if name_key(n) in self._names_cache}
 
     def store_guide(self, verdicts) -> Dict[str, bool]:
         """Einstufungen aus Guides speichern (starter_guides.Verdict). Returns: {ID: Starter ja/nein}"""
@@ -517,35 +525,37 @@ class CardStatsDB:
 
     # ── Starter ──
     def starter(self, cid: str) -> StarterInfo:
-        with self._connect() as con:
-            row = con.execute("SELECT starter FROM starter_overrides WHERE id = ?", (str(cid),)).fetchone()
-        if row is not None:
-            return StarterInfo(bool(row[0]), "von dir festgelegt", True)
-        guide = self._query(False, "SELECT starter, reason FROM starter_guide WHERE id = ?", cid)
-        if guide is not None:
-            return StarterInfo(bool(guide[0]), guide[1], False)
-        if self.base_path:
-            curated = self._query(True, "SELECT starter, reason FROM starter_curated WHERE id = ?", cid)
-            if curated is not None:
-                return StarterInfo(bool(curated[0]), curated[1], False)
-        # Gespeichertes Ergebnis der Textregeln (eigene Datei: online nachgeladene Karten, dann Grunddatenbank)
-        for base in self._sources():
-            stored = self._query(base, "SELECT starter, reason FROM starter_auto WHERE id = ?", cid, current=True)
-            if stored is not None:
-                return StarterInfo(None if stored[0] is None else bool(stored[0]), stored[1], False)
+        with ExitStack() as stack:  # je Datei eine Verbindung für alle Abfragen (statt bis zu 6 je Karte)
+            own = stack.enter_context(self._connect())
+            base = stack.enter_context(self._connect(True)) if self.base_path else None
+            row = own.execute("SELECT starter FROM starter_overrides WHERE id = ?", (str(cid),)).fetchone()
+            if row is not None:
+                return StarterInfo(bool(row[0]), "von dir festgelegt", True)
+            guide = self._query(own, "SELECT starter, reason FROM starter_guide WHERE id = ?", cid)
+            if guide is not None:
+                return StarterInfo(bool(guide[0]), guide[1], False)
+            if base is not None:
+                curated = self._query(base, "SELECT starter, reason FROM starter_curated WHERE id = ?", cid)
+                if curated is not None:
+                    return StarterInfo(bool(curated[0]), curated[1], False)
+            # Gespeichertes Ergebnis der Textregeln (eigene Datei: online nachgeladene Karten, dann Grunddatenbank)
+            for con in (own, base):
+                stored = con and self._query(con, "SELECT starter, reason FROM starter_auto WHERE id = ?", cid,
+                                             current=True)
+                if stored:
+                    return StarterInfo(None if stored[0] is None else bool(stored[0]), stored[1], False)
         info = self.info(cid)
         if info is None:
             return StarterInfo(None, "keine Kartendaten (offline?)", False)
         guess = classify(info.card_type, info.frame, info.desc, info.level, info.race)
         return StarterInfo(guess.starter, guess.reason, False)
 
-    def _query(self, base: bool, sql: str, cid: str, current: bool = False):
+    def _query(self, con: sqlite3.Connection, sql: str, cid: str, current: bool = False):
         """Eine Zeile zur Karte; current=True: nur, wenn die gespeicherten Ergebnisse zur Regel-Version passen."""
         try:
-            with self._connect(base) as con:
-                if current and not self._auto_current(con):
-                    return None
-                return con.execute(sql, (str(cid),)).fetchone()
+            if current and not self._auto_current(con):
+                return None
+            return con.execute(sql, (str(cid),)).fetchone()
         except sqlite3.OperationalError:  # ältere Datenbank ohne diese Tabelle
             return None
 
@@ -669,10 +679,12 @@ class CardStatsDB:
                              None if coin is None else int(coin)))
 
     def remember_md_decks(self, decks: Iterable[MdDeck]) -> None:
+        """Nur geänderte oder neue Decks schreiben (der Wächter ruft das bei jedem Fensterwechsel auf)."""
+        rows = [(d.deck_id, d.name, ",".join(map(str, d.main)), ",".join(map(str, d.extra))) for d in decks]
         with self._connect() as con:
+            known = {row[0]: row for row in con.execute("SELECT deck_id, name, main, extra FROM md_decks")}
             con.executemany("INSERT OR REPLACE INTO md_decks VALUES (?, ?, ?, ?, ?)",
-                            [(d.deck_id, d.name, ",".join(map(str, d.main)), ",".join(map(str, d.extra)),
-                              time.time()) for d in decks])
+                            [(*row, time.time()) for row in rows if known.get(row[0]) != row])
 
     def md_deck(self, deck_id: str) -> Optional[MdDeck]:
         with self._connect() as con:

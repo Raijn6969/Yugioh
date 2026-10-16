@@ -233,6 +233,14 @@ class CardStatsDbTest(unittest.TestCase):
         self.assertFalse(offline.starter("2").starter)
         self.assertEqual(offline.info("1").level, 4)
 
+    def test_ids_by_name_is_remembered_and_sees_new_cards(self):
+        db = self.make_db()
+        self.assertEqual(db.ids_by_name(["Lukias", "gibt es nicht"]), {})
+        db.ensure(["1"])  # Karte "lukias" kommt dazu → der gemerkte Index muss neu gelesen werden
+        self.assertEqual(db.ids_by_name(["LUKIAS", "gibt es nicht"]), {"LUKIAS": ["1"]})
+        with mock.patch.object(db, "_connect", side_effect=AssertionError("zweiter Vollscan")):
+            self.assertEqual(db.ids_by_name(["lukias"]), {"lukias": ["1"]})
+
     def test_offline_without_data_is_unknown(self):
         db = self.make_db(offline=True)
         self.assertEqual(db.ensure(["1"]), 1)
