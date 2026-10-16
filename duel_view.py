@@ -490,7 +490,7 @@ class DuelView:
         self.older_btn = RoundedButton(header, text="◀ älter", command=lambda: self.step(1), **small)
         self.older_btn.pack(side=tk.RIGHT, padx=(0, int(4 * s)))
         # Bedienung des Replays (nur sichtbar, wenn es einen Mitschnitt gibt)
-        self.controls = tk.Frame(self.win, bg=PANEL)
+        self.controls = tk.Frame(header, bg=PANEL)   # sitzt in der Titelleiste (eine Leiste statt zwei)
         self.ctrl_buttons = {}
         for key, text, command in (("first", "⏮", lambda: self.manual(0, False)),
                                    ("back", "◀", lambda: self.manual(self._neighbour(-1))),
@@ -532,7 +532,7 @@ class DuelView:
         screen_w, screen_h = self.master.winfo_screenwidth(), self.master.winfo_screenheight()
         h = screen_h - 80
         # Zeichenfläche ohne Kopfzeile, Replay-Bedienung und Schrittliste
-        h_canvas, w_max = h - int(76 * s), screen_w - 40 - self.side_w
+        h_canvas, w_max = h - int(44 * s), screen_w - 40 - self.side_w
         left = self._field_fit(w_max, h_canvas)[4]
         w = min(w_max, int(LEFT_ROOM * s) + w_max - left)   # links Platz für Text, das Feld nutzt den Rest
         self.size = (w, h_canvas)
@@ -566,7 +566,7 @@ class DuelView:
         if self.replay:
             self.tracker = ReplayStateTracker(self.replay.frames, db=self.db, passcode_func=self.passcode,
                                           my_id=self.replay.my_id)
-            self.controls.pack(fill=tk.X, before=self.body)
+            self.controls.pack(side=tk.LEFT, fill=tk.X, expand=True)
         else:
             self.tracker = None
             self.controls.pack_forget()
@@ -699,7 +699,7 @@ class DuelView:
         self.ctrl_buttons["speed"].config(text=f"{new:g}×".replace(".", ","))
 
     def _build_steplist(self) -> None:
-        """Schrittliste rechts: nur Schritte mit sichtbarer Änderung, je Zeile Zug/Phase klein und der Schritt-Text."""
+        """Schrittliste rechts: nur Schritte mit sichtbarer Änderung, Zug/Phase klein beim Wechsel, je Zeile der Schritt-Text."""
         c, s = self.steplist, self.s
         c.delete("all")
         self._rows: List[Tuple[int, int, int]] = []   # (Frame, oberer, unterer Rand)
@@ -708,14 +708,18 @@ class DuelView:
         c.yview_moveto(0)
         width = self.side_w - int(12 * s)
         y, pad = int(4 * s), int(6 * s)
+        last_when = None
         for n, step in enumerate(self.steps if self.replay else ()):
             if not step.text:   # auch gleitende Schritte ohne Text (Beschwörung steht schon im Protokoll)
                 continue
             frame = self.replay.frames[n]
             when_ = "  ·  ".join(x for x in (frame.get("turn"), frame.get("phase")) if x)
-            head = c.create_text(pad, y + int(3 * s), text=when_, anchor="nw", fill=MUTED, font=self.font_small)
+            top = y + int(3 * s)
+            if when_ != last_when:   # Zug/Phase nur beim Wechsel
+                top = c.bbox(c.create_text(pad, top, text=when_, anchor="nw", fill=MUTED, font=self.font_small))[3]
+                last_when = when_
             opp = step.focus is not None and step.focus.team != self.replay.my_id
-            body = c.create_text(pad, c.bbox(head)[3], text=step.text, anchor="nw", width=width - 2 * pad,
+            body = c.create_text(pad, top, text=step.text, anchor="nw", width=width - 2 * pad,
                                  fill="#dc96a0" if opp else TEXT, font=self.font_small_bold)
             bottom = c.bbox(body)[3] + int(4 * s)
             bg = c.create_rectangle(0, y, width, bottom, fill=PANEL, outline="")

@@ -146,6 +146,7 @@ class DuelViewTest(unittest.TestCase):
         wanted.older_btn.invoke()
         self.assertIsNotNone(wanted.replay)
         self.assertEqual((wanted.mode, wanted.controls.winfo_manager()), ("replay", "pack"))
+        self.assertEqual(str(wanted.controls.master), str(wanted.title_label.master))   # eine Leiste
         wanted.newer_btn.invoke()
         self.assertIsNone(wanted.replay)
         wanted.older_btn.invoke()
@@ -371,7 +372,7 @@ class AnimationTest(unittest.TestCase):
                 w, h = view.size
                 cw, ch, cols, rows = view._geometry()
                 self.assertLessEqual(w + view.side_w, screen_w - 40)
-                self.assertLessEqual(h + int(76 * view.s), screen_h - 80)
+                self.assertLessEqual(h + int(44 * view.s), screen_h - 80)
                 self.assertGreaterEqual(cols[0], 0)
                 self.assertLessEqual(cols[6] + cw, w)
                 self.assertLessEqual(rows["my_hand"] + ch, h)
@@ -518,7 +519,7 @@ class AnimationTest(unittest.TestCase):
         self.assertEqual([n for n, top, bottom in view._rows], [2, 4])           # Schritte 0, 1, 3: "still"
         texts = self.list_texts(view)
         self.assertIn("Du beschwörst eine Karte", texts)
-        self.assertIn("Turn 1  ·  Main1", texts)
+        self.assertEqual(texts.count("Turn 1  ·  Main1"), 1)   # Zug/Phase nur beim Wechsel, nicht je Zeile
         self.assertNotIn("", texts)
         view.manual(1)
         view.manual(2)                                    # animiert
