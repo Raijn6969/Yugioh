@@ -846,6 +846,7 @@ class DeckImporterCore:
         dlog(f"    [SPEICHER] Ausgefallen ({error}) → weiter mit Texterkennung.")
         self.notes.append(f"Speicher-Modus während des Imports ausgefallen ({error}) – Rest per Texterkennung.")
         self.memory, self.memory_fallback = None, True
+        self.apply_saved_speed()
 
     def _memory_deck_count(self, kid: int) -> int:
         main, extra = self.memory.deck()
@@ -1497,6 +1498,7 @@ class DeckImporterCore:
         except Exception as e:
             dlog(f"[SPEICHER] Deck nicht lesbar ({e}) → Kontrolle per Texterkennung.")
             self.memory, self.memory_fallback = None, True
+            self.apply_saved_speed()
             return None
 
     def _memory_cards(self, deck: Tuple[List[int], List[int]]) -> list:
@@ -1520,6 +1522,7 @@ class DeckImporterCore:
             dlog(f"[SPEICHER] Lesen fehlgeschlagen ({e}) → weiter mit Texterkennung.")
             self.notes.append(f"Speicher-Modus während des Imports ausgefallen ({e}) – Rest per Texterkennung.")
             self.memory, self.memory_fallback = None, True
+            self.apply_saved_speed()
             return None
         if kid and kid not in self._kid_names and kid not in self._unnamed:
             self._learn_kid(kid)

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import deck_export
 import import_engine as ie
 import resume_state
 from deck_counter import DeckCounter
@@ -109,6 +110,27 @@ class AdaptiveTempoTest(unittest.TestCase):
         core.speed_mult = 1.5  # Selbstheilung war schon langsamer
         core.apply_saved_speed()
         self.assertEqual(core.speed_mult, 1.5)
+
+    def test_real_fallback_branches_apply_saved_speed(self):
+        args = ("", lambda *a: None, lambda **k: None)
+        core = ie.DeckImporterCore({"SPEED_PROFILE": "slow"}, *args, memory=True)
+        with mock.patch("card_stats.CardStatsDB", side_effect=OSError("DB")):
+            core._setup_memory([], {})  # Import: Einrichtung scheitert
+        self.assertEqual((core.memory_fallback, core.speed_mult), (True, 1.5))
+        core = ie.DeckImporterCore({"SPEED_PROFILE": "slow"}, *args, memory=True)
+        core.memory = mock.Mock()
+        core.memory.deck.side_effect = OSError("Spiel beendet")
+        self.assertIsNone(core._memory_deck())  # Import: Ausfall mitten im Lauf
+        self.assertEqual((core.memory_fallback, core.speed_mult), (True, 1.5))
+
+    def test_export_fallback_applies_saved_speed(self):
+        exporter = deck_export.DeckExporter({"SPEED_PROFILE": "slow"}, "", lambda *a: None, lambda **k: None,
+                                            frame=ie.md_layout.Frame(0, 0, 1920, 1080), memory=True)
+        self.assertEqual(exporter.reader.speed_mult, 1.0)
+        with mock.patch("md_memory.shared", side_effect=deck_export.MemoryUnavailable("Editor zu")),                 mock.patch.object(deck_export.vision_engine, "check_tesseract", return_value="aus"):
+            with self.assertRaises(RuntimeError):
+                exporter.scan()
+        self.assertEqual(exporter.reader.speed_mult, 1.5)
 
     def test_single_hiccup_does_not_slow_down(self):
         core = make_core("normal")
