@@ -28,6 +28,7 @@ from types import SimpleNamespace
 import tkinter.font as tkfont
 from typing import Callable, Dict, List, Optional
 
+import autostart
 import md_layout
 import win_api
 import starter_guides
@@ -164,6 +165,7 @@ class ExtrasPanel:
         self.read_method = tk.StringVar(master=self.win, value=self.settings.get(READ_METHOD_KEY, "ocr"))
         self.speed = tk.StringVar(master=self.win, value=self.settings.get(SPEED_KEY, "normal"))
         self.close_to_tray = tk.BooleanVar(master=self.win, value=bool(self.settings.get(CLOSE_TO_TRAY_KEY, False)))
+        self.autostart = tk.BooleanVar(master=self.win, value=autostart.is_enabled())  # Registry ist die Wahrheit
         self._build()
         self._place_over_card_list()
         apply_frame(self.win)
@@ -217,6 +219,7 @@ class ExtrasPanel:
         menu.add_section("Programm", "✕ beendet sonst das Programm", visible=lambda: self.has_tray)
         menu.add_toggles([("✕ versteckt im Tray", self.close_to_tray)], command=self._on_close_to_tray_changed,
                          visible=lambda: self.has_tray)
+        menu.add_toggles([("Mit Windows starten", self.autostart)], command=self._on_autostart_changed)
         menu.add_section("Kalibrierung", "nur nötig, wenn Klicks danebengehen")
         menu.add_buttons([("Automatisch", lambda: self._calibrate(self.on_auto_calibrate)),
                           ("Von Hand", lambda: self._calibrate(self.on_calibrate_manual))])
@@ -387,6 +390,7 @@ class ExtrasPanel:
 
     def _open_options(self) -> None:
         self.speed.set(self.settings.get(SPEED_KEY, "normal"))  # Overlay-Knopf kann es inzwischen geändert haben
+        self.autostart.set(autostart.is_enabled())  # das Tray-Menü kann es inzwischen geändert haben
         self.options_menu.popup_below(self.options_btn)
 
     def _on_option_changed(self) -> None:
@@ -403,6 +407,12 @@ class ExtrasPanel:
     def _on_close_to_tray_changed(self) -> None:
         self.settings[CLOSE_TO_TRAY_KEY] = bool(self.close_to_tray.get())
         self.save_settings()
+
+    def _on_autostart_changed(self) -> None:
+        error = autostart.set_enabled(bool(self.autostart.get()))
+        self.autostart.set(autostart.is_enabled())  # der Haken zeigt den echten Zustand
+        if error:
+            self.set_status(error, BAD)
 
     def _on_read_method_changed(self) -> None:
         """Lesemethode für Import, Deck-Scan und Export (gilt ab dem nächsten Lesen)."""

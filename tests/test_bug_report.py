@@ -258,7 +258,8 @@ class TrayReportEntryTest(unittest.TestCase):
                                  on_report=lambda: clicked.append(True))
         items = [i for i in icon._icon.menu.items if isinstance(i, FakePystray.MenuItem)]
         labels = [i.label() for i in items if i.shown()]
-        self.assertEqual(labels, ["MD Importer", "Fehlerbericht erstellen", "Neustart", "Beenden"])
+        self.assertEqual(labels, ["MD Importer", "Fehlerbericht erstellen", "Mit Windows starten", "Neustart",
+                                  "Beenden"])
         items[2].action(icon._icon, items[2])
         self.assertEqual(clicked, [True])
 

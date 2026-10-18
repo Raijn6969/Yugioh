@@ -13,8 +13,10 @@ pystray-Backend bleibt das native Menü.
 """
 
 import threading
+import tkinter as tk
 from typing import Callable, Optional
 
+import autostart
 import win_api
 from app_icon import create_icon_image
 from dark_menu import DarkMenu
@@ -63,7 +65,9 @@ class TrayIcon:
                  pystray.Menu.SEPARATOR]
         if on_report is not None:
             items.append(pystray.MenuItem("Fehlerbericht erstellen", lambda icon, item: on_report()))
-        items += [pystray.MenuItem("Neustart", lambda icon, item: on_restart()),
+        items += [pystray.MenuItem("Mit Windows starten", lambda icon, item: self._toggle_autostart(),
+                                   checked=lambda item: autostart.is_enabled()),
+                  pystray.MenuItem("Neustart", lambda icon, item: on_restart()),
                   pystray.MenuItem("Beenden", lambda icon, item: on_quit())]
         icon_class = _icon_class(on_menu) if on_menu else pystray.Icon
         self._icon = icon_class("md_importer", create_icon_image(64), title, pystray.Menu(*items))
@@ -81,9 +85,17 @@ class TrayIcon:
         menu.add_separator()
         if self._on_report is not None:
             menu.add_command("Fehlerbericht erstellen", self._on_report)
+        menu.add_checkbutton("Mit Windows starten", tk.BooleanVar(master=master, value=autostart.is_enabled()),
+                             self._toggle_autostart)
         menu.add_command("Neustart", self._on_restart)
         menu.add_command("Beenden", self._on_quit, hover=QUIT_HOVER)
         menu.popup_at(x, y)
+
+    def _toggle_autostart(self) -> None:
+        """Eintrag umschalten (Registry ist die Wahrheit); ein Fehler kommt als Benachrichtigung."""
+        error = autostart.set_enabled(not autostart.is_enabled())
+        if error:
+            self.notify(error, "MD Importer")
 
     def set_update(self, version: str) -> None:
         """Menüpunkt "Update auf <version> installieren" einblenden."""

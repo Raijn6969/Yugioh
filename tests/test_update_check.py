@@ -448,7 +448,8 @@ class TrayMenuTest(unittest.TestCase):
         update.action(icon._icon, update)
         self.assertEqual(opened, [True])
         self.assertEqual([i.label() for i in items if i.shown()],
-                         ["MD Importer 9.2", "Update auf 9.10 installieren", "Neustart", "Beenden"])
+                         ["MD Importer 9.2", "Update auf 9.10 installieren", "Mit Windows starten", "Neustart",
+                          "Beenden"])
 
     def test_right_click_calls_on_menu_instead_of_native_menu(self):
         calls = []

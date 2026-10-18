@@ -1180,16 +1180,24 @@ class DarkMenuTest(unittest.TestCase):
         icon._icon, icon._menu, icon._title, icon._update_version = None, None, "MD Importer 9.5.2", None
         icon._on_restart, icon._on_quit = lambda: calls.append("restart"), lambda: calls.append("quit")
         icon._on_update, icon._on_report = lambda: calls.append("update"), lambda: calls.append("report")
-        icon.show_menu(self.root, 500, 500)
-        self.assertEqual([i.get("label") for i in icon._menu.items],
-                         ["MD Importer 9.5.2", None, "Fehlerbericht erstellen", "Neustart", "Beenden"])
-        self.assertTrue(icon._menu.items[0]["disabled"])
-        icon.set_update("9.6")
-        icon.show_menu(self.root, 500, 500)   # ersetzt das offene Menü
-        self.assertEqual(icon._menu.items[1]["label"], "Update auf 9.6 installieren")
-        icon._menu.invoke(1)
-        icon.show_menu(self.root, 500, 500)
-        icon._menu.invoke(len(icon._menu.items) - 1)
+        state = {"on": True}
+        with mock.patch("autostart.is_enabled", lambda: state["on"]), \
+                mock.patch("autostart.set_enabled", lambda on: state.update(on=on)):
+            icon.show_menu(self.root, 500, 500)
+            self.assertEqual([i.get("label") for i in icon._menu.items],
+                             ["MD Importer 9.5.2", None, "Fehlerbericht erstellen", "Mit Windows starten",
+                              "Neustart", "Beenden"])
+            self.assertTrue(icon._menu.items[0]["disabled"])
+            self.assertTrue(icon._menu.items[3]["variable"].get())  # Haken = Registry
+            icon._menu.invoke(3)
+            self.assertFalse(state["on"])
+            icon.set_update("9.6")
+            icon.show_menu(self.root, 500, 500)   # ersetzt das offene Menü
+            self.assertFalse(icon._menu.items[4]["variable"].get())
+            self.assertEqual(icon._menu.items[1]["label"], "Update auf 9.6 installieren")
+            icon._menu.invoke(1)
+            icon.show_menu(self.root, 500, 500)
+            icon._menu.invoke(len(icon._menu.items) - 1)
         self.assertEqual(calls, ["update", "quit"])
         self.assertEqual(icon._menu.items[-1]["hover"], tray.QUIT_HOVER)
         icon.stop()

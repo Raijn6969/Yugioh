@@ -1162,6 +1162,29 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertTrue(saved[-1]["CLOSE_TO_TRAY"])
         self.panel.options_menu.close()
 
+    def test_autostart_option_mirrors_registry_and_reports_errors(self):
+        state = {"on": False}
+        with mock.patch("autostart.is_enabled", lambda: state["on"]), \
+                mock.patch("autostart.set_enabled", lambda on: state.update(on=on)) as setter:
+            self.panel._open_options()
+            self.root.update()
+            self.assertFalse(self.panel.autostart.get())
+            self.panel.options_menu.invoke("Mit Windows starten")
+            self.assertTrue(state["on"])
+            self.assertTrue(self.panel.autostart.get())
+            self.panel.options_menu.close()
+            state["on"] = False  # im Tray-Menü ausgeschaltet → Haken beim nächsten Öffnen aus
+            self.panel._open_options()
+            self.assertFalse(self.panel.autostart.get())
+            self.panel.options_menu.close()
+        with mock.patch("autostart.is_enabled", return_value=False), \
+                mock.patch("autostart.set_enabled", return_value="gesperrt"):
+            self.panel._open_options()
+            self.panel.options_menu.invoke("Mit Windows starten")
+            self.assertFalse(self.panel.autostart.get())  # Haken spiegelt den echten Zustand
+            self.assertIn("gesperrt", self.panel.status_label.cget("text"))
+            self.panel.options_menu.close()
+
     def test_calculator_is_collapsed_by_default_and_remembered(self):
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
@@ -1194,7 +1217,7 @@ class ExtrasPanelTest(unittest.TestCase):
                                              "Hover-Scan",
                                              "Spalte „2. Zug“", "Animation",
                                              "Starter online laden", "Automatisch",
-                                             "Von Hand"})
+                                             "Von Hand", "Mit Windows starten"})
         # Buttons einer Reihe nebeneinander
         self.assertIs(menu.buttons["Speicher lesen"].master, menu.buttons["Texterkennung"].master)
         menu.invoke("Speicher lesen")
