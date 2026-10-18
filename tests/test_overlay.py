@@ -717,6 +717,12 @@ class OverlayTest(unittest.TestCase):
     def test_review_notice_is_checked_after_the_start_message_and_cancelled_on_close(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         root, app = self.open_app()
+        with mock.patch.object(Overlay, "find_md_window", return_value=None):
+            app._check_md_started()
+        self.assertNotIn("review_notice", app._after_ids)     # ohne Master Duel kein Hinweis
+        with mock.patch.object(Overlay, "find_md_window", return_value=42),                 mock.patch.object(Overlay, "show_toast"):
+            app._md_check_at = 0.0
+            app._check_md_started()
         self.assertIn("review_notice", app._after_ids)       # später, nicht beim Start (Datenbank, Startmeldung)
         self.assertGreater(Overlay.REVIEW_NOTICE_DELAY_MS, Overlay.STARTED_TOAST_MS)
         app.close()
@@ -1366,6 +1372,42 @@ class MemoryChangedWarningTest(unittest.TestCase):
         self.assertEqual(app.warned, [["Foo"], ["Foo"]])  # Prozess 100 einmal, neuer Prozess 200 wieder
         preload.assert_not_called()
         self.assertFalse(app._memory_warned)  # der allgemeine Hinweis (Fall b) bleibt unberührt
+
+
+class StartNoticesTest(unittest.TestCase):
+    """Startmeldung und Rückblick-Hinweis kommen erst, wenn Master Duel läuft – einmal pro Programmlauf."""
+
+    def check(self, app, hwnd, advance=0.0):
+        with mock.patch.object(Overlay, "find_md_window", return_value=hwnd), \
+                mock.patch.object(Overlay.time, "monotonic", return_value=1000.0 + advance):
+            Overlay.MasterDuelImporter._check_md_started(app)
+
+    def make_app(self):
+        from types import SimpleNamespace
+        app = SimpleNamespace(_start_notices_pending=True, _md_check_at=0.0, toasts=[], _after_ids={},
+                              root=SimpleNamespace(after=lambda ms, func: ("review", ms)))
+        app._queue_toast = app.toasts.append
+        app._start_review_notice = None
+        return app
+
+    def test_no_notice_while_md_is_not_running(self):
+        app = self.make_app()
+        self.check(app, None)
+        self.check(app, None, advance=Overlay.MD_START_CHECK_S)
+        self.assertEqual((app.toasts, app._after_ids), ([], {}))
+
+    def test_exactly_one_notice_when_md_appears(self):
+        app = self.make_app()
+        self.check(app, None)
+        self.check(app, 42, advance=Overlay.MD_START_CHECK_S)
+        self.check(app, 42, advance=2 * Overlay.MD_START_CHECK_S)
+        self.assertEqual(app.toasts, [Overlay.started_text()])
+        self.assertEqual(app._after_ids, {"review_notice": ("review", Overlay.REVIEW_NOTICE_DELAY_MS)})
+
+    def test_md_already_running_shows_notice_at_once(self):
+        app = self.make_app()
+        self.check(app, 42)
+        self.assertEqual(app.toasts, [Overlay.started_text()])
 
 
 if __name__ == "__main__":

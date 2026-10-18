@@ -54,7 +54,7 @@ from window_style import (BAD, BG, GOOD, INFO, NEUTRAL, PRIMARY, SIZE_SMALL, SIZ
 from rounded_button import RoundedButton, close_button
 from tray import TrayIcon
 from utils import DeckCodeError, parse_clipboard
-from window_automation import get_md_window_size, is_md_process
+from window_automation import find_md_window, get_md_window_size, is_md_process
 import bug_report
 import md_layout
 import md_memory
@@ -79,7 +79,8 @@ UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere
 UPDATE_RETRY_MS = 1000  # läuft ein Import, wird die Update-Frage so lange verschoben
 MD_FRONT_RETRY_MS = 1000  # Dialoge ohne Zutun des Nutzers warten, bis Master Duel nicht mehr vorne liegt
 TOAST_GAP_MS = 300  # Pause zwischen zwei Hinweisen über der Taskleiste
-REVIEW_NOTICE_DELAY_MS = STARTED_TOAST_MS + 2000  # so lange nach dem Start wird der Rückblick-Hinweis geprüft
+MD_START_CHECK_S = 3  # so oft wird nach dem Start von Master Duel gesucht (für die Startmeldung)
+REVIEW_NOTICE_DELAY_MS =STARTED_TOAST_MS + 2000  # so lange nach dem Start wird der Rückblick-Hinweis geprüft
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
 SPEED_PROFILES = [
@@ -150,8 +151,10 @@ class MasterDuelImporter:
         # Tkinter ist nicht thread-sicher: Der Import-Thread legt UI-Aufträge nur in diese
         # Warteschlange, der Haupt-Thread arbeitet sie regelmäßig ab.
         self._ui_queue = queue.Queue()
-        self._toast_free_at = time.monotonic() + (STARTED_TOAST_MS + TOAST_GAP_MS) / 1000
+        self._toast_free_at = time.monotonic()
         self._toast_count = 0
+        self._start_notices_pending = True  # Startmeldung + Rückblick-Hinweis warten auf Master Duel (einmal je Lauf)
+        self._md_check_at = 0.0  # nächste Suche nach dem Spiel (time.monotonic)
         self.update_release = None   # neuerer Release laut Update-Prüfung (None = keiner bzw. nicht geprüft)
         self._update_running = False  # Update wird gerade geladen/installiert
         self._report_running = False  # Fehlerbericht wird gerade erstellt
@@ -194,6 +197,18 @@ class MasterDuelImporter:
         self._backup_database()
         self._start_update_check()
         self._run_on_ui(self._show_update_failed)
+
+    def _check_md_started(self):
+        """Startmeldung und Rückblick-Hinweis kommen erst, wenn Master Duel läuft (der Importer kann mit Windows
+        still starten). Läuft das Spiel schon, gleich beim ersten Aufruf der Fokus-Schleife; sonst alle paar Sekunden."""
+        now = time.monotonic()
+        if not self._start_notices_pending or now < self._md_check_at:
+            return
+        self._md_check_at = now + MD_START_CHECK_S
+        if find_md_window() is None:
+            return
+        self._start_notices_pending = False
+        self._queue_toast(started_text())
         # Erst nach der Startmeldung: dann sind Datenbank und Fenster längst bereit
         self._after_ids["review_notice"] = self.root.after(REVIEW_NOTICE_DELAY_MS, self._start_review_notice)
 
@@ -590,6 +605,7 @@ class MasterDuelImporter:
         """Loop, der alle 300ms prüft, welches Fenster in Windows gerade vorne liegt."""
         self.hang_watch.beat()
         try:
+            self._check_md_started()
             fg_hwnd = win32gui.GetForegroundWindow()
             if fg_hwnd:
                 _, fg_pid = win32process.GetWindowThreadProcessId(fg_hwnd)
@@ -1460,7 +1476,6 @@ def main():
     root = tk.Tk()
     root.report_callback_exception = report_tk_error
     MasterDuelImporter(root, tray=True)
-    show_toast(root, started_text(), duration_ms=STARTED_TOAST_MS)
     root.mainloop()
 
 
