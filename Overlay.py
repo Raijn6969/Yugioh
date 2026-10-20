@@ -1352,7 +1352,10 @@ class MasterDuelImporter:
         UPDATE_AFTER_DUEL_S, nur als exe); die Frage kommt dann außerhalb des Duells (_ask_update_when_idle)."""
         if not (self.config.get(UPDATE_AFTER_DUEL_KEY) and getattr(sys, "frozen", False)):
             return
-        if time.monotonic() - self._update_checked_at < UPDATE_AFTER_DUEL_S or self.update_release is not None:
+        if self.update_release is not None:   # beim Start gefunden, aber zurückgestellt (Option erst später an)
+            self._on_update_found(self.update_release)   # fragt nur, wenn zu dieser Version noch nicht gefragt
+            return
+        if time.monotonic() - self._update_checked_at < UPDATE_AFTER_DUEL_S:
             return
         self._update_checked_at = time.monotonic()
         threading.Thread(target=self._update_worker, daemon=True, name="update").start()

@@ -427,12 +427,19 @@ class OverlayHookTest(unittest.TestCase):
                                    _update_checked_at=Overlay.time.monotonic() - checked_ago, _update_worker=None)
         long_ago = Overlay.UPDATE_AFTER_DUEL_S + 1
         cases = [(app(True, long_ago), True, 1), (app(False, long_ago), True, 0), (app(True, long_ago), False, 0),
-                 (app(True, 60), True, 0), (app(True, long_ago, make_release()), True, 0)]
+                 (app(True, 60), True, 0)]
         for fake, frozen, calls in cases:
             with mock.patch.object(Overlay.sys, "frozen", frozen, create=True), \
                     mock.patch.object(Overlay.threading, "Thread") as thread:
                 Overlay.MasterDuelImporter._check_update_after_duel(fake)
             self.assertEqual(thread.call_count, calls)
+        postponed = app(True, 60, make_release())        # beim Start zurückgestellt, Option erst danach an
+        postponed._on_update_found = mock.Mock()
+        with mock.patch.object(Overlay.sys, "frozen", True, create=True), \
+                mock.patch.object(Overlay.threading, "Thread") as thread:
+            Overlay.MasterDuelImporter._check_update_after_duel(postponed)
+        thread.assert_not_called()                          # nicht neu laden: die Frage nachholen
+        postponed._on_update_found.assert_called_once_with(postponed.update_release)
 
     def test_button_checks_in_the_background(self):
         app = SimpleNamespace(update_status=mock.Mock(), _update_worker=lambda manual=False: None)

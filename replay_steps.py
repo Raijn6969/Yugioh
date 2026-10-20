@@ -471,7 +471,10 @@ def _merge_materials(out: List[Step], frames: List[dict], reach: int = 6) -> Non
                                                 for e in frames[i].get("log") or ()):
             continue
         run, j = [], i - 1
+        team = step.focus.team if step.focus is not None else None
         while j > max(0, i - reach) and out[j].kind in ("friedhof", "verbannt", "still"):
+            if out[j].kind != "still" and (out[j].focus is None or out[j].focus.team != team):
+                break   # Karte des anderen Spielers (z. B. aufgelöste Handtrap): kein Material
             if out[j].kind != "still":
                 run.insert(0, j)
             elif out[j].dur:   # LP-Änderung o. Ä. dazwischen: nicht zusammenfassen

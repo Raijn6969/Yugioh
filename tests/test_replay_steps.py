@@ -408,6 +408,9 @@ class LogStepTest(unittest.TestCase):
         self.assertEqual(len(steps[2].moves), 2)
         alone = rs.build_steps(frames[1:], [state()] * 3, 0, name_of, type_of)    # nur ein Material: bleibt
         self.assertIsNone(alone[1].since)
+        rival = [frame(*start), frame(row(1, 1, rr.GRAVE, 100), *start[1:]), frames[2], frames[3]]  # Gegnerkarte
+        steps = rs.build_steps(rival, [state()] * 4, 0, name_of, type_of)
+        self.assertEqual([s.since for s in steps], [None] * 4)                  # nicht zusammengefasst
 
     def test_durations_of_the_new_kinds(self):
         kinds = ("kosten", "ziel", "negiert", "zerstoert", "angriff", "kette", "material")
