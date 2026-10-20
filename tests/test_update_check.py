@@ -410,7 +410,7 @@ class OverlayHookTest(unittest.TestCase):
     def test_option_after_duel_asks_once_no_duel_runs(self):
         self.md_window.return_value = 1234                        # Master Duel läuft
         app = self.make_app()
-        app.config[Overlay.UPDATE_AFTER_DUEL_KEY] = True
+        app.config.update({Overlay.UPDATE_AFTER_DUEL_KEY: True, Overlay.READ_METHOD_KEY: "memory"})
         app._md_in_front = lambda: True                           # im Menü, Spiel vorne: zählt mit der Option nicht
         app.match_watch = SimpleNamespace(in_duel=True)
         with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:
@@ -421,9 +421,23 @@ class OverlayHookTest(unittest.TestCase):
             app.later.pop(0)[1]()                                 # Duell vorbei → jetzt fragen
             ask.assert_called_once()
 
+    def test_option_counts_only_in_memory_mode_but_the_button_always_works(self):
+        on = {Overlay.UPDATE_AFTER_DUEL_KEY: True}
+        self.assertTrue(Overlay.update_after_duel(dict(on, **{Overlay.READ_METHOD_KEY: "memory"})))
+        self.assertFalse(Overlay.update_after_duel(dict(on, **{Overlay.READ_METHOD_KEY: "ocr"})))
+        self.md_window.return_value = 1234
+        app = self.make_app()
+        app.config.update(on, **{Overlay.READ_METHOD_KEY: "ocr"})
+        ask = self.found(app, make_release("9.3"))
+        ask.assert_not_called()                                    # Texterkennung: nur beim (nächsten) Start
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:   # Knopf: auch mit Texterkennung
+            Overlay.MasterDuelImporter._on_update_found(app, make_release("9.3"), True)
+        ask.assert_called_once()
+
     def test_check_after_duel_only_with_the_option_as_exe_and_not_too_often(self):
         def app(option, checked_ago, found=None):
-            return SimpleNamespace(config={Overlay.UPDATE_AFTER_DUEL_KEY: option}, update_release=found,
+            return SimpleNamespace(config={Overlay.UPDATE_AFTER_DUEL_KEY: option, Overlay.READ_METHOD_KEY: "memory"},
+                                   update_release=found,
                                    _update_checked_at=Overlay.time.monotonic() - checked_ago, _update_worker=None)
         long_ago = Overlay.UPDATE_AFTER_DUEL_S + 1
         cases = [(app(True, long_ago), True, 1), (app(False, long_ago), True, 0), (app(True, long_ago), False, 0),

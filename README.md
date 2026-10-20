@@ -165,9 +165,10 @@ folder and starts the new version. Your data (settings, database, backups, card 
 logs) is not part of the zip and stays untouched. **Was ist neu?** opens the release page.
 If Master Duel is already running when the importer starts, it doesn't ask during that
 session (the question would interrupt your games); it asks at the next start instead.
-Deck → Options → **Nach Update suchen** checks right away. With **Nach Duell auf Update
-prüfen** switched on, it also looks again after a duel (at most every 30 minutes) and asks
-as soon as no duel is running.
+Deck → Options → **Nach Update suchen** checks right away (in both read modes). With
+**Nach Duell auf Update prüfen** switched on, it also looks again after a duel (at most
+every 30 minutes) and asks as soon as no duel is running. That option needs "Read memory"
+(only then the importer knows whether a duel is running) and is hidden with text recognition.
 The tray menu keeps an "Update auf ... installieren" entry. One-click update needs the
 .exe, a writable program folder and a `.zip` attached to the release; otherwise the
 question only offers the release page. If an import is running, the question waits until

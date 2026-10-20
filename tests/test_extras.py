@@ -1244,6 +1244,30 @@ class ExtrasPanelTest(unittest.TestCase):
         manual.assert_called_once_with()
         self.assertFalse(menu.is_open)
 
+    def test_update_button_in_both_modes_after_duel_option_only_with_memory(self):
+        import extras_panel
+        checks, saved = [], []
+        panel = extras_panel.ExtrasPanel(self.root, self.db, "", on_rescan=lambda: None, on_close=lambda: None,
+                                         save_settings=lambda: saved.append(dict(panel.settings)),
+                                         on_check_update=lambda: checks.append(True))
+        try:
+            panel._open_options()
+            self.root.update()
+            menu = panel.options_menu
+            self.assertIn("Nach Update suchen", menu.buttons)               # Texterkennung: Knopf ja …
+            self.assertNotIn("Nach Duell auf Update prüfen", menu.buttons)  # … Schalter nein
+            menu.invoke("Nach Update suchen")
+            self.assertEqual(checks, [True])
+            panel._open_options()                                         # Knopf schließt das Menü
+            self.root.update()
+            menu.invoke("Speicher lesen")
+            self.assertIn("Nach Update suchen", menu.buttons)
+            menu.invoke("Nach Duell auf Update prüfen")
+            self.assertTrue(saved[-1][extras_panel.UPDATE_AFTER_DUEL_KEY])
+            menu.close()
+        finally:
+            panel.close()
+
     def test_speed_option_only_with_text_recognition(self):
         import options_popup
         saved = []

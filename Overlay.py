@@ -78,6 +78,12 @@ STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Plat
 UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere Version (Frage nur einmal je Version)
 UPDATE_RETRY_MS = 1000  # läuft ein Import, wird die Update-Frage so lange verschoben
 UPDATE_AFTER_DUEL_S = 30 * 60  # „Nach Duell auf Update prüfen“: höchstens so oft bei GitHub nachsehen
+
+
+def update_after_duel(config: dict) -> bool:
+    """Option „Nach Duell auf Update prüfen“ – gilt nur im Speicher-Modus (nur dann ist bekannt, ob ein Duell läuft;
+    mit Texterkennung wird nur beim Start geprüft)."""
+    return bool(config.get(UPDATE_AFTER_DUEL_KEY)) and config.get(READ_METHOD_KEY) == "memory"
 MD_FRONT_RETRY_MS = 1000  # Dialoge ohne Zutun des Nutzers warten, bis Master Duel nicht mehr vorne liegt
 TOAST_GAP_MS = 300  # Pause zwischen zwei Hinweisen über der Taskleiste
 MD_START_CHECK_S = 3  # so oft wird nach dem Start von Master Duel gesucht (für die Startmeldung)
@@ -242,7 +248,7 @@ class MasterDuelImporter:
         if manual:
             self._ask_update_when_idle()
             return
-        if not self.config.get(UPDATE_AFTER_DUEL_KEY) and find_md_window() is not None:
+        if not update_after_duel(self.config) and find_md_window() is not None:
             # Das Spiel läuft schon: in dieser Sitzung nicht fragen (mitten im Spielen stört es), erst beim nächsten
             # Start – oder über Optionen/Tray. Deshalb auch nicht als „gefragt“ merken. Mit „Nach Duell auf Update
             # prüfen“ kommt die Frage dagegen, sobald kein Duell mehr läuft.
@@ -274,7 +280,7 @@ class MasterDuelImporter:
         self._after_ids.pop("update_ask", None)
         if self.update_release is None or self._update_running:
             return
-        if self.config.get(UPDATE_AFTER_DUEL_KEY):
+        if update_after_duel(self.config):
             watch = getattr(self, "match_watch", None)
             blocked = watch is not None and watch.in_duel
         else:
@@ -1350,7 +1356,7 @@ class MasterDuelImporter:
     def _check_update_after_duel(self):
         """Option „Nach Duell auf Update prüfen“: nach einem Duell erneut nachsehen (höchstens alle
         UPDATE_AFTER_DUEL_S, nur als exe); die Frage kommt dann außerhalb des Duells (_ask_update_when_idle)."""
-        if not (self.config.get(UPDATE_AFTER_DUEL_KEY) and getattr(sys, "frozen", False)):
+        if not (update_after_duel(self.config) and getattr(sys, "frozen", False)):
             return
         if self.update_release is not None:   # beim Start gefunden, aber zurückgestellt (Option erst später an)
             self._on_update_found(self.update_release)   # fragt nur, wenn zu dieser Version noch nicht gefragt

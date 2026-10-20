@@ -226,8 +226,9 @@ class ExtrasPanel:
                          visible=lambda: self.has_tray)
         menu.add_toggles([("Mit Windows starten", self.autostart)], command=self._on_autostart_changed)
         if self.on_check_update is not None:   # sonst wird nur beim Programmstart geprüft
+            # ein laufendes Duell ist nur im Speicher-Modus erkennbar: mit Texterkennung nur beim Start prüfen
             menu.add_toggles([("Nach Duell auf Update prüfen", self.update_after_duel)],
-                             command=self._on_update_after_duel_changed)
+                             command=self._on_update_after_duel_changed, visible=lambda: not ocr())
             menu.add_buttons([("Nach Update suchen", self.on_check_update)])
         menu.add_section("Kalibrierung", "nur nötig, wenn Klicks danebengehen")
         menu.add_buttons([("Automatisch", lambda: self._calibrate(self.on_auto_calibrate)),
