@@ -53,6 +53,7 @@ READ_METHODS = {"memory": "Speicher lesen", "ocr": "Texterkennung"}
 SPEED_KEY = "SPEED_PROFILE"
 CALC_OPEN_KEY = "DECK_CALC_OPEN"  # Einstellung: Rechner-Kasten aufgeklappt (Standard: zu)
 CLOSE_TO_TRAY_KEY = "CLOSE_TO_TRAY"  # Einstellung: ✕ der Hauptleiste versteckt das Overlay im Tray
+UPDATE_AFTER_DUEL_KEY = "UPDATE_AFTER_DUEL"  # Einstellung: auch nach Duellen nach Updates sehen (sonst nur beim Start)
 SPEEDS = {"fast": "Schnell", "normal": "Normal", "slow": "Langsam"}
 WATCH_AFTER_HOVER = 1.5  # So lange nach dem Hover-Fenster keine Deck-Prüfung (liegt evtl. über dem Deck; schont FPS)
 GUIDE_ARCHETYPES = 3   # Guides für die häufigsten Archetypen im Deck
@@ -100,7 +101,8 @@ class ExtrasPanel:
                  on_copy_code: Optional[Callable[[str], None]] = None,
                  on_side_swap: Optional[Callable[[List[str], str], None]] = None,
                  on_auto_calibrate: Optional[Callable[[], None]] = None,
-                 on_calibrate_manual: Optional[Callable[[], None]] = None, has_tray: bool = False):
+                 on_calibrate_manual: Optional[Callable[[], None]] = None, has_tray: bool = False,
+                 on_check_update: Optional[Callable[[], None]] = None):
         self.master = master
         self.has_tray = has_tray  # ohne Tray-Icon beendet das ✕ immer (Option nicht anbieten)
         self.settings = settings if settings is not None else {}  # Config des Overlays (Optionen)
@@ -115,6 +117,7 @@ class ExtrasPanel:
         self.on_side_swap = on_side_swap      # Side-Profil: (Ziel-Deck, Name) im Deck-Editor tauschen
         self.on_auto_calibrate = on_auto_calibrate      # Optionen: Kalibrierung automatisch
         self.on_calibrate_manual = on_calibrate_manual  # Optionen: Kalibrierungs-Assistent
+        self.on_check_update = on_check_update          # Optionen: jetzt nach einem Update suchen
         self.s = scale = max(1.0, master.winfo_screenheight() / 1080.0)
         self.font = font(SIZE_TEXT, scale)
         self.font_bold = font(SIZE_TEXT, scale, bold=True)
@@ -165,6 +168,8 @@ class ExtrasPanel:
         self.read_method = tk.StringVar(master=self.win, value=self.settings.get(READ_METHOD_KEY, "ocr"))
         self.speed = tk.StringVar(master=self.win, value=self.settings.get(SPEED_KEY, "normal"))
         self.close_to_tray = tk.BooleanVar(master=self.win, value=bool(self.settings.get(CLOSE_TO_TRAY_KEY, False)))
+        self.update_after_duel = tk.BooleanVar(master=self.win,
+                                               value=bool(self.settings.get(UPDATE_AFTER_DUEL_KEY, False)))
         self.autostart = tk.BooleanVar(master=self.win, value=autostart.is_enabled())  # Registry ist die Wahrheit
         self._build()
         self._place_over_card_list()
@@ -220,6 +225,10 @@ class ExtrasPanel:
         menu.add_toggles([("✕ versteckt im Tray", self.close_to_tray)], command=self._on_close_to_tray_changed,
                          visible=lambda: self.has_tray)
         menu.add_toggles([("Mit Windows starten", self.autostart)], command=self._on_autostart_changed)
+        if self.on_check_update is not None:   # sonst wird nur beim Programmstart geprüft
+            menu.add_toggles([("Nach Duell auf Update prüfen", self.update_after_duel)],
+                             command=self._on_update_after_duel_changed)
+            menu.add_buttons([("Nach Update suchen", self.on_check_update)])
         menu.add_section("Kalibrierung", "nur nötig, wenn Klicks danebengehen")
         menu.add_buttons([("Automatisch", lambda: self._calibrate(self.on_auto_calibrate)),
                           ("Von Hand", lambda: self._calibrate(self.on_calibrate_manual))])
@@ -406,6 +415,10 @@ class ExtrasPanel:
 
     def _on_close_to_tray_changed(self) -> None:
         self.settings[CLOSE_TO_TRAY_KEY] = bool(self.close_to_tray.get())
+        self.save_settings()
+
+    def _on_update_after_duel_changed(self) -> None:
+        self.settings[UPDATE_AFTER_DUEL_KEY] = bool(self.update_after_duel.get())
         self.save_settings()
 
     def _on_autostart_changed(self) -> None:

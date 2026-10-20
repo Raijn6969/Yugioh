@@ -1241,7 +1241,8 @@ class MatchStatusTest(unittest.TestCase):
                                _day_summary=lambda: day, _history_reminder=lambda: reminder, _after_ids={},
                                _unconfirmed_matches=lambda: self.unconfirmed,
                                status_label=SimpleNamespace(cget=lambda option: shown[-1]),
-                               root=SimpleNamespace(after=lambda ms, func: self.later.append(func) or "id"))
+                               root=SimpleNamespace(after=lambda ms, func: self.later.append(func) or "id"),
+                               _check_update_after_duel=lambda: None)   # eigener Test in test_update_check
         for name in ("_show_history_reminder", "_check_history_reminder"):
             setattr(fake, name, getattr(Overlay.MasterDuelImporter, name).__get__(fake))
         self.unconfirmed = 15

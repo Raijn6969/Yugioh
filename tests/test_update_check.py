@@ -153,6 +153,11 @@ class OverlayHookTest(unittest.TestCase):
     BOUND = ("_ask_update_when_idle", "_can_self_update", "_start_update", "_open_project_page", "_on_update_failed",
              "_on_update_launched", "_update_install_worker")
 
+    def setUp(self):
+        md = mock.patch.object(Overlay, "find_md_window", return_value=None)   # beim Start: Master Duel läuft nicht
+        self.md_window = md.start()
+        self.addCleanup(md.stop)
+
     def make_app(self, notified=None, tray_icon=True, uptime_ms=0, running=False):
         saved, later, status, queued = [], [], [], []
         free = (Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS) / 1000   # Startmeldung steht noch so lange
@@ -379,12 +384,62 @@ class OverlayHookTest(unittest.TestCase):
             Overlay.MasterDuelImporter._update_worker(app)
         cleanup.assert_called_once()
         self.assertEqual(find.call_args.args[0], Overlay.APP_VERSION)
-        self.assertEqual(queued, [(app._on_update_found, (release,))])
+        self.assertEqual(queued, [(app._on_update_found, (release, False))])
         queued.clear()
         with mock.patch.object(Overlay.updater, "cleanup_old"), \
                 mock.patch.object(Overlay.update_check, "find_update", return_value=None):
             Overlay.MasterDuelImporter._update_worker(app)
-        self.assertEqual(queued, [])
+            self.assertEqual(queued, [])
+            app.update_status = object()
+            Overlay.MasterDuelImporter._update_worker(app, manual=True)   # Knopf: Bescheid, dass nichts da ist
+        self.assertEqual(queued, [(app.update_status, (f"Kein Update gefunden (installiert: {Overlay.APP_VERSION})",
+                                                       Overlay.GOOD))])
+
+    def test_no_question_at_start_while_master_duel_runs_but_the_button_asks(self):
+        self.md_window.return_value = 1234
+        app = self.make_app()
+        ask = self.found(app, make_release("9.3"))
+        ask.assert_not_called()                                   # nicht mitten im Spielen
+        self.assertEqual(app.saved, [])                           # nicht gemerkt: beim nächsten Start wird gefragt
+        app.tray.set_update.assert_called_once_with("9.3")
+        self.assertIn("Nach Update suchen", app.status[-1][0])
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:   # Optionen → Nach Update suchen
+            Overlay.MasterDuelImporter._on_update_found(self.make_app(notified="9.3"), make_release("9.3"), True)
+        ask.assert_called_once()                                  # auch schon gefragt und mit Spiel: sofort
+
+    def test_option_after_duel_asks_once_no_duel_runs(self):
+        self.md_window.return_value = 1234                        # Master Duel läuft
+        app = self.make_app()
+        app.config[Overlay.UPDATE_AFTER_DUEL_KEY] = True
+        app._md_in_front = lambda: True                           # im Menü, Spiel vorne: zählt mit der Option nicht
+        app.match_watch = SimpleNamespace(in_duel=True)
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:
+            Overlay.MasterDuelImporter._on_update_found(app, make_release("9.3"))
+            ask.assert_not_called()                               # im Duell: verschoben
+            self.assertEqual(len(app.later), 1)
+            app.match_watch.in_duel = False
+            app.later.pop(0)[1]()                                 # Duell vorbei → jetzt fragen
+            ask.assert_called_once()
+
+    def test_check_after_duel_only_with_the_option_as_exe_and_not_too_often(self):
+        def app(option, checked_ago, found=None):
+            return SimpleNamespace(config={Overlay.UPDATE_AFTER_DUEL_KEY: option}, update_release=found,
+                                   _update_checked_at=Overlay.time.monotonic() - checked_ago, _update_worker=None)
+        long_ago = Overlay.UPDATE_AFTER_DUEL_S + 1
+        cases = [(app(True, long_ago), True, 1), (app(False, long_ago), True, 0), (app(True, long_ago), False, 0),
+                 (app(True, 60), True, 0), (app(True, long_ago, make_release()), True, 0)]
+        for fake, frozen, calls in cases:
+            with mock.patch.object(Overlay.sys, "frozen", frozen, create=True), \
+                    mock.patch.object(Overlay.threading, "Thread") as thread:
+                Overlay.MasterDuelImporter._check_update_after_duel(fake)
+            self.assertEqual(thread.call_count, calls)
+
+    def test_button_checks_in_the_background(self):
+        app = SimpleNamespace(update_status=mock.Mock(), _update_worker=lambda manual=False: None)
+        with mock.patch.object(Overlay.threading, "Thread") as thread:
+            Overlay.MasterDuelImporter.check_update_now(app)
+        self.assertEqual(thread.call_args.kwargs["args"], (True,))
+        thread.return_value.start.assert_called_once()
 
     def test_project_page_opens_the_releases(self):
         with mock.patch.object(Overlay.webbrowser, "open") as opened:

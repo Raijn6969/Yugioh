@@ -163,6 +163,11 @@ checks in the background whether the latest GitHub release is newer than your ve
 unpacks it to a temp folder, closes the importer, copies the new files over the program
 folder and starts the new version. Your data (settings, database, backups, card images,
 logs) is not part of the zip and stays untouched. **Was ist neu?** opens the release page.
+If Master Duel is already running when the importer starts, it doesn't ask during that
+session (the question would interrupt your games); it asks at the next start instead.
+Deck → Options → **Nach Update suchen** checks right away. With **Nach Duell auf Update
+prüfen** switched on, it also looks again after a duel (at most every 30 minutes) and asks
+as soon as no duel is running.
 The tray menu keeps an "Update auf ... installieren" entry. One-click update needs the
 .exe, a writable program folder and a `.zip` attached to the release; otherwise the
 question only offers the release page. If an import is running, the question waits until
