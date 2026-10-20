@@ -1,5 +1,7 @@
 # Master Duel Deck Importer
 
+[![Tests](https://github.com/Raijn6969/Yugioh/actions/workflows/tests.yml/badge.svg)](https://github.com/Raijn6969/Yugioh/actions/workflows/tests.yml)
+
 A tool that automatically builds Yu-Gi-Oh! decks for you in Master Duel.
 Paste a deck code, hit Start, and watch it click together your deck card by card.
 
