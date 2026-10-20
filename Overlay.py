@@ -151,7 +151,7 @@ class MasterDuelImporter:
         self.card_stats = None   # Lokale Karten-Datenbank (erst beim ersten Öffnen der Extras)
         self._last_scan = None   # Letzter Deck-Scan der Extras (wird übernommen, wenn das Deck gleich ist)
         self._memory_thread = None    # Vorladen für den Speicher-Modus (läuft im Hintergrund)
-        self._memory_preload_at = -MEMORY_RETRY  # letzter Versuch (time.monotonic)
+        self._memory_preload_at = float("-inf")  # letzter Versuch (time.monotonic, ab Hochfahren); -inf = noch nie
         self._memory_pid = 0  # Prozess von Master Duel beim letzten Versuch (neu gestartet → Wartezeit zurücksetzen)
         self._memory_structure_pid = 0  # Prozess, für den die Meldung "Spiel aktualisiert" schon kam
         self._memory_warned = False  # Hinweis "Speicher-Modus nicht verfügbar" schon gezeigt (einmal pro Sitzung)
@@ -748,7 +748,7 @@ class MasterDuelImporter:
             return
         pid = md_memory.master_duel_pid()
         if pid != self._memory_pid:  # Master Duel (neu) gestartet: wieder von vorn versuchen
-            self._memory_pid, self._memory_preload_at = pid, -MEMORY_RETRY
+            self._memory_pid, self._memory_preload_at = pid, float("-inf")
             md_memory.reset_preload_failures()
         if (missing := md_memory.structure_missing()) is not None:  # Fall (a): weiter scannen ist sinnlos
             if self._memory_structure_pid != pid:
