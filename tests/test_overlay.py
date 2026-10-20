@@ -94,6 +94,18 @@ class OverlayTest(unittest.TestCase):
             root.update()
             time.sleep(0.01)
 
+    def test_dialogs_also_wait_while_a_duel_runs_with_another_window_in_front(self):
+        root, app = self.open_app()
+        app.match_watch.enabled = False   # der Wächter-Thread soll den Stand im Test nicht überschreiben
+        with mock.patch.object(Overlay.win32gui, "GetForegroundWindow", return_value=0):   # z. B. Discord vorne
+            app.match_watch._views = ["HomeViewController", "ColosseumInfoViewController", "DuelClient"]
+            self.assertTrue(app._md_in_front())
+            app.match_watch._views = ["ColosseumHistoryViewController", "DuelClient"]     # Replay: kein Duell
+            self.assertFalse(app._md_in_front())
+            app.match_watch._views = ["DuelClient"]
+            app.match_watch.check()                                           # Speicher-Modus aus: Stand vergessen
+            self.assertFalse(app._md_in_front())
+
     def test_dialogs_without_user_action_wait_until_md_is_not_in_front(self):
         from types import SimpleNamespace
         import updater

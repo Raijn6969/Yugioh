@@ -238,6 +238,12 @@ class MatchWatcher:
         self._offline_until = 0.0                  # bis dahin keine Online-Nachschlagen neuer Karten (Netzfehler)
         self._stop = threading.Event()
 
+    @property
+    def in_duel(self) -> bool:
+        """Läuft gerade ein Duell (kein Replay)? Stand der letzten Prüfung (nur im Speicher-Modus bekannt)."""
+        views = self._views
+        return DUEL_VIEWS[0] in views and not is_replay(views)
+
     def start(self) -> None:
         threading.Thread(target=self._run, daemon=True, name="matches").start()
 
@@ -255,6 +261,7 @@ class MatchWatcher:
     def check(self) -> int:
         """Ein Durchgang. Returns: Anzahl neu erfasster Matches."""
         if not (self.enabled and self.connected()):
+            self._views = []   # nichts bekannt (Spiel zu, Texterkennung): kein altes "im Duell" stehen lassen
             return 0
         memory = self.memory()
         views = memory.open_views()

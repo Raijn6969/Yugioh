@@ -590,8 +590,12 @@ class MasterDuelImporter:
         return is_md_process(fg_pid)
 
     def _md_in_front(self) -> bool:
-        """Liegt Master Duel gerade vorne? Ein Dialog holt sich den Fokus (im Vollbild kann das Spiel minimieren):
-        Dialoge ohne Zutun des Nutzers warten, bis es nicht mehr so ist."""
+        """Liegt Master Duel gerade vorne – oder läuft ein Duell (im Fenstermodus auch, wenn kurz ein anderes Fenster
+        vorne ist)? Ein Dialog holt sich den Fokus (im Vollbild kann das Spiel minimieren): Dialoge ohne Zutun des
+        Nutzers warten, bis es nicht mehr so ist."""
+        watch = getattr(self, "match_watch", None)   # beim Laden der Konfiguration gibt es ihn noch nicht
+        if watch is not None and watch.in_duel:
+            return True
         try:
             fg_hwnd = win32gui.GetForegroundWindow()
             if not fg_hwnd:
