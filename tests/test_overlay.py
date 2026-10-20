@@ -141,7 +141,8 @@ class OverlayTest(unittest.TestCase):
         root = tk.Tk()
         root.tk.call("tk", "scaling", 2.0)  # wie bei Windows-Skalierung 150 %
         self.apps.append(Overlay.MasterDuelImporter(root))
-        self.assertAlmostEqual(float(root.tk.call("tk", "scaling")), 96 / 72)
+        # Tk rundet über die Bildschirmmaße (GitHub-Rechner: 1,33300): nur ungefähr gleich, aber nicht 2,0
+        self.assertAlmostEqual(float(root.tk.call("tk", "scaling")), 96 / 72, places=2)
 
     def test_panels_look_the_same_at_150_percent_windows_scaling(self):
         import history_panel
