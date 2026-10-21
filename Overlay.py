@@ -87,6 +87,7 @@ def update_after_duel(config: dict) -> bool:
 MD_FRONT_RETRY_MS = 1000  # Dialoge ohne Zutun des Nutzers warten, bis Master Duel nicht mehr vorne liegt
 TOAST_GAP_MS = 300  # Pause zwischen zwei Hinweisen über der Taskleiste
 MD_START_CHECK_S = 3  # so oft wird nach dem Start von Master Duel gesucht (für die Startmeldung)
+MD_START_NOTICE_DELAY_S = 15  # startet das Spiel erst nach dem Importer: so lange nach dem Erscheinen warten
 REVIEW_NOTICE_DELAY_MS =STARTED_TOAST_MS + 2000  # so lange nach dem Start wird der Rückblick-Hinweis geprüft
 
 # Tempo-Profile für die Auswahl: (Config-Wert, Anzeige, Farbe, Menü-Eintrag)
@@ -162,6 +163,8 @@ class MasterDuelImporter:
         self._toast_count = 0
         self._start_notices_pending = True  # Startmeldung + Rückblick-Hinweis warten auf Master Duel (einmal je Lauf)
         self._md_check_at = 0.0  # nächste Suche nach dem Spiel (time.monotonic)
+        self._md_found_at = None  # seit wann das Spiel läuft (None = läuft nicht bzw. noch nicht gesucht)
+        self._md_checked = False  # schon einmal gesucht? (lief das Spiel schon beim Start des Importers?)
         self.update_release = None   # neuerer Release laut Update-Prüfung (None = keiner bzw. nicht geprüft)
         self._update_running = False  # Update wird gerade geladen/installiert
         self._update_checked_at = time.monotonic()  # letzte Update-Prüfung (die beim Start)
@@ -208,14 +211,22 @@ class MasterDuelImporter:
 
     def _check_md_started(self):
         """Startmeldung und Rückblick-Hinweis kommen erst, wenn Master Duel läuft (der Importer kann mit Windows
-        still starten). Läuft das Spiel schon, gleich beim ersten Aufruf der Fokus-Schleife; sonst alle paar Sekunden."""
+        still starten). Läuft das Spiel schon, gleich beim ersten Aufruf der Fokus-Schleife; sonst alle paar Sekunden
+        nachsehen und erst MD_START_NOTICE_DELAY_S nach dem Erscheinen des Spiels melden."""
         now = time.monotonic()
         if not self._start_notices_pending or now < self._md_check_at:
             return
         self._md_check_at = now + MD_START_CHECK_S
+        first, self._md_checked = not self._md_checked, True
         if find_md_window() is None:
+            self._md_found_at = None
             return
+        if self._md_found_at is None:
+            self._md_found_at = now
+        if not first and now - self._md_found_at < MD_START_NOTICE_DELAY_S:
+            return  # Spiel startet gerade (Ladebild, Wechsel ins Vollbild): die Meldung ginge darin unter
         self._start_notices_pending = False
+        dlog("[START] Startmeldung gezeigt (Master Duel läuft).")
         self._queue_toast(started_text())
         # Erst nach der Startmeldung: dann sind Datenbank und Fenster längst bereit
         self._after_ids["review_notice"] = self.root.after(REVIEW_NOTICE_DELAY_MS, self._start_review_notice)

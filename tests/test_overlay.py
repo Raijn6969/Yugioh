@@ -734,7 +734,7 @@ class OverlayTest(unittest.TestCase):
             app._check_md_started()
         self.assertNotIn("review_notice", app._after_ids)     # ohne Master Duel kein Hinweis
         with mock.patch.object(Overlay, "find_md_window", return_value=42),                 mock.patch.object(Overlay, "show_toast"):
-            app._md_check_at = 0.0
+            app._md_check_at, app._md_checked = 0.0, False   # als liefe das Spiel schon beim Start: ohne Wartezeit
             app._check_md_started()
         self.assertIn("review_notice", app._after_ids)       # später, nicht beim Start (Datenbank, Startmeldung)
         self.assertGreater(Overlay.REVIEW_NOTICE_DELAY_MS, Overlay.STARTED_TOAST_MS)
@@ -1398,8 +1398,8 @@ class StartNoticesTest(unittest.TestCase):
 
     def make_app(self):
         from types import SimpleNamespace
-        app = SimpleNamespace(_start_notices_pending=True, _md_check_at=0.0, toasts=[], _after_ids={},
-                              root=SimpleNamespace(after=lambda ms, func: ("review", ms)))
+        app = SimpleNamespace(_start_notices_pending=True, _md_check_at=0.0, _md_found_at=None, _md_checked=False,
+                              toasts=[], _after_ids={}, root=SimpleNamespace(after=lambda ms, func: ("review", ms)))
         app._queue_toast = app.toasts.append
         app._start_review_notice = None
         return app
@@ -1414,13 +1414,25 @@ class StartNoticesTest(unittest.TestCase):
         app = self.make_app()
         self.check(app, None)
         self.check(app, 42, advance=Overlay.MD_START_CHECK_S)
-        self.check(app, 42, advance=2 * Overlay.MD_START_CHECK_S)
+        self.assertEqual(app.toasts, [])   # Spiel startet gerade: Meldung ginge im Ladebild unter
+        self.check(app, 42, advance=Overlay.MD_START_CHECK_S + Overlay.MD_START_NOTICE_DELAY_S)
+        self.check(app, 42, advance=2 * Overlay.MD_START_CHECK_S + Overlay.MD_START_NOTICE_DELAY_S)
         self.assertEqual(app.toasts, [Overlay.started_text()])
         self.assertEqual(app._after_ids, {"review_notice": ("review", Overlay.REVIEW_NOTICE_DELAY_MS)})
 
     def test_md_already_running_shows_notice_at_once(self):
         app = self.make_app()
         self.check(app, 42)
+        self.assertEqual(app.toasts, [Overlay.started_text()])
+
+    def test_wait_restarts_when_md_closes_while_starting(self):
+        app = self.make_app()
+        self.check(app, None)
+        self.check(app, 42, advance=3)
+        self.check(app, None, advance=6)   # gleich wieder zu (Absturz, Update)
+        self.check(app, 42, advance=Overlay.MD_START_NOTICE_DELAY_S + 3)
+        self.assertEqual(app.toasts, [])
+        self.check(app, 42, advance=2 * Overlay.MD_START_NOTICE_DELAY_S + 3)
         self.assertEqual(app.toasts, [Overlay.started_text()])
 
 
