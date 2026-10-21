@@ -161,7 +161,7 @@ class MasterDuelImporter:
         self._ui_queue = queue.Queue()
         self._toast_free_at = time.monotonic()
         self._toast_count = 0
-        self._start_notices_pending = True  # Startmeldung wartet auf (den nächsten Start von) Master Duel
+        self._md_notice_pid = 0  # Prozess von Master Duel, für den die Startmeldung schon kam (einmal je Spielstart)
         self._review_notice_planned = False  # Rückblick-Hinweis: einmal je Lauf, nach der ersten Startmeldung
         self._md_check_at = 0.0  # nächste Suche nach dem Spiel (time.monotonic)
         self._md_found_at = None  # seit wann das Spiel läuft (None = läuft nicht bzw. noch nicht gesucht)
@@ -219,17 +219,18 @@ class MasterDuelImporter:
             return
         self._md_check_at = now + MD_START_CHECK_S
         first, self._md_checked = not self._md_checked, True
-        if find_md_window() is None:
+        hwnd = find_md_window()
+        pid = win_api.window_pid(hwnd) if hwnd else 0
+        if not pid:
             self._md_found_at = None
-            self._start_notices_pending = True  # Spiel zu: beim nächsten Start wieder melden
             return
-        if not self._start_notices_pending:
+        if pid == self._md_notice_pid:  # an der Prozess-ID: ein neu angelegtes Fenster desselben Spiels zählt nicht
             return
         if self._md_found_at is None:
             self._md_found_at = now
         if not first and now - self._md_found_at < MD_START_NOTICE_DELAY_S:
             return  # Spiel startet gerade (Ladebild, Wechsel ins Vollbild): die Meldung ginge darin unter
-        self._start_notices_pending = False
+        self._md_notice_pid, self._md_found_at = pid, None
         dlog("[START] Startmeldung gezeigt (Master Duel läuft).")
         self._queue_toast(started_text())
         if not self._review_notice_planned:

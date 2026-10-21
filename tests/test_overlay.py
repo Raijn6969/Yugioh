@@ -733,7 +733,9 @@ class OverlayTest(unittest.TestCase):
         with mock.patch.object(Overlay, "find_md_window", return_value=None):
             app._check_md_started()
         self.assertNotIn("review_notice", app._after_ids)     # ohne Master Duel kein Hinweis
-        with mock.patch.object(Overlay, "find_md_window", return_value=42),                 mock.patch.object(Overlay, "show_toast"):
+        with mock.patch.object(Overlay, "find_md_window", return_value=42), \
+                mock.patch.object(Overlay.win_api, "window_pid", return_value=7), \
+                mock.patch.object(Overlay, "show_toast"):
             app._md_check_at, app._md_checked = 0.0, False   # als liefe das Spiel schon beim Start: ohne Wartezeit
             app._check_md_started()
         self.assertIn("review_notice", app._after_ids)       # später, nicht beim Start (Datenbank, Startmeldung)
@@ -1391,14 +1393,15 @@ class MemoryChangedWarningTest(unittest.TestCase):
 class StartNoticesTest(unittest.TestCase):
     """Startmeldung und Rückblick-Hinweis kommen erst, wenn Master Duel läuft – einmal pro Programmlauf."""
 
-    def check(self, app, hwnd, advance=0.0):
+    def check(self, app, hwnd, advance=0.0, pid=None):
         with mock.patch.object(Overlay, "find_md_window", return_value=hwnd), \
+                mock.patch.object(Overlay.win_api, "window_pid", return_value=hwnd if pid is None else pid), \
                 mock.patch.object(Overlay.time, "monotonic", return_value=1000.0 + advance):
             Overlay.MasterDuelImporter._check_md_started(app)
 
     def make_app(self):
         from types import SimpleNamespace
-        app = SimpleNamespace(_start_notices_pending=True, _md_check_at=0.0, _md_found_at=None, _md_checked=False,
+        app = SimpleNamespace(_md_notice_pid=0, _md_check_at=0.0, _md_found_at=None, _md_checked=False,
                               _review_notice_planned=False,
                               toasts=[], _after_ids={}, root=SimpleNamespace(after=lambda ms, func: ("review", ms)))
         app._queue_toast = app.toasts.append
@@ -1441,10 +1444,18 @@ class StartNoticesTest(unittest.TestCase):
         self.check(app, 42)                 # lief schon beim Start des Importers
         app._after_ids.clear()
         self.check(app, None, advance=10)   # Spiel beendet …
-        self.check(app, 42, advance=20)     # … und neu gestartet
-        self.check(app, 42, advance=20 + Overlay.MD_START_NOTICE_DELAY_S)
+        self.check(app, 43, advance=20)     # … und neu gestartet (neuer Prozess)
+        self.check(app, 43, advance=20 + Overlay.MD_START_NOTICE_DELAY_S)
         self.assertEqual(app.toasts, [Overlay.started_text()] * 2)
         self.assertEqual(app._after_ids, {})  # Rückblick-Hinweis nur beim ersten Mal
+
+    def test_new_window_of_the_same_game_gives_no_second_notice(self):
+        app = self.make_app()
+        self.check(app, 42, pid=7)
+        self.check(app, None, advance=5)                                 # Fenster kurz weg (Auflösung o. Ä.)
+        self.check(app, 99, advance=10, pid=7)                           # neues Fenster, derselbe Prozess
+        self.check(app, 99, advance=10 + Overlay.MD_START_NOTICE_DELAY_S, pid=7)
+        self.assertEqual(app.toasts, [Overlay.started_text()])
 
 
 if __name__ == "__main__":
