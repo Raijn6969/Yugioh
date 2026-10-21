@@ -1399,6 +1399,7 @@ class StartNoticesTest(unittest.TestCase):
     def make_app(self):
         from types import SimpleNamespace
         app = SimpleNamespace(_start_notices_pending=True, _md_check_at=0.0, _md_found_at=None, _md_checked=False,
+                              _review_notice_planned=False,
                               toasts=[], _after_ids={}, root=SimpleNamespace(after=lambda ms, func: ("review", ms)))
         app._queue_toast = app.toasts.append
         app._start_review_notice = None
@@ -1434,6 +1435,16 @@ class StartNoticesTest(unittest.TestCase):
         self.assertEqual(app.toasts, [])
         self.check(app, 42, advance=2 * Overlay.MD_START_NOTICE_DELAY_S + 3)
         self.assertEqual(app.toasts, [Overlay.started_text()])
+
+    def test_notice_again_on_each_md_start_review_only_once(self):
+        app = self.make_app()
+        self.check(app, 42)                 # lief schon beim Start des Importers
+        app._after_ids.clear()
+        self.check(app, None, advance=10)   # Spiel beendet …
+        self.check(app, 42, advance=20)     # … und neu gestartet
+        self.check(app, 42, advance=20 + Overlay.MD_START_NOTICE_DELAY_S)
+        self.assertEqual(app.toasts, [Overlay.started_text()] * 2)
+        self.assertEqual(app._after_ids, {})  # Rückblick-Hinweis nur beim ersten Mal
 
 
 if __name__ == "__main__":

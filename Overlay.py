@@ -161,7 +161,8 @@ class MasterDuelImporter:
         self._ui_queue = queue.Queue()
         self._toast_free_at = time.monotonic()
         self._toast_count = 0
-        self._start_notices_pending = True  # Startmeldung + Rückblick-Hinweis warten auf Master Duel (einmal je Lauf)
+        self._start_notices_pending = True  # Startmeldung wartet auf (den nächsten Start von) Master Duel
+        self._review_notice_planned = False  # Rückblick-Hinweis: einmal je Lauf, nach der ersten Startmeldung
         self._md_check_at = 0.0  # nächste Suche nach dem Spiel (time.monotonic)
         self._md_found_at = None  # seit wann das Spiel läuft (None = läuft nicht bzw. noch nicht gesucht)
         self._md_checked = False  # schon einmal gesucht? (lief das Spiel schon beim Start des Importers?)
@@ -210,16 +211,19 @@ class MasterDuelImporter:
         self._run_on_ui(self._show_update_failed)
 
     def _check_md_started(self):
-        """Startmeldung und Rückblick-Hinweis kommen erst, wenn Master Duel läuft (der Importer kann mit Windows
-        still starten). Läuft das Spiel schon, gleich beim ersten Aufruf der Fokus-Schleife; sonst alle paar Sekunden
-        nachsehen und erst MD_START_NOTICE_DELAY_S nach dem Erscheinen des Spiels melden."""
+        """Startmeldung (bei jedem Start von Master Duel) und Rückblick-Hinweis (einmal je Lauf) kommen erst, wenn das
+        Spiel läuft (der Importer kann mit Windows still starten). Läuft es schon, gleich beim ersten Aufruf der
+        Fokus-Schleife; sonst alle paar Sekunden nachsehen und erst MD_START_NOTICE_DELAY_S nach dem Erscheinen melden."""
         now = time.monotonic()
-        if not self._start_notices_pending or now < self._md_check_at:
+        if now < self._md_check_at:
             return
         self._md_check_at = now + MD_START_CHECK_S
         first, self._md_checked = not self._md_checked, True
         if find_md_window() is None:
             self._md_found_at = None
+            self._start_notices_pending = True  # Spiel zu: beim nächsten Start wieder melden
+            return
+        if not self._start_notices_pending:
             return
         if self._md_found_at is None:
             self._md_found_at = now
@@ -228,8 +232,10 @@ class MasterDuelImporter:
         self._start_notices_pending = False
         dlog("[START] Startmeldung gezeigt (Master Duel läuft).")
         self._queue_toast(started_text())
-        # Erst nach der Startmeldung: dann sind Datenbank und Fenster längst bereit
-        self._after_ids["review_notice"] = self.root.after(REVIEW_NOTICE_DELAY_MS, self._start_review_notice)
+        if not self._review_notice_planned:
+            self._review_notice_planned = True
+            # Erst nach der Startmeldung: dann sind Datenbank und Fenster längst bereit
+            self._after_ids["review_notice"] = self.root.after(REVIEW_NOTICE_DELAY_MS, self._start_review_notice)
 
     # --- UPDATE-HINWEIS (einmal pro Start, im Hintergrund) ---
     def _start_update_check(self):
