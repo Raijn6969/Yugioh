@@ -79,12 +79,15 @@ def fetch_latest(timeout: float = TIMEOUT, opener: Callable = urllib.request.url
 
 
 def find_update(current: str, log: Callable[[str], None] = lambda message: None,
-                opener: Callable = urllib.request.urlopen) -> Optional[Release]:
-    """Der neuere Release, falls es einen gibt – sonst None. Wirft nie (Netz weg, GitHub down …): nur Log."""
+                opener: Callable = urllib.request.urlopen, raise_errors: bool = False) -> Optional[Release]:
+    """Der neuere Release, falls es einen gibt – sonst None. Wirft nie (Netz weg, GitHub down …): nur Log –
+    außer mit raise_errors (wer dem Nutzer sagen will, dass die Prüfung nicht ging)."""
     try:
         latest = fetch_latest(opener=opener)
     except Exception as e:
         log(f"[UPDATE] Prüfung nicht möglich ({type(e).__name__}: {e}).")
+        if raise_errors:
+            raise
         return None
     if latest is None:
         log("[UPDATE] Keine Version in der Antwort gefunden.")

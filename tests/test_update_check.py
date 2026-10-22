@@ -140,7 +140,9 @@ class FindUpdateTest(unittest.TestCase):
         # urlopen ist die einzige Netz-Stelle: ohne Opener-Parameter würde sie benutzt – hier gemockt
         with mock.patch.object(uc.urllib.request, "urlopen", side_effect=OSError("kein Netz im Test")) as urlopen:
             self.assertIsNone(uc.find_update("9.3", log=self.log.append, opener=uc.urllib.request.urlopen))
-        urlopen.assert_called_once()
+            with self.assertRaises(OSError):   # wer will, erfährt den Fehler (Knopf „Nach Update suchen“)
+                uc.find_update("9.3", log=self.log.append, opener=uc.urllib.request.urlopen, raise_errors=True)
+        self.assertEqual(urlopen.call_count, 2)
 
 
 def make_release(version="9.4", zip_url=ZIP_URL):
@@ -394,6 +396,12 @@ class OverlayHookTest(unittest.TestCase):
             Overlay.MasterDuelImporter._update_worker(app, manual=True)   # Knopf: Bescheid, dass nichts da ist
         self.assertEqual(queued, [(app.update_status, (f"Kein Update gefunden (installiert: {Overlay.APP_VERSION})",
                                                        Overlay.GOOD))])
+        queued.clear()
+        with mock.patch.object(Overlay.updater, "cleanup_old"), \
+                mock.patch.object(Overlay.update_check, "find_update", side_effect=OSError("offline")) as find:
+            Overlay.MasterDuelImporter._update_worker(app, manual=True)   # offline: nicht „kein Update“ melden
+        self.assertTrue(find.call_args.kwargs["raise_errors"])
+        self.assertEqual(queued, [(app.update_status, ("Update-Prüfung nicht möglich (keine Verbindung?)", Overlay.BAD))])
 
     def test_no_question_at_start_while_master_duel_runs_but_the_button_asks(self):
         self.md_window.return_value = 1234
@@ -413,13 +421,27 @@ class OverlayHookTest(unittest.TestCase):
         app.config.update({Overlay.UPDATE_AFTER_DUEL_KEY: True, Overlay.READ_METHOD_KEY: "memory"})
         app._md_in_front = lambda: True                           # im Menü, Spiel vorne: zählt mit der Option nicht
         app.match_watch = SimpleNamespace(in_duel=True)
-        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
+                mock.patch.object(Overlay.md_memory, "is_ready", return_value=True):
             Overlay.MasterDuelImporter._on_update_found(app, make_release("9.3"))
             ask.assert_not_called()                               # im Duell: verschoben
             self.assertEqual(len(app.later), 1)
             app.match_watch.in_duel = False
             app.later.pop(0)[1]()                                 # Duell vorbei → jetzt fragen
             ask.assert_called_once()
+
+    def test_option_without_memory_connection_falls_back_to_md_in_front(self):
+        # Kurz nach dem Start (Speicher noch nicht verbunden) zeigt in_duel nichts – das Duell könnte laufen
+        self.md_window.return_value = 1234
+        app = self.make_app()
+        app.config.update({Overlay.UPDATE_AFTER_DUEL_KEY: True, Overlay.READ_METHOD_KEY: "memory"})
+        app._md_in_front = lambda: True
+        app.match_watch = SimpleNamespace(in_duel=False)
+        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
+                mock.patch.object(Overlay.md_memory, "is_ready", return_value=False):
+            Overlay.MasterDuelImporter._on_update_found(app, make_release("9.3"))
+        ask.assert_not_called()
+        self.assertEqual(len(app.later), 1)                       # wartet, bis Master Duel nicht mehr vorne liegt
 
     def test_option_counts_only_in_memory_mode_but_the_button_always_works(self):
         on = {Overlay.UPDATE_AFTER_DUEL_KEY: True}

@@ -253,7 +253,12 @@ class MasterDuelImporter:
 
     def _update_worker(self, manual=False):
         updater.cleanup_old(tempfile.gettempdir())  # Reste eines früheren Updates
-        release = update_check.find_update(APP_VERSION, log=lambda message: append(LOG_FILE, message))
+        try:
+            release = update_check.find_update(APP_VERSION, log=lambda message: append(LOG_FILE, message),
+                                               raise_errors=manual)
+        except Exception:  # nur beim Knopf: sonst hieße es fälschlich „kein Update“
+            self._run_on_ui(self.update_status, "Update-Prüfung nicht möglich (keine Verbindung?)", BAD)
+            return
         if release:
             self._run_on_ui(self._on_update_found, release, manual)
         elif manual:
@@ -298,10 +303,10 @@ class MasterDuelImporter:
         self._after_ids.pop("update_ask", None)
         if self.update_release is None or self._update_running:
             return
-        if update_after_duel(self.config):
-            watch = getattr(self, "match_watch", None)
-            blocked = watch is not None and watch.in_duel
-        else:
+        watch = getattr(self, "match_watch", None)
+        if update_after_duel(self.config) and watch is not None and md_memory.is_ready():
+            blocked = watch.in_duel
+        else:  # ohne Speicher-Verbindung (z. B. kurz nach dem Start) ist unbekannt, ob ein Duell läuft
             blocked = self._md_in_front()
         if self.is_running or (not user and blocked):
             self._after_ids["update_ask"] = self.root.after(UPDATE_RETRY_MS, lambda: self._ask_update_when_idle(user))

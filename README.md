@@ -82,9 +82,11 @@ If "Read memory" can't connect for a few minutes (usually after a Master Duel
 update), you get a one-time notice: imports then use text recognition, and duels
 aren't recorded until it works again.
 
-Only one importer can run at a time. On start, a short note "MD-Importer <version>
-läuft jetzt." appears above the taskbar for 5 seconds; starting it again only shows
-that note instead of a second overlay.
+Only one importer can run at a time. A short note "MD-Importer <version> läuft jetzt."
+appears above the taskbar for 5 seconds once per Master Duel start: right away if the
+game is already running, otherwise about 15 seconds after the game starts (so it isn't
+lost in the loading screen). Starting the importer again only shows that note instead
+of a second overlay.
 
 You don't need to open the Match History after every duel: it shows the last 20, so
 once every 20 duels is enough. After 15 duels without it you get a reminder (again at
