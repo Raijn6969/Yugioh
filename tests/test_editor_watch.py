@@ -31,7 +31,8 @@ class EditorDetectorTest(unittest.TestCase):
 
     def test_editor_is_read_once_then_recognised_by_image(self):
         self.answers = [True]
-        self.assertIsNone(self.tick(header("Main Deck")))  # neues Bild: erst sehen, ob es stillsteht
+        self.assertFalse(self.detector.visible)  # Spiel gerade erst vorne: Overlay nicht kurz aufblitzen lassen
+        self.assertFalse(self.tick(header("Main Deck")))  # neues Bild: erst sehen, ob es stillsteht (Overlay noch aus)
         self.assertTrue(self.tick(header("Main Deck")))
         for _ in range(20):
             self.assertTrue(self.tick(header("Main Deck")))

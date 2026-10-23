@@ -44,7 +44,9 @@ class EditorDetector:
         self.read_text = read_text            # Texterkennung: steht dort "…deck"?
         self.clock = clock
         self.cache: List[Tuple[bytes, bool]] = []
-        self.visible: Optional[bool] = None   # None = noch unbekannt (bzw. nicht prüfbar) → Overlay zeigen
+        # False = (noch) kein Editor erkannt → Overlay aus, auch beim ersten Holen des Spiels nach vorne;
+        # None = nicht prüfbar (kein 16:9, keine Texterkennung) → Overlay zeigen
+        self.visible: Optional[bool] = False
         self._negatives = 0
         self._last_ocr = -OCR_INTERVAL
         self._previous: Optional[bytes] = None  # Abbild der letzten Prüfung (nur wenn es unbekannt war)

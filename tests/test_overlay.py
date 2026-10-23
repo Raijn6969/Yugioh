@@ -703,6 +703,8 @@ class OverlayTest(unittest.TestCase):
         self.write_config(json.dumps({"IS_CALIBRATED": True}))
         _, app = self.open_app()
         app.tray = mock.Mock()
+        app.editor_watch.stop()
+        app.editor_watch = mock.Mock(visible=True)   # Deck-Editor erkannt
         app.config["CLOSE_TO_TRAY"] = True
         app._on_close_clicked()
         self.assertTrue(app._hidden_by_x)
