@@ -737,6 +737,7 @@ class OverlayTest(unittest.TestCase):
                 mock.patch.object(Overlay.win_api, "window_pid", return_value=7), \
                 mock.patch.object(Overlay, "show_toast"):
             app._md_check_at, app._md_checked = 0.0, False   # als liefe das Spiel schon beim Start: ohne Wartezeit
+            app._md_in_front = lambda: True
             app._check_md_started()
         self.assertIn("review_notice", app._after_ids)       # später, nicht beim Start (Datenbank, Startmeldung)
         self.assertGreater(Overlay.REVIEW_NOTICE_DELAY_MS, Overlay.STARTED_TOAST_MS)
@@ -1406,7 +1407,19 @@ class StartNoticesTest(unittest.TestCase):
                               toasts=[], _after_ids={}, root=SimpleNamespace(after=lambda ms, func: ("review", ms)))
         app._queue_toast = app.toasts.append
         app._start_review_notice = None
+        app._md_in_front = lambda: True
         return app
+
+    def test_waits_until_md_is_in_front(self):
+        app = self.make_app()
+        app._md_in_front = lambda: False   # lädt im Hintergrund
+        self.check(app, None)
+        self.check(app, 42, advance=3)
+        self.check(app, 42, advance=3 + Overlay.MD_START_NOTICE_DELAY_S)
+        self.assertEqual(app.toasts, [])
+        app._md_in_front = lambda: True    # nach vorne geholt
+        self.check(app, 42, advance=6 + Overlay.MD_START_NOTICE_DELAY_S)
+        self.assertEqual(app.toasts, [Overlay.started_text()])
 
     def test_no_notice_while_md_is_not_running(self):
         app = self.make_app()

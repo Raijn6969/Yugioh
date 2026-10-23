@@ -213,7 +213,8 @@ class MasterDuelImporter:
     def _check_md_started(self):
         """Startmeldung (bei jedem Start von Master Duel) und Rückblick-Hinweis (einmal je Lauf) kommen erst, wenn das
         Spiel läuft (der Importer kann mit Windows still starten). Läuft es schon, gleich beim ersten Aufruf der
-        Fokus-Schleife; sonst alle paar Sekunden nachsehen und erst MD_START_NOTICE_DELAY_S nach dem Erscheinen melden."""
+        Fokus-Schleife; sonst alle paar Sekunden nachsehen und erst MD_START_NOTICE_DELAY_S nach dem Erscheinen melden –
+        in beiden Fällen erst, wenn Master Duel vorne liegt."""
         now = time.monotonic()
         if now < self._md_check_at:
             return
@@ -230,6 +231,8 @@ class MasterDuelImporter:
             self._md_found_at = now
         if not first and now - self._md_found_at < MD_START_NOTICE_DELAY_S:
             return  # Spiel startet gerade (Ladebild, Wechsel ins Vollbild): die Meldung ginge darin unter
+        if not self._md_in_front():
+            return  # lädt im Hintergrund: erst, wenn man das Spiel nach vorne holt
         self._md_notice_pid, self._md_found_at = pid, None
         dlog("[START] Startmeldung gezeigt (Master Duel läuft).")
         self._queue_toast(started_text())
@@ -386,7 +389,19 @@ class MasterDuelImporter:
 
     def _show_queued_toast(self, key, text):
         self._after_ids.pop(key, None)
-        show_toast(self.root, text, duration_ms=STARTED_TOAST_MS)
+        win = show_toast(self.root, text, duration_ms=STARTED_TOAST_MS)
+        self._after_ids["toast_check"] = self.root.after(1000, lambda: self._log_toast_on_top(win))
+
+    def _log_toast_on_top(self, win):
+        """Nur zur Fehlersuche: Liegt der Hinweis wirklich oben (Startmeldung kam laut Log, war aber nicht zu sehen)?"""
+        self._after_ids.pop("toast_check", None)
+        try:
+            x, y = win.winfo_rootx() + win.winfo_width() // 2, win.winfo_rooty() + win.winfo_height() // 2
+            at = win32gui.GetAncestor(win32gui.WindowFromPoint((x, y)), 2)  # GA_ROOT: das Fenster selbst
+            state = "oben" if at == int(win.wm_frame(), 16) else f"verdeckt von {win32gui.GetClassName(at)!r}"
+            dlog(f"[HINWEIS] Hinweis bei ({x}, {y}) {state}, Master Duel vorne: {self._md_in_front()}.")
+        except Exception:  # Hinweis schon weg o. Ä.: nur Diagnose, nichts tun
+            pass
 
     # --- RÜCKBLICK-HINWEIS (einmal pro neuem Monat) ---
     def _start_review_notice(self):
