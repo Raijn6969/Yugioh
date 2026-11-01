@@ -1185,7 +1185,7 @@ class ExtrasPanelTest(unittest.TestCase):
     def test_autostart_option_mirrors_registry_and_reports_errors(self):
         state = {"on": False}
         with mock.patch("autostart.is_enabled", lambda: state["on"]), \
-                mock.patch("autostart.set_enabled", lambda on: state.update(on=on)) as setter:
+                mock.patch("autostart.set_enabled", lambda on: state.update(on=on)):
             self.panel._open_options()
             self.root.update()
             self.assertFalse(self.panel.autostart.get())

@@ -295,9 +295,9 @@ class AshPrioPanel:
             if card == self.focus:
                 strip.create_rectangle(x - 2, top - 2, x + width + 1, top + height + 1, outline=GOLD, width=3,
                                        tags=(tag,))
-            for j, (text, color, font) in enumerate(texts):
+            for j, (text, color, text_font) in enumerate(texts):
                 strip.create_text(x + width // 2, top + height + int(3 * s) + j * line, text=text, fill=color,
-                                  font=font, anchor="n", tags=(tag,))
+                                  font=text_font, anchor="n", tags=(tag,))
             strip.tag_bind(tag, "<Button-1>", lambda e, c=card: self.pick(c))
             strip.tag_bind(tag, "<Enter>", lambda e: strip.config(cursor="hand2"))
             strip.tag_bind(tag, "<Leave>", lambda e: strip.config(cursor=""))
