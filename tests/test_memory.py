@@ -1,5 +1,6 @@
 """Speicher-Modus: Speicher lesen und Import mit Karten-IDs statt Texterkennung."""
 
+import json
 import os
 import struct
 import tempfile
@@ -734,3 +735,52 @@ class MetadataHeaderTest(unittest.TestCase):
     def test_unknown_file_is_reported(self):
         with self.assertRaises(md_memory.MemoryStructureChanged):
             md_memory.string_section(struct.pack("<ii", 1234, 39) + bytes(40))
+
+
+class StringSectionFallbackTest(unittest.TestCase):
+    """Ausweichsuche: neuer Aufbau des Kopfs → Namen trotzdem finden und die Stelle als Regelfall merken."""
+
+    NAMES = ["ClientWork", "viewStack"]
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.layout = os.path.join(self.dir.name, "layout.json")
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def raw(self, version, pos):
+        """Kopf (512 Byte) mit den Namen-Abschnitt (Position, Größe) an Stelle pos, dahinter Daten und Namen."""
+        head = bytearray(512)
+        struct.pack_into("<ii", head, 0, -89056337, version)
+        body = b"\0Literal\0" * 4 + b"\0ClientWork\0viewStack\0Other\0"
+        names_at = 512 + body.index(b"\0ClientWork")
+        struct.pack_into("<ii", head, pos, names_at, len(body) - (names_at - 512))
+        return bytes(head) + body, names_at
+
+    def find(self, raw):
+        with mock.patch.object(md_memory, "dlog") as log:
+            result = md_memory.find_string_section(raw, self.NAMES, self.layout)
+        return result, log.call_count
+
+    def test_known_layout_needs_no_search(self):
+        raw, names_at = self.raw(39, md_memory._section_pos(39))
+        (offset, _), logged = self.find(raw)
+        self.assertEqual((offset, logged), (names_at, 0))
+        self.assertFalse(os.path.exists(self.layout))
+
+    def test_new_layout_is_found_and_then_used_as_rule(self):
+        raw, names_at = self.raw(45, 100)                 # Version mit unbekanntem Kopf
+        (offset, _), logged = self.find(raw)
+        self.assertEqual((offset, logged), (names_at, 1))
+        with open(self.layout, encoding="utf-8") as f:
+            self.assertEqual(json.load(f), {"45": 100})
+        (offset, _), logged = self.find(raw)              # nächster Start: gemerkte Stelle, keine Suche
+        self.assertEqual((offset, logged), (names_at, 0))
+
+    def test_nothing_found_falls_back_to_known_layout(self):
+        raw, _ = self.raw(39, 100)
+        raw = raw.replace(b"viewStack", b"viewStacX")     # Name wirklich weg (umbenannt)
+        (offset, size), logged = self.find(raw)
+        self.assertEqual((offset, size), md_memory.string_section(raw))
+        self.assertEqual(logged, 0)

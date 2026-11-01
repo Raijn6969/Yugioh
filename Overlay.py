@@ -815,7 +815,7 @@ class MasterDuelImporter:
             self.update_status("Speicher-Modus nicht verfügbar", WARN)
         if self.tray:
             self.tray.notify(text, "MD Importer")
-        self._run_on_ui(self._offer_ocr_when_idle)  # nicht im Fokus-Timer blockieren
+        self._repair_check("")
 
     def _warn_memory_changed(self, missing):
         """Master Duel läuft, aber Klassen/Felder fehlen: einmal pro Spiel-Prozess melden."""
@@ -823,7 +823,24 @@ class MasterDuelImporter:
         self.update_status("Speicher-Modus passt nicht zu Master Duel", WARN)
         if self.tray:
             self.tray.notify(MEMORY_CHANGED_TEXT, "MD Importer")
-        self._run_on_ui(lambda: self._offer_ocr_when_idle(MEMORY_CHANGED_TEXT))
+        self._repair_check(MEMORY_CHANGED_TEXT)
+
+    def _repair_check(self, text: str):
+        """Speicher-Modus kaputt (meist nach einem Master-Duel-Update): gleich nach einer neueren Importer-Version
+        sehen – die repariert das in der Regel. Danach der Hinweis mit Update bzw. Texterkennung (Hintergrund-Thread,
+        der Fokus-Timer wartet nicht aufs Netz)."""
+        def work():
+            release = self.update_release or update_check.find_update(
+                APP_VERSION, log=lambda message: append(LOG_FILE, message))
+            self._run_on_ui(self._offer_repair, release, text)
+        threading.Thread(target=work, daemon=True, name="repair-update").start()
+
+    def _offer_repair(self, release, text: str):
+        if release is not None and self.update_release is None:
+            self.update_release = release
+            if self.tray:
+                self.tray.set_update(release.version)
+        self._offer_ocr_when_idle(text)
 
     def _memory_fell_back(self):
         """Ein Import/Scan/Export musste auf die Texterkennung ausweichen: Hinweis, einmal pro Sitzung – nur,
@@ -841,12 +858,21 @@ class MasterDuelImporter:
         if self.is_running or self.root.grab_current() or self._md_in_front():
             self._after_ids["ocr_offer"] = self.root.after(UPDATE_RETRY_MS, self._offer_ocr_when_idle, text)
             return
-        choice = ask_choice(
-            self.root, "Speicher-Modus nicht verfügbar",
-            text or "Der Speicher-Modus funktioniert gerade nicht, oft nach einem Master-Duel-Update. "
-            "Du kannst zur Texterkennung wechseln.",
-            [("Zur Texterkennung wechseln", "ocr", PRIMARY), ("Später", None, NEUTRAL)], kind="warning")
-        if choice:
+        text = text or ("Der Speicher-Modus funktioniert gerade nicht, oft nach einem Master-Duel-Update. "
+                        "Du kannst zur Texterkennung wechseln.")
+        choices = [("Zur Texterkennung wechseln", "ocr", PRIMARY), ("Später", None, NEUTRAL)]
+        release = self.update_release
+        if release is not None:  # neuere Version da: die passt vermutlich schon zum neuen Master Duel
+            text += f"\n\nMD-Importer {release.version} ist da (installiert: {APP_VERSION}) und behebt das vermutlich."
+            choices = [("Update installieren", "update", PRIMARY), ("Zur Texterkennung wechseln", "ocr", NEUTRAL),
+                       ("Später", None, NEUTRAL)]
+        choice = ask_choice(self.root, "Speicher-Modus nicht verfügbar", text, choices, kind="warning")
+        if choice == "update":
+            if self._can_self_update(release):
+                self._start_update(release)
+            else:
+                self._open_project_page(release.page)
+        elif choice:
             self._set_read_method(choice)
 
     # --- FENSTER LOGIK ---

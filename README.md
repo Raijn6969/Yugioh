@@ -80,7 +80,10 @@ live from version 9.2 on; the Match History doesn't include the coin toss.
 
 If "Read memory" can't connect for a few minutes (usually after a Master Duel
 update), you get a one-time notice: imports then use text recognition, and duels
-aren't recorded until it works again.
+aren't recorded until it works again. The importer then checks GitHub right away; if a
+newer version exists, the notice offers to install it (it usually fixes this). If only
+the layout of the game's metadata file changed, the importer finds the names on its own
+and remembers where they are (`md_memory_layout.json`), so no update is needed.
 
 Only one importer can run at a time. A short note "MD-Importer <version> läuft jetzt."
 appears above the taskbar for 5 seconds once per Master Duel start: right away if the

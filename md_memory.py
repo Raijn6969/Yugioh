@@ -23,6 +23,7 @@ Dictionaries, z.B. "DuelHistory" (die Match History mit beiden Decks) und "Deck"
 """
 
 import ctypes
+import json
 import os
 import struct
 import threading
@@ -31,6 +32,8 @@ from ctypes import wintypes
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
 import win_api
+from app_paths import DATA_DIR
+from debug_log import dlog
 
 PROCESS_VM_READ, PROCESS_QUERY_INFORMATION = 0x10, 0x400
 MEM_COMMIT, MEM_PRIVATE, MEM_MAPPED = 0x1000, 0x20000, 0x40000
@@ -55,6 +58,8 @@ LOG_CLASS = ("YgomGame.Duel", "DuelLogController")
 # Namen, die der Importer in den Metadaten braucht (Klassen + Schlüsselfelder); fehlt einer: Spiel-Update
 REQUIRED_NAMES = [c[1] for c in (MANAGER_CLASS, EDITOR_CLASS, CLIENT_WORK_CLASS, DUEL_CLIENT_CLASS, LOG_CLASS)] + [
     "viewStack", "s_data", "m_DataCount", "m_ScrollRect", "entityPoolController", "m_LogBaseItemList"]
+LAYOUT_FILE = os.path.join(DATA_DIR, "md_memory_layout.json")  # per Ausweichsuche gefundene Stellen {Version: Stelle}
+HEADER_SCAN = 512   # so weit wird der Kopf der Metadaten bei der Ausweichsuche durchsucht (Bytes)
 ARRAY_ELEMENT_SIZE = 0x104   # Il2CppClass eines Arrays: Größe eines Elements (Struct-Listen)
 LOG_MAX = 50000              # Schutz vor kaputten Längen
 LOG_SEARCH_PAUSE = 10.0      # Sekunden Pause nach erfolgloser Suche nach dem Controller (die Suche dauert ~8 s)
@@ -260,13 +265,63 @@ class ProcessReader:
         return hits
 
 
+def _section_pos(version: int) -> int:
+    """Stelle im Kopf von global-metadata.dat, an der (Position, Größe) der Namen stehen: nach Kennung und Version je
+    Abschnitt (Position, Größe) – ab Version 38 (Unity 6) (Position, Größe, Anzahl). Die Namen: dritter Abschnitt."""
+    return 8 + 2 * (12 if version >= 38 else 8)
+
+
 def string_section(raw: bytes) -> Tuple[int, int]:
-    """(Position, Größe) der Namen in global-metadata.dat. Kopf: Kennung, Version, dann je Abschnitt (Position, Größe)
-    – ab Version 38 (Unity 6) (Position, Größe, Anzahl). Die Namen sind der dritte Abschnitt."""
+    """(Position, Größe) der Namen nach dem bekannten Aufbau der Datei."""
     magic, version = struct.unpack_from("<ii", raw, 0)
     if magic != -89056337:  # 0xFAB11BAF
         raise MemoryStructureChanged(["Metadaten-Format"])
-    return struct.unpack_from("<ii", raw, 8 + 2 * (12 if version >= 38 else 8))
+    return struct.unpack_from("<ii", raw, _section_pos(version))
+
+
+def _has_names(raw: bytes, offset: int, size: int, names) -> bool:
+    end = offset + size
+    return 0 < offset < end <= len(raw) and all(raw.find(b"\0" + n.encode() + b"\0", offset, end) >= 0 for n in names)
+
+
+def _load_layouts(path: str) -> Dict[str, int]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        return {str(k): int(v) for k, v in data.items()} if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def find_string_section(raw: bytes, names=None, layout_file: Optional[str] = None) -> Tuple[int, int]:
+    """
+    (Position, Größe) der Namen. Reihenfolge: früher per Ausweichsuche gefundene Stelle für diese Version (layout_file),
+    der bekannte Aufbau, dann die Ausweichsuche: jede Stelle im Kopf, deren (Position, Größe) einen Bereich mit allen
+    benötigten Namen beschreibt (der kleinste gewinnt). Was die Suche findet, gilt ab dann als Regelfall (gespeichert).
+    Ohne Treffer: der bekannte Aufbau – die fehlenden Namen meldet dann Il2Cpp.missing.
+    """
+    names = REQUIRED_NAMES if names is None else names
+    layout_file = LAYOUT_FILE if layout_file is None else layout_file
+    default = string_section(raw)  # prüft auch die Kennung
+    version = struct.unpack_from("<i", raw, 4)[0]
+    learned = _load_layouts(layout_file).get(str(version))
+    for pos in ([learned] if learned is not None else []) + [_section_pos(version)]:
+        if 8 <= pos <= len(raw) - 8 and _has_names(raw, *struct.unpack_from("<ii", raw, pos), names):
+            return struct.unpack_from("<ii", raw, pos)
+    found = [(size, pos, offset) for pos in range(8, min(HEADER_SCAN, len(raw) - 8), 4)
+             for offset, size in [struct.unpack_from("<ii", raw, pos)] if _has_names(raw, offset, size, names)]
+    if not found:
+        return default
+    size, pos, offset = min(found)
+    layouts = _load_layouts(layout_file)
+    layouts[str(version)] = pos
+    try:
+        with open(layout_file, "w", encoding="utf-8") as f:
+            json.dump(layouts, f)
+    except OSError:
+        pass  # nicht gespeichert: beim nächsten Mal wird wieder gesucht
+    dlog(f"[MEMORY] Ausweichsuche: Namen der Metadaten (Version {version}) an Kopf-Stelle {pos} gefunden – gilt ab jetzt.")
+    return offset, size
 
 
 class Il2Cpp:
@@ -276,7 +331,7 @@ class Il2Cpp:
         self.r = reader
         with open(metadata_path, "rb") as f:
             raw = f.read()
-        self.str_offset, size = string_section(raw)
+        self.str_offset, size = find_string_section(raw)
         self.strings = raw[self.str_offset:self.str_offset + size]
         self.base = self._find_loaded(raw[:64])
         self._fields: Dict[int, Dict[str, int]] = {}

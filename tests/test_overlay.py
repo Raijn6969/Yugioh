@@ -442,7 +442,33 @@ class OverlayTest(unittest.TestCase):
 
     def memory_app(self):
         self.write_config(json.dumps({"IS_CALIBRATED": True, "READ_METHOD": "memory"}))
-        return self.open_app()
+        root, app = self.open_app()
+        # Update-Prüfung bei Ausfall ohne Netz und ohne Thread: keine neuere Version (eigener Test unten)
+        app._repair_check = lambda text: app._run_on_ui(app._offer_repair, None, text)
+        return root, app
+
+    def test_memory_outage_looks_for_an_update_and_offers_it(self):
+        root, app = self.memory_app()
+        from types import SimpleNamespace
+        del app._repair_check   # die echte Prüfung (Netz gemockt)
+        app._md_in_front = lambda: False
+        release = SimpleNamespace(version="9.9", page="https://github.com/x", zip_url="https://github.com/x.zip")
+        with mock.patch.object(Overlay.update_check, "find_update", return_value=release) as find, \
+                mock.patch.object(Overlay, "ask_choice", return_value="update") as ask, \
+                mock.patch.object(app, "_start_update") as start, \
+                mock.patch.object(app, "_can_self_update", return_value=True):
+            app._repair_check(Overlay.MEMORY_CHANGED_TEXT)
+            for _ in range(50):
+                if ask.called:
+                    break
+                self.pump(root, 0.1)
+        find.assert_called_once()
+        self.assertEqual([label for label, _, _ in ask.call_args.args[3]],
+                         ["Update installieren", "Zur Texterkennung wechseln", "Später"])
+        self.assertIn("9.9", ask.call_args.args[2])
+        start.assert_called_once_with(release)
+        self.assertIs(app.update_release, release)
+        self.assertTrue(app._use_memory())   # Lesemethode bleibt
 
     def saved_read_method(self):
         with open(self.config_file, encoding="utf-8") as f:
@@ -1353,8 +1379,7 @@ class MemoryWarningTest(unittest.TestCase):
         from types import SimpleNamespace
         app = SimpleNamespace(_memory_thread=None, _memory_preload_at=0.0, _memory_warned=False, _memory_pid=0,
                               shown=[], tray=[])
-        app._offer_ocr_when_idle = None
-        app._run_on_ui = lambda func: app.shown.append("popup")
+        app._repair_check = lambda text: app.shown.append("popup")   # Update-Prüfung, dann der Hinweis
         app.update_status = lambda text, color: app.shown.append(text)
         app.tray = SimpleNamespace(notify=lambda text, title: app.shown.append("tray: " + text))
         app._warn_memory_unavailable = lambda: Overlay.MasterDuelImporter._warn_memory_unavailable(app)
