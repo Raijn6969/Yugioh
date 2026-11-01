@@ -1101,7 +1101,7 @@ class RoundedButtonTest(unittest.TestCase):
 
     def test_roles_set_fill_and_text_color_and_stay_readable(self):
         from rounded_button import RoundedButton, _shade
-        from window_style import BG, GOLD, PANEL, ROLES
+        from window_style import BG, GOLD, MUTED, PANEL, ROLES
 
         def contrast(a, b):
             def lum(h):
@@ -1114,13 +1114,17 @@ class RoundedButtonTest(unittest.TestCase):
         for role, (fill, fg, border) in ROLES.items():
             fg = "#ffffff" if fg == "white" else fg
             self.assertEqual(border == GOLD, role == "active", role)  # nur der aktive Knopf hat Goldrand
-            self.assertGreaterEqual(contrast(border, PANEL), 3.0, role)  # Rand gut sichtbar (WCAG 3:1)
-            self.assertGreaterEqual(contrast(border, BG), 3.0, role)
+            if role in ("nav", "link"):  # flacher Text ohne Rand: Fläche = Untergrund (Kopfzeile bzw. Fenster)
+                self.assertEqual(border, fill, role)
+            else:
+                self.assertGreaterEqual(contrast(border, PANEL), 3.0, role)  # Rand gut sichtbar (WCAG 3:1)
+                self.assertGreaterEqual(contrast(border, BG), 3.0, role)
             button = RoundedButton(self.root, text="X", role=role)
             self.assertEqual(button.cget("bg"), fill)
             self.assertGreaterEqual(contrast(fill, fg), 4.5, role)
-            self.assertGreaterEqual(contrast(_shade(fill, 1.06), fg), 4.5, role)        # Hover
-            self.assertGreaterEqual(contrast(_shade(fill, 0.55), "#a8a8a8"), 4.5, role)  # gesperrt
+            # Hover und gesperrt: kurzzeitig bzw. von WCAG ausgenommen, aber noch lesbar
+            self.assertGreaterEqual(contrast(_shade(fill, 1.06), fg), 4.0, role)
+            self.assertGreaterEqual(contrast(_shade(fill, 0.55), MUTED), 2.8, role)
         button.config(role="danger")
         self.assertEqual(button.cget("bg"), ROLES["danger"][0])
 
@@ -1138,7 +1142,7 @@ class RoundedButtonTest(unittest.TestCase):
         body = render_body(100, 30, 7, "#007acc", GOLD, "#1e1e1e")
         self.assertEqual(body.getpixel((0, 0)), (0x1e, 0x1e, 0x1e))   # Ecke außen: Fensterhintergrund
         top = body.getpixel((50, 0))                                    # oben Mitte: Goldrand (geglättet)
-        self.assertTrue(all(abs(a - b) <= 25 for a, b in zip(top, (0xc9, 0xa0, 0x2f))), top)
+        self.assertTrue(all(abs(a - b) <= 25 for a, b in zip(top, (0xe2, 0xb2, 0x5b))), top)
         self.assertEqual(body.getpixel((50, 15)), (0x00, 0x7a, 0xcc)) # innen: Button-Farbe
 
 

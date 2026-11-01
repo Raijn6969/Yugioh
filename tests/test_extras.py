@@ -5,6 +5,7 @@ import io
 import os
 import random
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -19,7 +20,7 @@ from card_stats import CardInfo, CardStatsDB, HandtrapInfo, StarterInfo
 from draw_odds import p_at_least, p_exactly
 from handtrap_rules import classify_handtrap
 from starter_rules import classify
-from window_style import GOLD, ROLES
+from window_style import AMBER, DIM, FRAME_COLORS, GOLD, GOOD, HAND, HIGHLIGHT, PANEL, ROLES, WARN, frame_color
 
 try:
     import tkinter as tk
@@ -92,6 +93,11 @@ TEXTS = {
                  "If this card is Tributed: You can add 1 \"Mitsurugi\" card from your Deck to your hand, except "
                  "\"Ame no Murakumo no Mitsurugi\", then you can Special Summon this card."),
 }
+
+
+def deck_analysis_art(path, size, color):
+    import extras_panel
+    return extras_panel.art_image(path, size, color)
 
 
 def guess(key):
@@ -667,6 +673,9 @@ class ImmediateThread:
     def start(self):
         self.target(*self.args)
 
+    def is_alive(self):
+        return False
+
 
 class ExtrasPanelTest(unittest.TestCase):
     def setUp(self):
@@ -685,11 +694,14 @@ class ExtrasPanelTest(unittest.TestCase):
         self.patches = [mock.patch.object(extras_panel.DeckWatcher, "start", lambda self: None),
                         mock.patch.object(extras_panel.md_layout, "md_frame", return_value=FRAME),
                         mock.patch.object(extras_panel.win_api, "get_cursor_pos", lambda: self.cursor),
+                        mock.patch.object(extras_panel.card_images, "download", return_value=0),
                         ]
-        for p in self.patches:
+        self.download = self.patches[-1].start()  # kein Netz im Test
+        for p in self.patches[:-1]:
             p.start()
+        self.images = tempfile.mkdtemp()
         self.panel = extras_panel.ExtrasPanel(self.root, self.db, "", on_rescan=lambda: None,
-                                              on_close=lambda: self.closed.append(True))
+                                              on_close=lambda: self.closed.append(True), image_folder=self.images)
 
     def tearDown(self):
         self.panel.close()
@@ -725,15 +737,15 @@ class ExtrasPanelTest(unittest.TestCase):
                          (area["width"], area["height"]))
         self.assertLessEqual(self.panel.win.winfo_reqwidth(), 550)  # Inhalt passt in die Box
         self.assertEqual(len(self.panel._rows), 1 + 1 + 35 + 1)  # Lukias, Ash, 35 andere, Arthalion
-        self.assertEqual(self.panel.tiles["main"].cget("text"), "40")
-        self.assertEqual(self.panel.tiles["starter"].cget("text"), "3")
-        self.assertEqual(self.panel.tiles["handtrap"].cget("text"), "37")  # Ash ×2 + 35 andere (Text von Ash)
-        self.assertEqual(self.panel.starter_odds.cget("text"), "Mind. 1 Starter auf der Hand:  33,8 %")
-        self.assertEqual(self.panel.handtrap_odds.cget("text"), "Mind. 1 Handtrap:  100,0 %")
-        # rechts neben der Starter-Chance
+        # Ash ×2 + 35 andere (Text von Ash) sind Handtraps
+        self.assertEqual(self.panel.counts_label.cget("text"),
+                         "40 Karten im Main Deck, 1 im Extra Deck, 3 Starter und 37 Handtraps")
+        self.assertEqual(self.panel.starter_odds.cget("text"), "33,8 %")
+        self.assertEqual(self.panel.handtrap_odds.cget("text"), "100,0 %")
+        self.assertEqual(self.panel.second_odds.winfo_manager(), "")  # nur mit Option "2. Zug"
         self.root.update()
         self.assertGreaterEqual(self.panel.handtrap_odds.winfo_x(),  # rechts daneben, ohne Überlappung
-                           self.panel.starter_odds.winfo_x() + self.panel.starter_odds.winfo_width())
+                                self.panel.starter_odds.winfo_x() + self.panel.starter_odds.winfo_width())
 
     def test_panel_stays_clear_of_the_main_bar(self):
         self.root.geometry("560x60+1400+1010")  # Hauptleiste am unteren Rand, über der Kartenliste
@@ -752,22 +764,25 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel._toggle_starter(entry)
         self.assertIs(self.panel._rows[entry.key], row)  # dieselbe Zeile, kein Neuaufbau
         self.assertAlmostEqual(self.panel.list_canvas.yview()[0], 0.3, places=1)  # kein Sprung nach oben
-        self.assertEqual(row.winfo_children()[-4].cget("text"), "Ja")
-        self.assertEqual(self.panel.tiles["starter"].cget("text"), "4")  # Lukias ×3 + diese Karte
+        starter = self.panel._role_labels[entry.key][0]
+        self.assertEqual((starter.cget("text"), starter.cget("fg")), ("Starter ✎", GOOD))
+        self.assertIn(" 4 Starter und ", self.panel.counts_label.cget("text"))  # Lukias ×3 + diese Karte
         self.panel._reset_starter(entry)
-        self.assertEqual((row.winfo_children()[-4].cget("text"), self.panel.tiles["starter"].cget("text")),
-                         ("Nein", "3"))
+        self.assertEqual((starter.cget("text"), starter.cget("fg")), ("Starter", DIM))
+        self.assertIn(" 3 Starter und ", self.panel.counts_label.cget("text"))
 
     def test_handtrap_can_be_changed_by_click(self):
         self.panel.set_scan(self.scan)
         self.root.update()
-        self.panel._rows["1"].winfo_children()[-2].event_generate("<Button-1>")  # Handtrap "Nein" → "Ja"
+        handtrap = self.panel._role_labels["1"][1]
+        self.assertEqual((handtrap.cget("text"), handtrap.cget("fg")), ("Handtrap", DIM))
+        handtrap.event_generate("<Button-1>")  # Handtrap aus → an
         self.root.update()
         self.assertTrue(self.db.handtrap("1").handtrap)
-        self.assertEqual([w.cget("text") for w in self.panel._rows["1"].winfo_children()[-2:]], ["Ja", "✎"])
-        self.assertEqual(self.panel.tiles["handtrap"].cget("text"), "40")
+        self.assertEqual((handtrap.cget("text"), handtrap.cget("fg")), ("Handtrap ✎", HAND))
+        self.assertIn(" 40 Handtraps", self.panel.counts_label.cget("text"))
         self.assertEqual(self.panel._hover_content(self.panel.analysis.entry_at("Main", 0)).badge2[0], "HANDTRAP ✓")
-        self.panel._rows["1"].winfo_children()[-1].event_generate("<Button-3>")
+        handtrap.event_generate("<Button-3>")
         self.root.update()
         self.assertFalse(self.db.handtrap("1").handtrap)
 
@@ -799,15 +814,17 @@ class ExtrasPanelTest(unittest.TestCase):
     def test_tab_replaces_the_deck_view_and_the_active_tab_goes_back(self):
         self.panel.history_btn.invoke()
         self.assertEqual((self.panel.title_label.cget("text"), self.panel.deck_body.winfo_manager()),
-                         ("◆ VERLAUF", ""))
+                         ("Verlauf", ""))
         self.assertEqual(self.panel.history.win.winfo_manager(), "pack")      # im Deck-Fenster, kein eigenes Fenster
         self.assertEqual(self.panel.rescan_btn.winfo_manager(), "")
         self.panel.winrate_btn.invoke()                                      # anderer Tab: nur eine Ansicht
         self.assertIsNone(self.panel.history)
-        self.assertEqual(self.panel.title_label.cget("text"), "◆ WINRATE")
+        self.assertEqual(self.panel.title_label.cget("text"), "Winrate")
         self.panel.winrate_btn.invoke()                                      # aktiver Tab: zurück zur Deck-Ansicht
         self.assertEqual((self.panel.title_label.cget("text"), self.panel.deck_body.winfo_manager(),
-                          self.panel.rescan_btn.winfo_manager()), ("◆ DECK", "pack", "pack"))
+                          self.panel.rescan_btn.winfo_manager()), ("Deck", "pack", "pack"))
+        self.assertEqual((self.panel.history_btn.cget("bg"), self.panel.combos_btn.cget("bg")),
+                         (ROLES["nav"][0], ROLES["link"][0]))  # Ruhe-Rolle: Kopf nav, Fuß link
 
     def test_history_shows_at_most_50_decks_and_names_the_rest(self):
         import history_panel
@@ -833,7 +850,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.history_btn.invoke()
         self.pump(0.1)
         self.assertEqual(self.panel.history_btn.cget("bg"), ROLES["active"][0])  # offenes Fenster: gold markiert
-        self.assertEqual(self.panel.winrate_btn.cget("bg"), ROLES["neutral"][0])
+        self.assertEqual(self.panel.winrate_btn.cget("bg"), ROLES["nav"][0])
         history = self.panel.history
         self.assertEqual([e.name for e in history.entries], ["lukias"])
         with mock.patch.object(extras_panel.threading, "Thread", ImmediateThread):
@@ -989,7 +1006,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertEqual((side.deck["1"], side.zones["1"], side.unknown), (3, "Main", 0))
         self.panel._deck_name = "Elfnote"
         self.panel._refresh_nav()
-        self.assertEqual(self.panel.title_label.cget("text"), "◆ SIDE")  # Deckname steht im Inhalt
+        self.assertEqual(self.panel.title_label.cget("text"), "Side")  # Deckname steht im Inhalt
         with mock.patch.object(extras_panel, "current_changes", return_value=None):
             self.panel._side_swap(["1"], "Zweiter")
         self.assertEqual(swaps, [(["1"], "Zweiter")])
@@ -1130,13 +1147,15 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
         self.panel.set_scan(self.scan)
         header = [w.cget("text") for w in self.panel.table_head.winfo_children()]
-        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "Starter", "", "Handtrap", ""])
-        self.assertNotIn("2. Zug", self.panel.starter_odds.cget("text"))
+        self.assertEqual(header, ["Karte", "", "Chance im 1. Zug"])
+        self.assertEqual(self.panel.second_odds.winfo_manager(), "")
         self.panel.options_menu.invoke("Spalte „2. Zug“")
         header = [w.cget("text") for w in self.panel.table_head.winfo_children()]
-        self.assertEqual(header, ["Karte", "×", "1. Zug (5)", "2. Zug (6)", "Starter", "", "Handtrap", ""])
-        self.assertEqual(len(self.panel._rows["1"].winfo_children()), 8)
-        self.assertIn("2. Zug", self.panel.starter_odds.cget("text"))
+        self.assertEqual(header, ["Karte", "", "Chance im 1. Zug", "2. Zug"])
+        self.assertEqual(len(self.panel._rows["1"].winfo_children()), 4)  # Bild+Name, Anzahl, 1. Zug, 2. Zug
+        self.assertEqual(self.panel.second_odds.winfo_manager(), "pack")
+        self.assertEqual(self.panel.second_odds.cget("text"),
+                         "Als Zweiter (6 Karten): 39,4 % Starter, 100,0 % Handtrap")
         self.assertEqual(saved, [{"DECK_SHOW_SECOND_TURN": True, "DECK_HOVER_ANIMATION": True,
                                   "DECK_HOVER_SCAN_ENABLED": True}])
 
@@ -1189,10 +1208,10 @@ class ExtrasPanelTest(unittest.TestCase):
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
         self.assertEqual(self.panel.calc_body.winfo_manager(), "")
-        self.assertEqual(self.panel.calc_head.cget("text"), "▶ RECHNER")
+        self.assertEqual(self.panel.calc_head.cget("text"), "▶ Rechner")
         self.panel.toggle_calculator()
         self.assertEqual(self.panel.calc_body.winfo_manager(), "pack")
-        self.assertEqual(self.panel.calc_head.cget("text"), "▼ RECHNER")
+        self.assertEqual(self.panel.calc_head.cget("text"), "▼ Rechner")
         self.assertTrue(saved[-1]["DECK_CALC_OPEN"])
         self.panel.toggle_calculator()
         self.assertEqual(self.panel.calc_body.winfo_manager(), "")
@@ -1206,8 +1225,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertFalse(self.panel.hover_scan_enabled.get())
         self.assertEqual(saved[-1]["DECK_HOVER_SCAN_ENABLED"], False)
 
-    def test_options_are_grouped_buttons_and_stay_open_while_switching(self):
-        import options_popup
+    def test_options_are_rows_with_boxes_and_stay_open_while_switching(self):
         self.panel.save_settings = lambda: None
         self.panel._open_options()
         self.root.update()
@@ -1218,14 +1236,19 @@ class ExtrasPanelTest(unittest.TestCase):
                                              "Spalte „2. Zug“", "Animation",
                                              "Starter online laden", "Automatisch",
                                              "Von Hand", "Mit Windows starten"})
-        # Buttons einer Reihe nebeneinander
-        self.assertIs(menu.buttons["Speicher lesen"].master, menu.buttons["Texterkennung"].master)
+        box = lambda label: menu.boxes[label].itemcget("box", "fill")  # noqa: E731
+        self.assertEqual((box("Texterkennung"), box("Speicher lesen")), (AMBER, PANEL))  # genau eine Auswahl gefüllt
+        self.assertEqual(menu.boxes["Speicher lesen"].itemcget("tick", "state"), "hidden")
         menu.invoke("Speicher lesen")
         self.assertTrue(menu.is_open)  # Umschalten lässt das Fenster offen
-        self.assertEqual(menu.buttons["Speicher lesen"]._opts["fill"], options_popup.CHOSEN)
-        self.assertEqual(menu.buttons["Texterkennung"]._opts["fill"], options_popup.OFF)
+        self.assertEqual((box("Speicher lesen"), box("Texterkennung")), (AMBER, PANEL))
+        self.assertEqual(menu.boxes["Speicher lesen"].itemcget("tick", "state"), "normal")
         menu.invoke("Animation")  # war an → aus
-        self.assertEqual(menu.buttons["Animation"]._opts["fill"], options_popup.OFF)
+        self.assertEqual(box("Animation"), PANEL)
+        menu.buttons["Animation"].event_generate("<Button-1>")  # Klick auf die ganze Zeile schaltet um
+        self.assertEqual((box("Animation"), self.panel.animation.get()), (AMBER, True))
+        menu.boxes["Hover-Scan"].event_generate("<Button-1>")  # auch auf das Kästchen selbst
+        self.assertFalse(self.panel.hover_scan_enabled.get())
         menu.close()
         self.assertFalse(menu.is_open)
 
@@ -1269,18 +1292,18 @@ class ExtrasPanelTest(unittest.TestCase):
             panel.close()
 
     def test_speed_option_only_with_text_recognition(self):
-        import options_popup
         saved = []
         self.panel.save_settings = lambda: saved.append(dict(self.panel.settings))
         self.panel.settings["SPEED_PROFILE"] = "fast"
         self.panel._open_options()
         self.root.update()
         menu = self.panel.options_menu
+        box = lambda label: menu.boxes[label].itemcget("box", "fill")  # noqa: E731
         self.assertIn("Langsam", menu.buttons)  # Texterkennung ist Standard: Tempo sichtbar
-        self.assertEqual(menu.buttons["Schnell"]._opts["fill"], options_popup.CHOSEN)
+        self.assertEqual(box("Schnell"), AMBER)
         menu.invoke("Langsam")
         self.assertEqual(saved[-1]["SPEED_PROFILE"], "slow")
-        self.assertEqual(menu.buttons["Langsam"]._opts["fill"], options_popup.CHOSEN)
+        self.assertEqual(box("Langsam"), AMBER)
         menu.invoke("Speicher lesen")
         self.assertTrue(menu.is_open)
         self.assertNotIn("Langsam", menu.buttons)
@@ -1291,7 +1314,7 @@ class ExtrasPanelTest(unittest.TestCase):
         self.panel.settings["SPEED_PROFILE"] = "normal"  # Overlay-Knopf ändert denselben Wert
         self.panel._open_options()
         self.root.update()
-        self.assertEqual(menu.buttons["Normal"]._opts["fill"], options_popup.CHOSEN)
+        self.assertEqual(box("Normal"), AMBER)
         menu.close()
 
     def test_animation_can_be_switched_off(self):
@@ -1321,15 +1344,86 @@ class ExtrasPanelTest(unittest.TestCase):
     def test_starter_can_be_changed_by_click(self):
         self.panel.set_scan(self.scan)
         self.root.update()
-        row = self.panel._rows["1"]
-        row.winfo_children()[-4].event_generate("<Button-1>")  # Starter "Ja"/"Nein"
+        starter = self.panel._role_labels["1"][0]
+        starter.event_generate("<Button-1>")  # Starter an → aus
         self.root.update()
         self.assertFalse(self.db.starter("1").starter)
-        self.assertEqual([w.cget("text") for w in self.panel._rows["1"].winfo_children()[-4:-2]], ["Nein", "✎"])
-        self.assertEqual(self.panel.tiles["starter"].cget("text"), "0")
-        self.panel._rows["1"].winfo_children()[-3].event_generate("<Button-3>")
+        self.assertEqual((starter.cget("text"), starter.cget("fg")), ("Starter ✎", DIM))
+        self.assertIn(" 0 Starter und ", self.panel.counts_label.cget("text"))
+        starter.event_generate("<Button-3>")
         self.root.update()
         self.assertTrue(self.db.starter("1").starter)
+
+    def test_rating_labels_show_text_and_color_for_yes_no_unknown_and_manual(self):
+        self.panel.set_scan(self.scan)
+        lukias = self.panel.analysis.entry_at("Main", 0)  # Starter, keine Handtrap
+        self.assertEqual(self.panel._rating_cells(lukias), [("Starter", GOOD), ("Handtrap", DIM)])
+        analysis = self.panel.analysis
+        with mock.patch.object(analysis, "starter", return_value=StarterInfo(None, "", False)), \
+                mock.patch.object(analysis, "handtrap", return_value=HandtrapInfo(True, "", True)):
+            self.assertEqual(self.panel._rating_cells(lukias), [("Starter?", WARN), ("Handtrap ✎", HAND)])
+        extra = analysis.entry_at("Extra", 0)  # Extra Deck: keine Einstufungszeile
+        self.assertNotIn(extra.key, self.panel._role_labels)
+
+    def test_row_cuts_the_card_art_and_uses_a_placeholder_without_image(self):
+        path = os.path.join(self.images, "1.jpg")
+        card = Image.new("RGB", (268, 391), (0, 0, 255))
+        ImageDraw.Draw(card).rectangle((32, 72, 235, 275), fill=(0, 255, 0))  # Motiv laut ART_CROP
+        card.save(path, quality=100, subsampling=0)
+        art = deck_analysis_art(path, 32, "#ff0000")
+        self.assertEqual((art.size, art.getpixel((0, 0))), ((32, 32), (255, 0, 0)))  # 1 px Rand in der Rahmenfarbe
+        self.assertLess(max(abs(a - b) for a, b in zip(art.getpixel((16, 16)), (0, 255, 0))), 12)  # nur das Motiv
+        self.assertEqual(deck_analysis_art(None, 32, "#ff0000").getpixel((5, 5)), (45, 30, 20))  # PANEL
+        self.panel.set_scan(self.scan)
+        self.root.update()
+        label, color = self.panel._art["1"]
+        self.assertEqual(color, frame_color("effect"))
+        self.assertEqual(str(label.cget("image")), str(self.panel._photos[("1", color)]))  # echtes Bild
+        other, other_color = self.panel._art["1000"]
+        self.assertEqual(str(other.cget("image")), str(self.panel._photos[("", other_color)]))  # Platzhalter
+        self.assertEqual(self.panel._photo("1", color).width(), self.panel.art_size)
+
+    def test_missing_images_are_downloaded_once_and_only_their_rows_are_swapped(self):
+        gate = threading.Event()
+        written = []
+
+        def download(passcodes, folder):
+            gate.wait(5)
+            Image.new("RGB", (268, 391), (200, 50, 50)).save(os.path.join(folder, f"{passcodes[0]}.jpg"))
+            written.append(passcodes[0])
+            return 1
+        self.download.side_effect = download
+        self.panel.set_scan(self.scan)
+        rows = dict(self.panel._rows)
+        self.panel.set_scan(self.scan)  # läuft schon ein Download: kein zweiter
+        self.pump(0.2)
+        self.assertEqual(self.download.call_count, 1)
+        self.assertEqual(self.download.call_args.kwargs["folder"], self.images)
+        self.assertNotIn("?", "".join(self.download.call_args.args[0]))
+        gate.set()
+        self.pump(0.3)
+        key = written[0]
+        label, color = self.panel._art[key]
+        self.assertEqual(str(label.cget("image")), str(self.panel._photos[(key, color)]))  # jetzt das echte Bild
+        self.assertEqual(len(self.panel._rows), len(rows))
+
+    def test_frame_colors_by_prefix(self):
+        self.assertEqual(frame_color("fusion_pendulum"), FRAME_COLORS["fusion"])
+        self.assertEqual(frame_color("effect_pendulum"), FRAME_COLORS["monster"])
+        self.assertEqual((frame_color("spell"), frame_color("trap"), frame_color(None)),
+                         (FRAME_COLORS["spell"], FRAME_COLORS["trap"], FRAME_COLORS["monster"]))
+
+    def test_highlight_paints_the_whole_nested_row(self):
+        self.panel.set_scan(self.scan)
+
+        def backgrounds(widget):
+            return {widget.cget("bg")} | {bg for child in widget.winfo_children() for bg in backgrounds(child)}
+        row = self.panel._rows["1"]
+        normal = backgrounds(row)
+        self.panel._highlight("1")
+        self.assertEqual(backgrounds(row), {HIGHLIGHT})
+        self.panel._highlight(None)
+        self.assertEqual(backgrounds(row), normal)
 
     def test_change_warning(self):
         self.panel.set_scan(self.scan)

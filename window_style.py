@@ -1,6 +1,6 @@
 """
 Einheitlicher Fensterrahmen für Overlay, Meldungen und Kalibrierung: runde Ecken und ein
-dünner Goldrand (wie die Rahmen der Karten). Unter Windows 11 zeichnet Windows selbst
+dünner Rand in Gold (wie die Rückseite der Karten). Unter Windows 11 zeichnet Windows selbst
 (DWM) – gestochen scharf und auch bei halbtransparenten Fenstern. Unter Windows 10 gibt
 es keine runden Ecken; dann zeichnet Tk einen gleichfarbigen 1-px-Rand.
 """
@@ -11,33 +11,43 @@ from typing import Optional, Tuple
 import win_api
 
 # Gemeinsame Palette (nur Konstanten); Szenenfarben von duel_view/hover_card bleiben dort.
-BG = "#1e1e1e"          # Hintergrund
-PANEL = "#2b2b2b"       # Fläche (Kopfzeile, Kachel, Menü, Popup)
-LINE = "#3d3d3d"        # Rand, Trenner, Scrollgriff
-TEXT = "#e8e8e8"
-MUTED = "#a8a8a8"       # Text gedämpft
-GOLD = "#c9a02f"        # Akzent (Titel, Fokus, aktiv)
-GOLD_HOVER = "#5a4817"  # dunkles Gold für Hover/aktive Fläche
-INFO = "#00e5ff"
-GOOD = "#39ff9f"
+# Stil "Sammelalbum": warme Brauntöne und Gold der Kartenrückseite.
+BG = "#22160f"          # Hintergrund
+PANEL = "#2d1e14"       # Fläche (Kopfzeile, Kachel, Menü, Popup)
+LINE = "#4a3322"        # Rand, Trenner, Scrollgriff
+TEXT = "#f1e6d3"
+MUTED = "#b19a80"       # Text gedämpft
+GOLD = "#e2b25b"        # Akzent (Titel, Fokus, aktiv)
+GOLD_HOVER = "#5a3f1c"  # dunkles Gold für Hover/aktive Fläche
+AMBER = "#d08a35"       # Akzent: Anzahl ×N, Häkchen-Füllung, Hauptknopf
+INFO = "#8cc8e8"
+GOOD = "#9fd37f"
 WARN = "#ffb347"
-BAD = "#ff6b6b"
-ROW_ALT = "#242424"     # Zeilenton (jede zweite Zeile)
-HIGHLIGHT = "#0d3440"   # hervorgehobene Zeile
-PRIMARY = "#0070b8"     # Knopffüllungen: Hauptaktion, neutral, Export, Gefahr/Schließen (weiß darauf ≥ 4,5:1)
-NEUTRAL = "#444444"
+BAD = "#f08a7a"
+HAND = "#f08a7a"        # Handtrap
+DIM = "#7d6650"         # nicht zutreffende Einstufung (3,3:1 auf BG)
+ROW_ALT = "#2a1c13"     # Zeilenton (jede zweite Zeile)
+HIGHLIGHT = "#4d3520"   # hervorgehobene Zeile
+PRIMARY = "#8a5019"     # Knopffüllungen: Hauptaktion, neutral, Export, Gefahr/Schließen (weiß darauf ≥ 4,5:1)
+NEUTRAL = "#3d2a1c"
 SUCCESS = "#2e7d32"
 DANGER = "#cc0000"
 DECK = "#5e35b1"        # Deck-Knopf der Hauptleiste (weiß darauf 8:1)
+# Rahmenfarben der Karten (Bildrand): Schlüssel = CardInfo.frame klein, Präfix genügt; sonst Monster
+FRAME_COLORS = {"monster": "#c4733a", "spell": "#18897b", "trap": "#9c3f78", "fusion": "#8a63c9",
+                "synchro": "#d8d8d8", "xyz": "#5a5a5a", "link": "#2a5d9c", "ritual": "#4f7fc4"}
 # Knopfrollen für RoundedButton(role=…): (Füllung, Schrift, Rand). "ruhig + Akzent": Navigation neutral, der aktive
-# Knopf gold, Farbe nur für Hauptaktion (primary/success) und Gefahr.
-# Der Rand ist heller als die Füllung und hat gegen PANEL und BG mindestens 3:1 (WCAG für Bedienelemente).
-ROLES = {"primary": (PRIMARY, "white", "#5aa9e6"), "neutral": (NEUTRAL, "white", "#8a8a8a"),
+# Knopf gold, Farbe nur für Hauptaktion (primary/success/accent) und Gefahr.
+# Der Rand ist heller als die Füllung und hat gegen PANEL und BG mindestens 3:1 (WCAG für Bedienelemente);
+# "nav" und "link" sind flacher Text ohne sichtbaren Rand (Füllung = Rand = Untergrund).
+ROLES = {"primary": (PRIMARY, "white", AMBER), "neutral": (NEUTRAL, TEXT, "#8a6a4a"),
          "success": (SUCCESS, "white", "#6fbf73"), "danger": (DANGER, "white", BAD),
-         "active": (GOLD_HOVER, TEXT, GOLD), "deck": (DECK, "white", "#a58be0")}
+         "active": (GOLD_HOVER, GOLD, GOLD), "deck": (DECK, "white", "#a58be0"),
+         "nav": (PANEL, MUTED, PANEL), "link": (BG, MUTED, BG), "accent": (AMBER, BG, "#e9b06a")}
 
-# Schrift: eine Familie, Kennzahlen Consolas; Größen in pt bei 1080p (mit font() × Maßstab s)
+# Schrift: Segoe UI, Überschriften Sitka Text (Serife), Kennzahlen Consolas; Größen in pt bei 1080p (× Maßstab s)
 FONT = "Segoe UI"
+FONT_SERIF = "Sitka Text"
 FONT_MONO = "Consolas"
 SIZE_TITLE = 12
 SIZE_TEXT = 10
@@ -45,9 +55,16 @@ SIZE_SMALL = 9         # nie kleiner
 SIZE_NUM = 18          # Kennzahl
 
 
-def font(size: int, scale: float = 1.0, bold: bool = False, mono: bool = False) -> tuple:
+def frame_color(frame: Optional[str]) -> str:
+    """Rahmenfarbe einer Karte aus CardInfo.frame (z.B. "fusion_pendulum" → Fusion, "effect_pendulum" → Monster)."""
+    frame = (frame or "").lower()
+    return next((color for key, color in FRAME_COLORS.items() if key != "monster" and frame.startswith(key)),
+                FRAME_COLORS["monster"])
+
+
+def font(size: int, scale: float = 1.0, bold: bool = False, mono: bool = False, serif: bool = False) -> tuple:
     """Tk-Schrift (Familie, Größe, [fett]); die Größe wird wie bisher mit int(Basis * Maßstab) gerundet."""
-    return (FONT_MONO if mono else FONT, int(size * scale)) + (("bold",) if bold else ())
+    return (FONT_MONO if mono else FONT_SERIF if serif else FONT, int(size * scale)) + (("bold",) if bold else ())
 
 
 def _colorref(hex_color: str) -> int:

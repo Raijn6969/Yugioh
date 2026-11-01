@@ -2,8 +2,8 @@
 Deck-Fenster (Button "Deck" im Overlay): öffnet sich über der Kartenliste von Master Duel.
 
 Draw-Chance-Rechner: Das Deck wird einmal gescannt (wie beim Export). Danach zeigt die Liste
-für jede Karte die Chance, sie auf der Starthand zu haben, und ob sie ein Starter bzw. eine Handtrap ist
-(dazu die Chance auf mind. 1 Starter und mind. 1 Handtrap auf der Starthand). Fährt man
+für jede Karte (mit Kartenbild) die Chance, sie auf der Starthand zu haben, und ob sie ein Starter bzw. eine
+Handtrap ist (dazu die Chance auf mind. 1 Starter und mind. 1 Handtrap auf der Starthand). Fährt man
 im Deck mit der Maus über eine Karte, erscheint daneben ein kleines Analyse-Fenster mit den Stats.
 Ändert sich das Deck (Kartenzahl oder Karten), meldet das Menü "bitte neu scannen".
 Optionen → "Starter aus Guides nachladen": holt die Starter-Einstufungen für das Deck aus den Guides von
@@ -13,12 +13,13 @@ steht hier auch das Tempo (nur noch Reserve für langsame PCs); bei Texterkennun
 "Verlauf" (links neben Optionen): importierte Decks mit Suche; Klick auf ein Deck zeigt seine Analyse hier an
 (aus dem Deck-Code, ohne das Spiel zu lesen), "Neu scannen" liest wieder das Deck im Spiel.
 "Winrate" (links neben Verlauf): Siege/Niederlagen der eigenen Duelle in Master Duel (winrate_panel); unter den
-Kacheln steht die Winrate des angezeigten Decks (Decks mit denselben Archetypen zählen zusammen).
+Zusammenfassung steht die Winrate des angezeigten Decks (Decks mit denselben Archetypen zählen zusammen).
 "Staples" (links neben Winrate): das angezeigte Deck mit den Top-Listen in Master Duel vergleichen (staple_panel).
 "Matchup" (links neben Staples): die Störkarten deiner Gegner und deine Winrate gegen sie (matchup_panel).
 "Combos" (Fußzeile, links neben Side): die Community-Combos von Master Duel Meta zum Deck (combo_panel).
 """
 
+import os
 import threading
 import time
 import tkinter as tk
@@ -28,7 +29,10 @@ from types import SimpleNamespace
 import tkinter.font as tkfont
 from typing import Callable, Dict, List, Optional
 
+from PIL import Image, ImageDraw, ImageTk
+
 import autostart
+import card_images
 import md_layout
 import win_api
 import starter_guides
@@ -41,8 +45,9 @@ from deck_export import DeckScan
 from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
 from hover_card import ANALYSIS_TIME, HoverCard, HoverContent, HoverRow
 from rounded_button import RoundedButton, close_button
-from window_style import (SIZE_NUM, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD,
-                          WARN, BAD, ROW_ALT, HIGHLIGHT, NEUTRAL, allow_typing, apply_frame, no_activate, show_tip)
+from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
+                          ROW_ALT, HIGHLIGHT, NEUTRAL, AMBER, DIM, HAND, allow_typing, apply_frame, frame_color,
+                          no_activate, show_tip)
 
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
@@ -64,12 +69,29 @@ HIDE_DELAY = 0.3      # Lücken zwischen Karten überbrücken: erst nach so lang
 MIN_WIDTH = 550       # Mindestbreite des Fensters bei 1080p (der Inhalt braucht sie)
 FRAME_REFRESH = 0.5   # Sekunden, bis die Fensterposition von Master Duel neu abgefragt wird
 
+ART_CROP = (0.12, 0.185, 0.88, 0.705)  # Kartenmotiv im Bild von YGOPRODeck (Anteile: links, oben, rechts, unten)
+
 SPELL_KINDS = {"Normal": "Normal", "Quick-Play": "Schnell", "Field": "Feld", "Continuous": "Permanent",
                "Equip": "Ausrüstung", "Ritual": "Ritual", "Counter": "Konter"}
 
 
 def pct(p: float) -> str:
     return f"{p * 100:.1f} %".replace(".", ",")
+
+
+def art_image(path: Optional[str], size: int, color: str) -> Image.Image:
+    """Quadratischer Ausschnitt des Kartenmotivs mit 1 px Rand in `color`; ohne lesbares Bild eine PANEL-Fläche."""
+    image = Image.new("RGB", (size, size), PANEL)
+    if path:
+        try:
+            with Image.open(path) as card:
+                width, height = card.size
+                box = tuple(int(part * total) for part, total in zip(ART_CROP, (width, height, width, height)))
+                image = card.convert("RGB").crop(box).resize((size, size), Image.LANCZOS)
+        except (OSError, ValueError):
+            pass  # halb geladene Datei: Platzhalter
+    ImageDraw.Draw(image).rectangle((0, 0, size - 1, size - 1), outline=color)
+    return image
 
 
 def type_line(info: Optional[CardInfo]) -> str:
@@ -102,8 +124,9 @@ class ExtrasPanel:
                  on_side_swap: Optional[Callable[[List[str], str], None]] = None,
                  on_auto_calibrate: Optional[Callable[[], None]] = None,
                  on_calibrate_manual: Optional[Callable[[], None]] = None, has_tray: bool = False,
-                 on_check_update: Optional[Callable[[], None]] = None):
+                 on_check_update: Optional[Callable[[], None]] = None, image_folder: str = card_images.FOLDER):
         self.master = master
+        self.image_folder = image_folder
         self.has_tray = has_tray  # ohne Tray-Icon beendet das ✕ immer (Option nicht anbieten)
         self.settings = settings if settings is not None else {}  # Config des Overlays (Optionen)
         self.save_settings = save_settings
@@ -122,9 +145,10 @@ class ExtrasPanel:
         self.font = font(SIZE_TEXT, scale)
         self.font_bold = font(SIZE_TEXT, scale, bold=True)
         self.font_small = font(SIZE_SMALL, scale)
-        self.font_head = font(SIZE_TITLE, scale, bold=True)
+        self.font_title = font(SIZE_TITLE + 3, scale, bold=True, serif=True)
+        self.font_name = font(SIZE_TEXT + 1, scale, serif=True)
         self.font_num = font(SIZE_TEXT, scale, bold=True, mono=True)
-        self.font_big = font(SIZE_NUM, scale, bold=True, mono=True)
+        self.art_size = int(32 * scale)
 
         self.analysis: Optional[DeckAnalysis] = None
         self.watcher: Optional[DeckWatcher] = None
@@ -150,6 +174,11 @@ class ExtrasPanel:
         self._frame_cache = (0.0, None)
         self._rows: Dict[str, tk.Frame] = {}
         self._row_bg: Dict[str, str] = {}
+        self._role_labels: Dict[str, tuple] = {}  # Karte → (Starter-Label, Handtrap-Label)
+        self._art: Dict[str, tuple] = {}          # Passcode → (Bild-Label, Rahmenfarbe) der Zeilen
+        self._photos: Dict[tuple, object] = {}    # (Passcode oder "", Rahmenfarbe) → PhotoImage (Tk räumt sonst weg)
+        self._download: Optional[threading.Thread] = None
+        self._images_loaded = False               # Download fertig: _poll tauscht die Platzhalter aus
         self._highlighted: Optional[str] = None
         self._shown_reason: Optional[str] = None
         self._poll_job = None
@@ -184,32 +213,33 @@ class ExtrasPanel:
         s = self.s
         header = tk.Frame(self.win, bg=PANEL)
         header.pack(fill=tk.X)
-        self.title_label = tk.Label(header, text="◆ DECK", fg=GOLD, bg=PANEL, font=self.font_head)
+        self.title_label = tk.Label(header, text="Deck", fg=TEXT, bg=PANEL, font=self.font_title)
         self.title_label.pack(side=tk.LEFT, padx=(int(12 * s), int(6 * s)), pady=int(8 * s))
         # Rechts: ✕, Optionen, dann die Tabs Verlauf, Winrate, Staples, Matchup (Combos/Side/Ash-Prio im Fuß)
         close_button(header, self.close, s).pack(side=tk.RIGHT, padx=int(8 * s))
         # Optionen links neben ✕
-        self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, role="neutral",
+        self.options_btn = RoundedButton(header, text="Optionen ▾", command=self._open_options, role="nav",
                                          font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
         self.options_btn.pack(side=tk.RIGHT)
         if self.stats_db is not None:  # Verlauf liegt in der Datenbank
-            self.history_btn = RoundedButton(header, text="Verlauf", command=self.toggle_history, role="neutral",
+            self.history_btn = RoundedButton(header, text="Verlauf", command=self.toggle_history, role="nav",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.history_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.winrate_btn = RoundedButton(header, text="Winrate", command=self.toggle_winrate, role="neutral",
+            self.winrate_btn = RoundedButton(header, text="Winrate", command=self.toggle_winrate, role="nav",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.winrate_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.staples_btn = RoundedButton(header, text="Staples", command=self.toggle_staples, role="neutral",
+            self.staples_btn = RoundedButton(header, text="Staples", command=self.toggle_staples, role="nav",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.staples_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.matchup_btn = RoundedButton(header, text="Matchup", command=self.toggle_matchup, role="neutral",
+            self.matchup_btn = RoundedButton(header, text="Matchup", command=self.toggle_matchup, role="nav",
                                              font=self.font_small, padx=int(9 * s), pady=int(3 * s),
                                              radius=int(6 * s))
             self.matchup_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-        self.options_menu = OptionsPopup(self.win, self.font, self.font_small, self.font_bold, scale=s)
+        self.options_menu = OptionsPopup(self.win, self.font, self.font_small,
+                                         font(SIZE_TEXT + 2, s, bold=True, serif=True), scale=s)
         menu = self.options_menu
         ocr = lambda: self.read_method.get() == "ocr"  # noqa: E731
         menu.add_section("Lesen & Tempo", "für Import, Scan und Export · Tempo nur bei Texterkennung")
@@ -246,40 +276,33 @@ class ExtrasPanel:
                                      justify=tk.LEFT, wraplength=int(520 * s))
         self.status_label.pack(fill=tk.X)
 
-        # Kacheln: Main / Extra / Starter / Handtraps
-        tiles = tk.Frame(body, bg=BG)
-        tiles.pack(fill=tk.X, pady=(int(6 * s), int(4 * s)))
-        self.tiles = {}
-        for key, caption in (("main", "MAIN DECK"), ("extra", "EXTRA DECK"), ("starter", "STARTER"),
-                             ("handtrap", "HANDTRAPS")):
-            tile = tk.Frame(tiles, bg=PANEL, padx=int(8 * s), pady=int(4 * s))
-            tile.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, int(6 * s)))
-            value = tk.Label(tile, text="–", fg=TEXT, bg=PANEL, font=self.font_big)
-            value.pack()
-            tk.Label(tile, text=caption, fg=MUTED, bg=PANEL, font=self.font_small).pack()
-            self.tiles[key] = value
-        # Chance auf mind. 1 Starter, rechts daneben auf mind. 1 Handtrap
-        odds = tk.Frame(body, bg=BG)
-        odds.pack(fill=tk.X, pady=(int(2 * s), int(6 * s)))
-        self.starter_odds = tk.Label(odds, text="", fg=TEXT, bg=BG, font=self.font, anchor="w", justify=tk.LEFT)
-        self.starter_odds.pack(side=tk.LEFT, anchor="n")
-        self.handtrap_odds = tk.Label(odds, text="", fg=TEXT, bg=BG, font=self.font, anchor="e", justify=tk.RIGHT)
-        self.handtrap_odds.pack(side=tk.RIGHT, anchor="n", padx=(0, int(6 * s)))
+        # Zusammenfassung: Chance auf mind. 1 Starter bzw. Handtrap, darunter (optional) der 2. Zug und die Zahlen
+        hand = tk.Frame(body, bg=BG)
+        hand.pack(fill=tk.X, pady=(int(6 * s), 0))
+        self.starter_odds = tk.Label(hand, text="–", fg=GOLD, bg=BG, font=self.font_title)
+        self.handtrap_odds = tk.Label(hand, text="–", fg=GOLD, bg=BG, font=self.font_title)
+        for widget, text in ((None, "Auf der Starthand: "), (self.starter_odds, ""), (None, " Starter, "),
+                             (self.handtrap_odds, ""), (None, " Handtrap")):
+            (widget or tk.Label(hand, text=text, fg=TEXT, bg=BG, font=self.font)).pack(side=tk.LEFT, anchor="s")
+        self.second_odds = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w")
+        self.counts_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w")
+        self.counts_label.pack(fill=tk.X, pady=(0, int(6 * s)))
         # Winrate des angezeigten Decks (aus der Match History; leer, solange es keine Matches dazu gibt)
         self.winrate_label = tk.Label(body, text="", fg=MUTED, bg=BG, font=self.font_small, anchor="w")
 
         # Tabelle (Spalten je nach Option, siehe _rebuild_header)
-        self.table_head = tk.Frame(body, bg=PANEL)
+        self.table_head = tk.Frame(body, bg=BG)
         self.table_head.pack(fill=tk.X)
         self._rebuild_header()
         list_frame = tk.Frame(body, bg=BG)
         list_frame.pack(fill=tk.BOTH, expand=True)
         self.list_canvas = tk.Canvas(list_frame, bg=BG, highlightthickness=0, bd=0)
         bar = DarkScrollbar(list_frame, command=self.list_canvas.yview, bg=BG, scale=self.s)
+        self._bar_width = bar.winfo_reqwidth()
         self.list_canvas.config(yscrollcommand=bar.set)
         bar.pack(side=tk.RIGHT, fill=tk.Y)
         # Kopfzeile so breit wie die Zeilen darunter (ohne Scrollleiste), sonst stehen die Überschriften versetzt
-        self.table_head.pack_configure(padx=(0, bar.winfo_reqwidth()))
+        self.table_head.pack_configure(padx=(0, self._bar_width))
         self.list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.list_inner = tk.Frame(self.list_canvas, bg=BG)
         self._inner_id = self.list_canvas.create_window(0, 0, window=self.list_inner, anchor="nw")
@@ -292,25 +315,25 @@ class ExtrasPanel:
 
         self.rescan_slot = tk.Frame(footer, bg=BG)  # bleibt beim Ausblenden des Knopfs an seinem Platz
         self.rescan_slot.pack(side=tk.RIGHT)
-        self.rescan_btn = RoundedButton(self.rescan_slot, text="Neu scannen", command=self._rescan, role="primary",
+        self.rescan_btn = RoundedButton(self.rescan_slot, text="Neu scannen", command=self._rescan, role="accent",
                                         font=self.font_bold, padx=int(12 * s), pady=int(4 * s), radius=int(7 * s))
         self.rescan_btn.pack(side=tk.RIGHT)
         if self.stats_db is not None:
             small = dict(font=self.font_small, padx=int(9 * s), pady=int(4 * s), radius=int(6 * s))
             # Starthände aus der Factory (bzw. dem mitgelieferten Schnappschuss), sonst Einschätzung aus Kartentexten
-            self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, role="neutral", **small)
+            self.ash_btn = RoundedButton(footer, text="Ash-Prio", command=self.toggle_ash_prio, role="link", **small)
             self.ash_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, role="neutral", **small)
+            self.side_btn = RoundedButton(footer, text="Side", command=self.toggle_side, role="link", **small)
             self.side_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
-            self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, role="neutral", **small)
+            self.combos_btn = RoundedButton(footer, text="Combos", command=self.toggle_combos, role="link", **small)
             self.combos_btn.pack(side=tk.RIGHT, padx=(0, int(6 * s)))
 
     def _build_calculator(self, parent: tk.Frame) -> None:
         s = self.s
         box = tk.Frame(parent, bg=PANEL, padx=int(10 * s), pady=int(6 * s))
         box.pack(fill=tk.X, pady=(int(8 * s), 0))
-        self.calc_head = tk.Label(box, fg=GOLD, bg=PANEL, font=font(SIZE_SMALL, s, bold=True), anchor="w",
-                                  cursor="hand2")
+        self.calc_head = tk.Label(box, fg=GOLD, bg=PANEL, font=font(SIZE_SMALL, s, bold=True, serif=True),
+                                  anchor="w", cursor="hand2")
         self.calc_head.pack(fill=tk.X)
         self.calc_head.bind("<Button-1>", lambda e: self.toggle_calculator())
         self.calc_body = tk.Frame(box, bg=PANEL)
@@ -342,7 +365,7 @@ class ExtrasPanel:
 
     def _show_calculator(self) -> None:
         opened = bool(self.settings.get(CALC_OPEN_KEY, False))
-        self.calc_head.config(text=("▼ RECHNER" if opened else "▶ RECHNER"))
+        self.calc_head.config(text=("▼ Rechner" if opened else "▶ Rechner"))
         if opened:
             self.calc_body.pack(fill=tk.X)
         else:
@@ -353,13 +376,9 @@ class ExtrasPanel:
         # Feste Spaltenbreiten nach dem längsten möglichen Inhalt: keine Zeile darf eine Spalte verbreitern,
         # sonst stehen die Zahlen nicht mehr rechtsbündig untereinander. ✎ (selbst festgelegt) in eigener Spalte.
         percent = max(int(64 * s), self._label_width("100,0 %", self.font))
-        columns = [("×", int(40 * s)), (f"1. Zug ({HAND_FIRST})", percent)]
+        columns = [("", max(int(36 * s), self._label_width("×3", self.font_bold))), ("Chance im 1. Zug", percent)]
         if self.show_second.get():
-            columns.append((f"2. Zug ({HAND_SECOND})", percent))
-        mark = self._label_width("✎", self.font_bold)
-        columns += [("Starter", max(int(46 * s), self._label_width("Nein", self.font_bold))), ("", mark),
-                    ("Handtrap", max(self._label_width("Handtrap", self.font_small),
-                                     self._label_width("Nein", self.font_bold))), ("", mark)]
+            columns.append(("2. Zug", percent))
         # Auch die Überschrift muss hineinpassen (sonst ist die Spalte in der Kopfzeile breiter als darunter)
         columns = [(title, max(width, self._label_width(title, self.font_small))) for title, width in columns]
         self.columns = [width for _, width in columns]
@@ -367,7 +386,7 @@ class ExtrasPanel:
             child.destroy()
         for col in range(len(columns) + 2):
             self.table_head.grid_columnconfigure(col, minsize=0)
-        self._table_row(self.table_head, PANEL, ["Karte"] + [title for title, _ in columns],
+        self._table_row(self.table_head, BG, ["Karte"] + [title for title, _ in columns],
                         [MUTED] * (len(columns) + 1), self.font_small)
         for label in self.table_head.winfo_children():
             label.bind("<Enter>", self._show_rating_tip)
@@ -377,9 +396,9 @@ class ExtrasPanel:
         """Hinweis zur Einstufung als Tooltip am Tabellenkopf (statt einer dauernden Textzeile)."""
         self._hide_rating_tip()
         self._rating_tip = show_tip(
-            self.win, "Klick auf Ja/Nein ändert die Einstufung · Rechtsklick: wieder automatisch\n"
+            self.win, "Klick auf Starter/Handtrap unter dem Namen ändert die Einstufung · Rechtsklick: automatisch\n"
                       "Maus über eine Karte im Deck zeigt ihre Werte",
-            event.x_root - int(300 * self.s), event.y_root + int(18 * self.s), self.s)
+            event.x_root - int(380 * self.s), event.y_root + int(18 * self.s), self.s)
 
     def _hide_rating_tip(self, event=None) -> None:
         tip, self._rating_tip = self._rating_tip, None
@@ -559,16 +578,18 @@ class ExtrasPanel:
         if self.closed:
             return
         shown = None
-        for button, panel, title in (("history_btn", self.history, "VERLAUF"), ("winrate_btn", self.winrate, "WINRATE"),
-                                     ("staples_btn", self.staples, "STAPLES"), ("matchup_btn", self.matchup, "MATCHUP"),
-                                     ("ash_btn", self.ash_prio, "ASH-PRIO"), ("side_btn", self.side, "SIDE"),
-                                     ("combos_btn", self.combos, "COMBOS")):
+        for button, panel, title, rest in (("history_btn", self.history, "Verlauf", "nav"),
+                                           ("winrate_btn", self.winrate, "Winrate", "nav"),
+                                           ("staples_btn", self.staples, "Staples", "nav"),
+                                           ("matchup_btn", self.matchup, "Matchup", "nav"),
+                                           ("ash_btn", self.ash_prio, "Ash-Prio", "link"),
+                                           ("side_btn", self.side, "Side", "link"),
+                                           ("combos_btn", self.combos, "Combos", "link")):
             if hasattr(self, button):
-                getattr(self, button).config(role="neutral" if panel is None else "active")
+                getattr(self, button).config(role=rest if panel is None else "active")
             if panel is not None:
                 shown = (panel, title)
-        title = shown[1] if shown else "DECK"
-        self.title_label.config(text="◆ " + title)
+        self.title_label.config(text=shown[1] if shown else "Deck")
         self.deck_body.pack_forget()
         if shown is None:
             self.deck_body.pack(fill=tk.BOTH, expand=True)
@@ -887,6 +908,7 @@ class ExtrasPanel:
         self._width = w
         self.master.lift()  # die Hauptleiste liegt bei Überlappung immer oben
         self.status_label.config(wraplength=w - int(30 * s))
+        self.counts_label.config(wraplength=w - int(30 * s), justify=tk.LEFT)
 
     # ── Zustand von außen ──
     def set_status(self, text: str, color: str = INFO) -> None:
@@ -986,90 +1008,144 @@ class ExtrasPanel:
             child.destroy()
         self._rows.clear()
         self._row_bg.clear()
+        self._role_labels.clear()
+        self._art.clear()
         self._highlighted = None
         analysis = self.analysis
         self._show_summary()
         self._show_deck_winrate()
 
-        name_font = tkfont.Font(font=self.font)
-        # Breite für den Namen: Fenster minus Ränder, Scrollleiste und die Zahlen-Spalten
-        name_width = max(int(80 * self.s), self._width - sum(self.columns) - int(60 * self.s))
+        name_font = tkfont.Font(font=self.font_name)
+        # Breite für den Namen: Fenster minus Ränder, Scrollleiste, Bild und die Zahlen-Spalten
+        name_width = max(int(80 * self.s), self._width - sum(self.columns) - self._bar_width - self.art_size
+                         - int(40 * self.s))
         for i, entry in enumerate(analysis.entries("Main")):
             self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         extras = analysis.entries("Extra")
         if extras:
-            tk.Label(self.list_inner, text="EXTRA DECK", fg=GOLD, bg=BG, font=self.font_small,
-                     anchor="w").pack(fill=tk.X, pady=(int(8 * self.s), 2))
+            tk.Label(self.list_inner, text="Extra Deck", fg=GOLD, bg=BG, font=font(SIZE_TEXT, self.s, bold=True,
+                     serif=True), anchor="w").pack(fill=tk.X, pady=(int(8 * self.s), 2))
             for i, entry in enumerate(extras):
                 self._add_row(entry, ROW_ALT if i % 2 else BG, name_font, name_width)
         self.list_canvas.yview_moveto(0)
+        self._load_missing_images()
 
     def _show_summary(self) -> None:
-        """Kacheln und Chancen auf Starter/Handtrap."""
+        """Chancen auf Starter/Handtrap und die Kartenzahlen."""
         analysis = self.analysis
         starters, unknown = analysis.starter_copies()
-        self.tiles["main"].config(text=str(analysis.main_size))
-        self.tiles["extra"].config(text=str(analysis.sizes.get("Extra", 0)))
-        self.tiles["starter"].config(text=str(starters), fg=GOOD if starters else TEXT)
         handtraps, _ = analysis.handtrap_copies()
-        self.tiles["handtrap"].config(text=str(handtraps), fg=GOOD if handtraps else TEXT)
-        text = self._odds_text("Mind. 1 Starter auf der Hand", *analysis.starter_odds())
-        if unknown:
-            text += f"\n({unknown} Karte(n) ohne Einstufung nicht mitgezählt)"
-        self.starter_odds.config(text=text)
-        self.handtrap_odds.config(text=self._odds_text("Mind. 1 Handtrap", *analysis.handtrap_odds()))
-
-    def _odds_text(self, caption: str, first: float, second: float) -> str:
-        """Mit Spalte „2. Zug“ zweizeilig, damit Starter und Handtrap nebeneinander passen."""
+        starter_first, starter_second = analysis.starter_odds()
+        handtrap_first, handtrap_second = analysis.handtrap_odds()
+        self.starter_odds.config(text=pct(starter_first))
+        self.handtrap_odds.config(text=pct(handtrap_first))
         if self.show_second.get():
-            return f"{caption}:\n1. Zug {pct(first)}  ·  2. Zug {pct(second)}"
-        return f"{caption}:  {pct(first)}"
+            self.second_odds.config(text=f"Als Zweiter ({HAND_SECOND} Karten): {pct(starter_second)} Starter, "
+                                         f"{pct(handtrap_second)} Handtrap")
+            self.second_odds.pack(fill=tk.X, before=self.counts_label)
+        else:
+            self.second_odds.pack_forget()
+        text = (f"{analysis.main_size} Karten im Main Deck, {analysis.sizes.get('Extra', 0)} im Extra Deck, "
+                f"{starters} Starter und {handtraps} Handtraps")
+        if unknown:
+            text += f" ({unknown} Karte(n) ohne Einstufung nicht mitgezählt)"
+        self.counts_label.config(text=text)
+
+    def _photo(self, key: str, color: str):
+        """Bild der Zeile (Ausschnitt mit Rahmenfarbe); ohne gespeichertes Bild der Platzhalter."""
+        path = card_images.image_path(key, self.image_folder)
+        ident = (key if os.path.exists(path) else "", color)
+        if ident not in self._photos:
+            self._photos[ident] = ImageTk.PhotoImage(art_image(path if ident[0] else None, self.art_size, color),
+                                                     master=self.win)
+        return self._photos[ident]
+
+    def _load_missing_images(self) -> None:
+        """Fehlende Kartenbilder einmal im Hintergrund laden; _poll tauscht danach nur die Bilder der Zeilen aus."""
+        missing = [key for key in self._art if not os.path.exists(card_images.image_path(key, self.image_folder))]
+        if not missing or (self._download is not None and self._download.is_alive()):
+            return
+        self._download = threading.Thread(target=self._download_worker, args=(missing,), daemon=True)
+        self._download.start()
+
+    def _download_worker(self, passcodes: List[str]) -> None:
+        try:
+            card_images.download(passcodes, folder=self.image_folder)
+        except Exception:  # offline: die Platzhalter bleiben
+            pass
+        self._images_loaded = True
+
+    def _show_new_images(self) -> None:
+        if not self._images_loaded:
+            return
+        self._images_loaded = False
+        for key, (label, color) in self._art.items():
+            label.config(image=self._photo(key, color))
 
     def _add_row(self, entry: DeckEntry, bg: str, name_font, name_width: int) -> None:
-        analysis = self.analysis
+        s, analysis = self.s, self.analysis
+        info = analysis.info(entry)
         row = tk.Frame(self.list_inner, bg=bg)
         row.pack(fill=tk.X)
-        name = self._fit(entry.name, name_font, name_width)
+        row.grid_columnconfigure(0, weight=1)
+        for col, width in enumerate(self.columns, 1):
+            row.grid_columnconfigure(col, minsize=width)
+        left = tk.Frame(row, bg=bg)
+        left.grid(row=0, column=0, sticky="w")
+        color = frame_color(info.frame) if info else MUTED
+        art = tk.Label(left, image=self._photo(entry.key, color), bg=bg, bd=0)
+        art.pack(side=tk.LEFT, padx=(int(6 * s), int(8 * s)), pady=int(2 * s))
+        if entry.key.isdigit():
+            self._art[entry.key] = (art, color)
+        names = tk.Frame(left, bg=bg)
+        names.pack(side=tk.LEFT)
+        tk.Label(names, text=self._fit(entry.name, name_font, name_width), fg=TEXT, bg=bg, font=self.font_name,
+                 anchor="w", padx=0).pack(anchor="w")
+        tk.Label(row, text=f"×{entry.copies}", fg=AMBER, bg=bg, font=self.font_bold, padx=int(6 * s)).grid(
+            row=0, column=1, sticky="e")
         if entry.zone == "Main":
             stats = analysis.stats(entry)
-            texts = [name, str(entry.copies), pct(stats.first)]
-            colors = [TEXT, TEXT, INFO]
-            if self.show_second.get():
-                texts.append(pct(stats.second))
-                colors.append(INFO)
-            for text, color in self._rating_cells(entry):
-                texts.append(text)
-                colors.append(color)
+            values = [(pct(stats.first), TEXT)] + ([(pct(stats.second), MUTED)] if self.show_second.get() else [])
+            self._add_ratings(entry, names, bg)
         else:
-            texts = [name, str(entry.copies)] + ["–"] * (len(self.columns) - 5) + [""] * 4
-            colors = [MUTED] * len(texts)
-        labels = self._table_row(row, bg, texts, colors, self.font)
-        # Starter + ✎, Handtrap + ✎: Klick ändert die Einstufung, Rechtsklick → wieder automatisch
-        for labels_of, toggle, reset in ((labels[-4:-2], self._toggle_starter, self._reset_starter),
-                                         (labels[-2:], self._toggle_handtrap, self._reset_handtrap)):
-            for label in labels_of:
-                label.config(font=self.font_bold)
-                if entry.zone == "Main" and not entry.key.startswith("?") and self.stats_db is not None:
-                    label.config(cursor="hand2")
-                    label.bind("<Button-1>", lambda e, en=entry, f=toggle: f(en))
-                    label.bind("<Button-3>", lambda e, en=entry, f=reset: f(en))
+            values = [("–", MUTED)] * (len(self.columns) - 1)
+        for col, (text, value_color) in enumerate(values, 2):
+            tk.Label(row, text=text, fg=value_color, bg=bg, font=self.font, padx=int(6 * s)).grid(
+                row=0, column=col, sticky="e")
         self._rows[entry.key] = row
         self._row_bg[entry.key] = bg
 
+    def _add_ratings(self, entry: DeckEntry, parent: tk.Frame, bg: str) -> None:
+        """Zeile "Starter  Handtrap" unter dem Namen: Klick ändert die Einstufung, Rechtsklick → wieder automatisch."""
+        line = tk.Frame(parent, bg=bg)
+        line.pack(anchor="w")
+        labels = []
+        for (text, color), toggle, reset in zip(self._rating_cells(entry),
+                                                (self._toggle_starter, self._toggle_handtrap),
+                                                (self._reset_starter, self._reset_handtrap)):
+            label = tk.Label(line, text=text, fg=color, bg=bg, font=self.font_small, padx=0, pady=0)
+            label.pack(side=tk.LEFT, padx=(0, int(10 * self.s)))
+            if not entry.key.startswith("?") and self.stats_db is not None:
+                label.config(cursor="hand2")
+                label.bind("<Button-1>", lambda e, en=entry, f=toggle: f(en))
+                label.bind("<Button-3>", lambda e, en=entry, f=reset: f(en))
+            labels.append(label)
+        self._role_labels[entry.key] = tuple(labels)
+
     def _rating_cells(self, entry: DeckEntry) -> List[tuple]:
-        """[(Text, Farbe)] der vier Zellen Starter, ✎, Handtrap, ✎ einer Zeile des Main Decks."""
+        """[(Text, Farbe)] für Starter und Handtrap einer Zeile des Main Decks."""
         starter, handtrap = self.analysis.starter(entry), self.analysis.handtrap(entry)
         cells = []
-        for value, manual in ((starter.starter, starter.manual), (handtrap.handtrap, handtrap.manual)):
-            color = {True: GOOD, False: MUTED, None: WARN}[value]
-            cells += [({True: "Ja", False: "Nein", None: "?"}[value], color), ("✎" if manual else "", color)]
+        for caption, yes, value, manual in (("Starter", GOOD, starter.starter, starter.manual),
+                                            ("Handtrap", HAND, handtrap.handtrap, handtrap.manual)):
+            text = caption + ("?" if value is None else "") + (" ✎" if manual else "")
+            cells.append((text, {True: yes, False: DIM, None: WARN}[value]))
         return cells
 
     def _rerate(self, entry: DeckEntry) -> None:
-        """Nach einer geänderten Einstufung nur die Zeile und die Kacheln neu setzen (die ganze Liste neu zu bauen
-        dauert ~170 ms je Klick und springt nach oben)."""
-        labels = self._rows[entry.key].winfo_children()[-4:]
-        for label, (text, color) in zip(labels, self._rating_cells(entry)):
+        """Nach einer geänderten Einstufung nur die zwei Labels und die Zusammenfassung neu setzen (die ganze Liste
+        neu zu bauen dauert ~170 ms je Klick und springt nach oben)."""
+        for label, (text, color) in zip(self._role_labels[entry.key], self._rating_cells(entry)):
             label.config(text=text, fg=color)
         self._show_summary()
 
@@ -1105,14 +1181,18 @@ class ExtrasPanel:
             row = self._rows.get(k) if k else None
             if row is None:
                 continue
-            bg = color or self._row_bg[k]
-            row.config(bg=bg)
-            for child in row.winfo_children():
-                child.config(bg=bg)
+            self._paint(row, color or self._row_bg[k])
         self._highlighted = key
         row = self._rows.get(key) if key else None
         if row is not None:
             self._scroll_into_view(row)
+
+    @staticmethod
+    def _paint(widget: tk.Misc, bg: str) -> None:
+        """Hintergrund der Zeile samt allen verschachtelten Widgets (das Bild selbst bleibt)."""
+        widget.config(bg=bg)
+        for child in widget.winfo_children():
+            ExtrasPanel._paint(child, bg)
 
     def _scroll_into_view(self, row: tk.Frame) -> None:
         total = max(1, self.list_inner.winfo_height())
@@ -1143,6 +1223,7 @@ class ExtrasPanel:
             self._update_change_warning()
             self._show_guide_result()
             self._show_history_result()
+            self._show_new_images()
             clear_changed("extras-poll")
         except Exception:  # sonst schriebe ein Dauerfehler 20× je Sekunde einen Traceback ins Log
             dlog_changed("extras-poll", "[DECK-FENSTER] Fehler im Takt:\n" + traceback.format_exc())

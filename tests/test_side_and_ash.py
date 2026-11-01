@@ -9,7 +9,7 @@ import unittest
 from unittest import mock
 
 import ash_prio
-from window_style import ROLES
+from window_style import PANEL, ROLES
 import side_profiles
 from card_stats import CardInfo, CardStatsDB, SideProfile
 
@@ -343,7 +343,7 @@ class PanelTest(unittest.TestCase):
         panel.toggle("Hand 1")  # eine andere Hand: die erste klappt zu
         self.assertEqual(panel.inner.pack_slaves()[2], panel._line_box)
         self.assertEqual(len([w for w in panel.inner.winfo_children() if w.winfo_class() == "Frame"
-                              and w.cget("bg") == "#2b2b2b"]), 1)  # genau eine Linie
+                              and w.cget("bg") == PANEL]), 1)  # genau eine Linie
         panel.toggle("Hand 1")
         self.assertIsNone(panel._line_box)
         panel.choose("nibiru")
