@@ -1114,7 +1114,7 @@ class RoundedButtonTest(unittest.TestCase):
         for role, (fill, fg, border) in ROLES.items():
             fg = "#ffffff" if fg == "white" else fg
             self.assertEqual(border == GOLD, role == "active", role)  # nur der aktive Knopf hat Goldrand
-            if role in ("nav", "link"):  # flacher Text ohne Rand: Fläche = Untergrund (Kopfzeile bzw. Fenster)
+            if role == "link":  # flacher Text ohne Rand: Fläche = Untergrund (Fenster)
                 self.assertEqual(border, fill, role)
             else:
                 self.assertGreaterEqual(contrast(border, PANEL), 3.0, role)  # Rand gut sichtbar (WCAG 3:1)
