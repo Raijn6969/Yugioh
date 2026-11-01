@@ -195,6 +195,14 @@ class OverlayTest(unittest.TestCase):
         self.assertTrue(os.path.exists(self.config_file + ".defekt.bak"))
         self.assertEqual(len(self.warnings), 1)
 
+    def test_unsavable_config_is_logged_and_shown_in_the_status_line(self):
+        root, app = self.open_app()
+        with mock.patch.object(app, "save_config", side_effect=OSError("Platte voll")), \
+                mock.patch.object(Overlay, "dlog") as log:
+            app._save_config_safely()
+        log.assert_called_once_with("[CONFIG] Einstellungen nicht gespeichert: Platte voll")
+        self.assertEqual(app.status_label.cget("text"), "Einstellung nicht gespeichert!")
+
     def test_calibration_remembers_window_origin(self):
         root, app = self.open_app()
         frame = Overlay.md_layout.Frame(300, 40, 1920, 1080)

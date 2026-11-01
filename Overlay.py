@@ -801,7 +801,7 @@ class MasterDuelImporter:
             self.save_config()
         except OSError as e:
             self.update_status("Einstellung nicht gespeichert!", WARN)
-            print(f"Config konnte nicht gespeichert werden: {e}")
+            dlog(f"[CONFIG] Einstellungen nicht gespeichert: {e}")
 
     @staticmethod
     def _is_position_visible(pos, win_w, win_h):
