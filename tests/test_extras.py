@@ -20,7 +20,8 @@ from card_stats import CardInfo, CardStatsDB, HandtrapInfo, StarterInfo
 from draw_odds import p_at_least, p_exactly
 from handtrap_rules import classify_handtrap
 from starter_rules import classify
-from window_style import AMBER, DIM, FRAME_COLORS, GOLD, GOOD, HAND, HIGHLIGHT, PANEL, ROLES, WARN, frame_color
+from window_style import (AMBER, DIM, FRAME_COLORS, GOLD, GOLD_HOVER, GOOD, HAND, HIGHLIGHT, PANEL, ROLES, WARN,
+                          frame_color)
 
 try:
     import tkinter as tk
@@ -1263,7 +1264,8 @@ class ExtrasPanelTest(unittest.TestCase):
         self.assertFalse(menu.is_open)  # schließt sich vor der Kalibrierung
         self.panel._open_options()
         self.root.update()
-        menu.invoke("Von Hand")
+        self.assertEqual(menu.buttons["Von Hand"].cget("bg"), ROLES["nav"][0])  # umrandeter Knopf wie die Reiter
+        menu.buttons["Von Hand"].invoke()
         manual.assert_called_once_with()
         self.assertFalse(menu.is_open)
 
@@ -1353,6 +1355,37 @@ class ExtrasPanelTest(unittest.TestCase):
         starter.event_generate("<Button-3>")
         self.root.update()
         self.assertTrue(self.db.starter("1").starter)
+
+    def test_rating_chips_have_a_border_in_the_text_color_that_follows_clicks(self):
+        self.panel.set_scan(self.scan)
+        self.root.update()
+        starter, handtrap = self.panel._role_labels["1"]
+        border = lambda w: (w.cget("fg"), w.cget("highlightbackground"), w.cget("highlightcolor"))  # noqa: E731
+        self.assertEqual((int(starter.cget("highlightthickness")), border(starter)), (1, (GOOD,) * 3))  # ja
+        self.assertEqual(border(handtrap), (DIM,) * 3)                                                   # nein
+        starter.event_generate("<Button-1>")
+        self.root.update()
+        self.assertEqual((starter.cget("text"), border(starter)), ("Starter ✎", (DIM,) * 3))
+        analysis = self.panel.analysis
+        with mock.patch.object(analysis, "starter", return_value=StarterInfo(None, "", False)):
+            self.panel._rerate(analysis.entry_at("Main", 0))
+        self.assertEqual((starter.cget("text"), border(starter)), ("Starter?", (WARN,) * 3))           # unbekannt
+
+    def test_rating_chip_hover_uses_the_current_row_color(self):
+        self.panel.set_scan(self.scan)
+        self.root.update()
+        starter = self.panel._role_labels["1"][0]
+        base = self.panel._row_bg["1"]
+        starter.event_generate("<Enter>")
+        self.assertEqual(starter.cget("bg"), GOLD_HOVER)
+        starter.event_generate("<Leave>")
+        self.assertEqual(starter.cget("bg"), base)
+        self.panel._highlight("1")  # Zeile hervorgehoben: nach dem Verlassen HIGHLIGHT, nicht der alte Zeilenton
+        starter.event_generate("<Enter>")
+        starter.event_generate("<Leave>")
+        self.assertEqual(starter.cget("bg"), HIGHLIGHT)
+        self.panel._highlight(None)
+        self.assertEqual(starter.cget("bg"), base)
 
     def test_rating_labels_show_text_and_color_for_yes_no_unknown_and_manual(self):
         self.panel.set_scan(self.scan)

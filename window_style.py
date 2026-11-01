@@ -39,11 +39,11 @@ FRAME_COLORS = {"monster": "#c4733a", "spell": "#18897b", "trap": "#9c3f78", "fu
 # Knopfrollen für RoundedButton(role=…): (Füllung, Schrift, Rand). "ruhig + Akzent": Navigation neutral, der aktive
 # Knopf gold, Farbe nur für Hauptaktion (primary/success/accent) und Gefahr.
 # Der Rand ist heller als die Füllung und hat gegen PANEL und BG mindestens 3:1 (WCAG für Bedienelemente);
-# "nav" (Reiter im Kopf) hat einen ruhigen Rand, "link" (Fuß) ist flacher Text ohne Rand (Füllung = Rand = Untergrund).
+# "nav" (Reiter, Menü: auf PANEL) und "link" (Fuß: auf BG) haben gedämpfte Schrift mit ruhigem Rand.
 ROLES = {"primary": (PRIMARY, "white", AMBER), "neutral": (NEUTRAL, TEXT, "#8a6a4a"),
          "success": (SUCCESS, "white", "#6fbf73"), "danger": (DANGER, "white", BAD),
          "active": (GOLD_HOVER, GOLD, GOLD), "deck": (DECK, "white", "#a58be0"),
-         "nav": (PANEL, MUTED, "#8a6a4a"), "link": (BG, MUTED, BG), "accent": (AMBER, BG, "#e9b06a")}
+         "nav": (PANEL, MUTED, "#8a6a4a"), "link": (BG, MUTED, "#8a6a4a"), "accent": (AMBER, BG, "#e9b06a")}
 
 # Schrift: Segoe UI, Überschriften Sitka Text (Serife), Kennzahlen Consolas; Größen in pt bei 1080p (× Maßstab s)
 FONT = "Segoe UI"

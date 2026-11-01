@@ -46,8 +46,8 @@ from draw_odds import HAND_FIRST, HAND_SECOND, p_at_least
 from hover_card import ANALYSIS_TIME, HoverCard, HoverContent, HoverRow
 from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
-                          ROW_ALT, HIGHLIGHT, NEUTRAL, AMBER, DIM, HAND, allow_typing, apply_frame, frame_color,
-                          no_activate, set_alpha, show_tip)
+                          ROW_ALT, HIGHLIGHT, NEUTRAL, AMBER, DIM, HAND, GOLD_HOVER, allow_typing, apply_frame,
+                          frame_color, no_activate, set_alpha, show_tip)
 
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
@@ -1129,10 +1129,15 @@ class ExtrasPanel:
         for (text, color), toggle, reset in zip(self._rating_cells(entry),
                                                 (self._toggle_starter, self._toggle_handtrap),
                                                 (self._reset_starter, self._reset_handtrap)):
-            label = tk.Label(line, text=text, fg=color, bg=bg, font=self.font_small, padx=0, pady=0)
-            label.pack(side=tk.LEFT, padx=(0, int(10 * self.s)))
+            # Chip: 1 px Rand in der Schriftfarbe, damit er als Schaltfläche erkannt wird
+            label = tk.Label(line, text=text, fg=color, bg=bg, font=self.font_small, bd=0, padx=int(5 * self.s), pady=0,
+                             highlightthickness=1, highlightbackground=color, highlightcolor=color)
+            label.pack(side=tk.LEFT, padx=(0, int(6 * self.s)), pady=(int(2 * self.s), 0))
             if not entry.key.startswith("?") and self.stats_db is not None:
                 label.config(cursor="hand2")
+                label.bind("<Enter>", lambda e, w=label: w.config(bg=GOLD_HOVER))
+                label.bind("<Leave>", lambda e, w=label, k=entry.key: w.config(
+                    bg=HIGHLIGHT if self._highlighted == k else self._row_bg[k]))
                 label.bind("<Button-1>", lambda e, en=entry, f=toggle: f(en))
                 label.bind("<Button-3>", lambda e, en=entry, f=reset: f(en))
             labels.append(label)
@@ -1152,7 +1157,7 @@ class ExtrasPanel:
         """Nach einer geänderten Einstufung nur die zwei Labels und die Zusammenfassung neu setzen (die ganze Liste
         neu zu bauen dauert ~170 ms je Klick und springt nach oben)."""
         for label, (text, color) in zip(self._role_labels[entry.key], self._rating_cells(entry)):
-            label.config(text=text, fg=color)
+            label.config(text=text, fg=color, highlightbackground=color, highlightcolor=color)
         self._show_summary()
 
     @staticmethod

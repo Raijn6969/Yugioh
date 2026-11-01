@@ -3,7 +3,7 @@ Optionen-Fenster (z.B. "Optionen ▾" im Deck-Fenster): dunkles Aufklapp-Fenster
 gegliedert. Je Eintrag eine Zeile, rechts ein Kästchen (Klick auf die ganze Zeile):
   - Auswahl (add_choice): eine von mehreren Möglichkeiten, die gewählte hat das gefüllte Kästchen
   - Schalter (add_toggles): an/aus, an = gefülltes Kästchen mit ✓
-  - Aktionen (add_buttons): Text-Links nebeneinander, führen etwas aus und schließen das Fenster
+  - Aktionen (add_buttons): umrandete Knöpfe nebeneinander, führen etwas aus und schließen das Fenster
 Auswahl und Schalter lassen das Fenster offen, damit man die Änderung sieht. invoke(Beschriftung) wie ein Klick.
 visible=Funktion: Zeile nur anzeigen, wenn sie True liefert (z.B. Tempo nur bei Texterkennung); rebuild()
 baut ein offenes Fenster danach neu auf.
@@ -12,6 +12,7 @@ baut ein offenes Fenster danach neu auf.
 import tkinter as tk
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from rounded_button import RoundedButton
 from window_style import (AMBER, BG, GOLD, LINE, MUTED, PANEL, SIZE_SMALL, TEXT, ClickOutside, apply_frame, font,
                           no_activate, place_in_work_area)
 
@@ -22,7 +23,7 @@ class OptionsPopup:
         self.s, self.gap = scale, gap
         self.rows: List[dict] = []
         self.window: Optional[tk.Toplevel] = None
-        self.buttons: Dict[str, tk.Widget] = {}  # Beschriftung → anklickbare Zeile bzw. Link (solange offen)
+        self.buttons: Dict[str, tk.Widget] = {}  # Beschriftung → anklickbare Zeile bzw. Knopf (solange offen)
         self.boxes: Dict[str, tk.Canvas] = {}    # Beschriftung → Kästchen (Auswahl, Schalter)
 
     # ── Inhalt ──
@@ -134,10 +135,10 @@ class OptionsPopup:
             line = tk.Frame(body, bg=PANEL)
             line.pack(fill=tk.X, pady=(int(5 * s), 0))
             for label, _ in row["items"]:
-                link = tk.Label(line, text=label, fg=GOLD, bg=PANEL, font=self.font + ("underline",), cursor="hand2")
-                link.pack(side=tk.LEFT, padx=(0, int(14 * s)))
-                link.bind("<Button-1>", lambda e, l=label: self.invoke(l))
-                self.buttons[label] = link
+                button = RoundedButton(line, text=label, command=lambda l=label: self.invoke(l), role="nav",
+                                       font=self.font_small, padx=int(9 * s), pady=int(3 * s), radius=int(6 * s))
+                button.pack(side=tk.LEFT, padx=(0, int(6 * s)))
+                self.buttons[label] = button
             return
         size = int(16 * s)
         for label, *_ in row["items"]:
