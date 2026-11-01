@@ -1,8 +1,10 @@
 """Update-Hinweis: Versionsvergleich, Release-Abfrage (ohne echtes Netz), Frage nur einmal je Version, Ein-Klick-Ablauf
-im Overlay (alles gemockt), Tray-Menüpunkt."""
+in UpdateFlow (alles gemockt), Tray-Menüpunkt."""
 
 import io
 import json
+import os
+import tempfile
 import unittest
 import urllib.error
 from types import SimpleNamespace
@@ -11,7 +13,9 @@ from unittest import mock
 import Overlay
 import tray
 import update_check as uc
+import update_flow
 import updater
+from update_flow import UpdateFlow
 
 ZIP_URL = "https://github.com/Raijn6969/Yugioh/releases/download/v9.4/MD_ImporterV9.4.zip"
 
@@ -149,85 +153,91 @@ def make_release(version="9.4", zip_url=ZIP_URL):
     return uc.Release(version, "https://github.com/Raijn6969/Yugioh/releases/tag/v" + version, zip_url, 1234)
 
 
-class OverlayHookTest(unittest.TestCase):
-    """Overlay-Teil ohne Fenster: Frage nur einmal je Version, nur als exe, Ein-Klick-Ablauf, Tray-Menüpunkt."""
-
-    BOUND = ("_ask_update_when_idle", "_can_self_update", "_start_update", "_open_project_page", "_on_update_failed",
-             "_on_update_launched", "_update_install_worker")
+class UpdateFlowTest(unittest.TestCase):
+    """Update-Ablauf ohne Fenster (Fakes nur für die Konstruktor-Abhängigkeiten): Frage nur einmal je Version, nur als
+    exe, Ein-Klick-Ablauf."""
 
     def setUp(self):
-        md = mock.patch.object(Overlay, "find_md_window", return_value=None)   # beim Start: Master Duel läuft nicht
+        md = mock.patch.object(update_flow, "find_md_window", return_value=None)   # Master Duel läuft nicht
         self.md_window = md.start()
         self.addCleanup(md.stop)
 
-    def make_app(self, notified=None, tray_icon=True, uptime_ms=0, running=False):
-        saved, later, status, queued = [], [], [], []
-        free = (Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS) / 1000   # Startmeldung steht noch so lange
-        app = SimpleNamespace(
-            config={Overlay.UPDATE_NOTIFIED_KEY: notified} if notified else {}, update_release=None,
-            tray=mock.Mock() if tray_icon else None, _after_ids={}, _toast_count=0, is_running=running,
-            _update_running=False, _toast_free_at=Overlay.time.monotonic() + free - uptime_ms / 1000,
+    def make_flow(self, notified=None, tray_icon=True, running=False, config=None):
+        saved, later, shown, queued = [], [], [], []
+        if config is None:
+            config = {update_flow.UPDATE_NOTIFIED_KEY: notified} if notified else {}
+        env = SimpleNamespace(busy=running, front=False, in_duel=None)   # vom Test veränderbarer Zustand des Overlays
+        flow = UpdateFlow(
             root=SimpleNamespace(after=lambda ms, func: later.append((ms, func)) or "id"),
-            _save_config_safely=lambda: saved.append(dict(app.config)),
-            update_status=lambda text, color="white": status.append((text, color)),
-            _set_buttons=mock.Mock(), close=mock.Mock(), _md_in_front=lambda: False,
-            _run_on_ui=lambda func, *args: queued.append((func, args)))
-        for name in self.BOUND:
-            setattr(app, name, getattr(Overlay.MasterDuelImporter, name).__get__(app))
-        app._queue_toast = lambda text: Overlay.MasterDuelImporter._queue_toast(app, text)
-        app._show_queued_toast = lambda key, text: Overlay.MasterDuelImporter._show_queued_toast(app, key, text)
-        app.saved, app.later, app.status, app.queued = saved, later, status, queued
-        return app
+            get_config=lambda: config, save_config=lambda: saved.append(dict(config)),
+            status=lambda text, color="white": shown.append((text, color)),
+            run_on_ui=lambda func, *args: queued.append((func, args)), after_ids={},
+            get_tray=lambda: flow.tray_icon, busy=lambda: env.busy, md_in_front=lambda: env.front, md_retry_ms=20,
+            in_duel=lambda: env.in_duel, set_buttons=mock.Mock(), show_overlay=mock.Mock(), close=mock.Mock())
+        flow.tray_icon = mock.Mock() if tray_icon else None
+        flow.config, flow.env = config, env
+        flow.saved, flow.later, flow.shown, flow.queued = saved, later, shown, queued
+        return flow
 
-    def found(self, app, release, answer=None):
-        with mock.patch.object(Overlay, "ask_choice", return_value=answer) as ask:
-            Overlay.MasterDuelImporter._on_update_found(app, release)
-            while app.later:
-                app.later.pop(0)[1]()
+    def found(self, flow, release, answer=None):
+        with mock.patch.object(update_flow, "ask_choice", return_value=answer) as ask:
+            flow.on_found(release)
+            while flow.later:
+                flow.later.pop(0)[1]()
         return ask
 
-    def run_queue(self, app):
-        while app.queued:
-            func, args = app.queued.pop(0)
+    def run_queue(self, flow):
+        while flow.queued:
+            func, args = flow.queued.pop(0)
             func(*args)
 
     def one_click_env(self):
         """Als exe in einem beschreibbaren Programmordner."""
-        for patcher in (mock.patch.object(Overlay.sys, "frozen", True, create=True),
-                        mock.patch.object(Overlay, "DATA_DIR", Overlay.APP_DIR)):
+        for patcher in (mock.patch.object(update_flow.sys, "frozen", True, create=True),
+                        mock.patch.object(update_flow, "DATA_DIR", update_flow.APP_DIR)):
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def test_question_once_per_version_but_tray_item_stays(self):
-        app = self.make_app()
-        ask = self.found(app, make_release("9.3"))
+        flow = self.make_flow()
+        ask = self.found(flow, make_release("9.3"))
         ask.assert_called_once()
         self.assertEqual(ask.call_args.args[1], "Update verfügbar")
         self.assertIn("MD-Importer 9.3 ist da", ask.call_args.args[2])
-        app.tray.set_update.assert_called_once_with("9.3")
-        self.assertEqual(app.saved[-1][Overlay.UPDATE_NOTIFIED_KEY], "9.3")   # in der Config gemerkt
+        flow.tray_icon.set_update.assert_called_once_with("9.3")
+        self.assertEqual(flow.saved[-1][update_flow.UPDATE_NOTIFIED_KEY], "9.3")   # in der Config gemerkt
         # nächster Start (Config geladen): dieselbe Version → keine Frage mehr, Menüpunkt trotzdem
-        again = self.make_app(notified="9.3")
+        again = self.make_flow(notified="9.3")
         ask = self.found(again, make_release("9.3"))
         ask.assert_not_called()
-        again.tray.set_update.assert_called_once_with("9.3")
+        again.tray_icon.set_update.assert_called_once_with("9.3")
         self.assertEqual(again.saved, [])
         # noch neuere Version → wieder eine Frage
-        newer = self.make_app(notified="9.3")
+        newer = self.make_flow(notified="9.3")
         ask = self.found(newer, make_release("9.10"))
         ask.assert_called_once()
-        self.assertEqual(newer.saved[-1][Overlay.UPDATE_NOTIFIED_KEY], "9.10")
+        self.assertEqual(newer.saved[-1][update_flow.UPDATE_NOTIFIED_KEY], "9.10")
 
     def test_works_without_tray(self):
-        ask = self.found(self.make_app(tray_icon=False), make_release())
+        ask = self.found(self.make_flow(tray_icon=False), make_release())
         ask.assert_called_once()
+
+    def test_note_release_keeps_a_known_release_and_tells_the_tray(self):
+        flow = self.make_flow()
+        flow.note_release(None)
+        self.assertIsNone(flow.release)
+        flow.note_release(make_release("9.3"))
+        flow.note_release(make_release("9.4"))   # schon einer bekannt: bleibt
+        self.assertEqual(flow.release.version, "9.3")
+        flow.tray_icon.set_update.assert_called_once_with("9.3")
+        self.make_flow(tray_icon=False).note_release(make_release())   # ohne Tray kein Absturz
 
     def test_one_click_choices_and_page_choice(self):
         self.one_click_env()
-        app = self.make_app()
+        flow = self.make_flow()
         release = make_release()
-        with mock.patch.object(Overlay.webbrowser, "open") as opened:    # „Was ist neu?“ → Seite des Releases
-            ask = self.found(app, release, answer="page")
+        with mock.patch.object(update_flow.webbrowser, "open") as opened:    # „Was ist neu?“ → Seite des Releases
+            ask = self.found(flow, release, answer="page")
         opened.assert_called_once_with(release.page)
         labels = [label for label, _, _ in ask.call_args.args[3]]
         self.assertEqual(labels, ["Jetzt aktualisieren", "Was ist neu?", "Später"])
@@ -235,56 +245,57 @@ class OverlayHookTest(unittest.TestCase):
 
     def test_later_does_nothing(self):
         self.one_click_env()
-        app = self.make_app()
-        with mock.patch.object(Overlay.threading, "Thread") as thread:
-            self.found(app, make_release(), answer=None)
+        flow = self.make_flow()
+        with mock.patch.object(update_flow.threading, "Thread") as thread:
+            self.found(flow, make_release(), answer=None)
         thread.assert_not_called()
-        self.assertFalse(app._update_running)
+        self.assertFalse(flow.running)
 
     def test_no_one_click_from_source_unwritable_folder_or_without_zip(self):
-        cases = {"Quellcode": (False, Overlay.APP_DIR, ZIP_URL),
-                 "Ordner nicht beschreibbar": (True, Overlay.APP_DIR + "_appdata", ZIP_URL),
-                 "ohne zip": (True, Overlay.APP_DIR, "")}
+        cases = {"Quellcode": (False, update_flow.APP_DIR, ZIP_URL),
+                 "Ordner nicht beschreibbar": (True, update_flow.APP_DIR + "_appdata", ZIP_URL),
+                 "ohne zip": (True, update_flow.APP_DIR, "")}
         for name, (frozen, data_dir, zip_url) in cases.items():
-            with self.subTest(name), mock.patch.object(Overlay.sys, "frozen", frozen, create=True), \
-                    mock.patch.object(Overlay, "DATA_DIR", data_dir):
-                ask = self.found(self.make_app(), make_release(zip_url=zip_url))
+            with self.subTest(name), mock.patch.object(update_flow.sys, "frozen", frozen, create=True), \
+                    mock.patch.object(update_flow, "DATA_DIR", data_dir):
+                ask = self.found(self.make_flow(), make_release(zip_url=zip_url))
                 labels = [label for label, _, _ in ask.call_args.args[3]]
                 self.assertEqual(labels, ["Release-Seite öffnen", "Später"])
                 self.assertIn("Release-Seite herunterladen", ask.call_args.args[2])
 
     def test_question_waits_while_an_import_is_running(self):
-        app = self.make_app(running=True)
-        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:
-            Overlay.MasterDuelImporter._on_update_found(app, make_release())
+        flow = self.make_flow(running=True)
+        with mock.patch.object(update_flow, "ask_choice", return_value=None) as ask:
+            flow.on_found(make_release())
             ask.assert_not_called()
-            (wait, retry), = app.later
-            self.assertEqual(wait, Overlay.UPDATE_RETRY_MS)
-            app.later.clear()
+            (wait, retry), = flow.later
+            self.assertEqual(wait, update_flow.UPDATE_RETRY_MS)
+            flow.later.clear()
             retry()                                        # Import läuft noch → wieder verschoben
             ask.assert_not_called()
-            self.assertEqual(len(app.later), 1)
-            app.later.clear()
-            app.is_running = False
-            app._ask_update_when_idle()                    # Import fertig → jetzt wird gefragt
+            self.assertEqual(len(flow.later), 1)
+            flow.later.clear()
+            flow.env.busy = False
+            flow.ask_when_idle()                           # Import fertig → jetzt wird gefragt
             ask.assert_called_once()
-            self.assertEqual(app.later, [])
+            self.assertEqual(flow.later, [])
 
     def test_install_choice_starts_the_worker(self):
         self.one_click_env()
-        app = self.make_app()
-        with mock.patch.object(Overlay.threading, "Thread") as thread:
-            self.found(app, make_release(), answer="install")
+        flow = self.make_flow()
+        with mock.patch.object(update_flow.threading, "Thread") as thread:
+            self.found(flow, make_release(), answer="install")
         thread.assert_called_once()
         self.assertEqual(thread.call_args.kwargs["args"], (make_release(),))
         thread.return_value.start.assert_called_once()
-        self.assertTrue(app._update_running)
-        app._set_buttons.assert_called_once_with(Overlay.tk.DISABLED)
-        self.assertEqual(app.status[-1][0], "Update wird geladen … 0 %")
+        self.assertTrue(flow.running)
+        flow.set_buttons.assert_called_once_with(update_flow.tk.DISABLED)
+        flow.show_overlay.assert_called_once_with()
+        self.assertEqual(flow.shown[-1][0], "Update wird geladen … 0 %")
 
     def test_worker_prepares_launches_and_closes(self):
-        app = self.make_app()
-        app._update_running = True
+        flow = self.make_flow()
+        flow.running = True
         release = make_release()
 
         def prepare(rel, temp_root, progress, app_dir=None):
@@ -292,204 +303,231 @@ class OverlayHookTest(unittest.TestCase):
                 progress(done, 100)
             return r"C:\Temp\MD_Importer_update_9.4\neu\MD_ImporterV9.4"
 
-        with mock.patch.object(Overlay.updater, "prepare", side_effect=prepare) as prep, \
-                mock.patch.object(Overlay.updater, "write_script", return_value="skript.cmd") as write, \
-                mock.patch.object(Overlay.updater, "launch") as launch, \
-                mock.patch.object(Overlay, "dlog"), mock.patch.object(Overlay, "append"):
-            app._update_install_worker(release)
+        with mock.patch.object(update_flow.updater, "prepare", side_effect=prepare) as prep, \
+                mock.patch.object(update_flow.updater, "write_script", return_value="skript.cmd") as write, \
+                mock.patch.object(update_flow.updater, "launch") as launch, \
+                mock.patch.object(update_flow, "dlog"), mock.patch.object(update_flow, "append"):
+            flow._install_worker(release)
             self.assertEqual(prep.call_args.args[0], release)
             source, app_dir, pid, exe, folder = write.call_args.args
-            self.assertEqual((app_dir, pid, exe), (Overlay.APP_DIR, Overlay.os.getpid(), updater.EXE_NAME))
-            self.assertEqual(Overlay.os.path.basename(folder), "MD_Importer_update_9.4")
+            self.assertEqual((app_dir, pid, exe), (update_flow.APP_DIR, os.getpid(), updater.EXE_NAME))
+            self.assertEqual(os.path.basename(folder), "MD_Importer_update_9.4")
             launch.assert_called_once_with("skript.cmd")
-            app.close.assert_not_called()                  # beendet wird erst im UI-Thread
-            self.run_queue(app)
-        self.assertEqual([text for text, _ in app.status],
+            flow.close.assert_not_called()                 # beendet wird erst im UI-Thread
+            self.run_queue(flow)
+        self.assertEqual([text for text, _ in flow.shown],
                          ["Update wird geladen … 10 %", "Update wird geladen … 50 %", "Update wird entpackt …"])
-        app.close.assert_called_once()
+        flow.close.assert_called_once()
 
     def test_failed_download_closes_nothing_and_reports(self):
-        app = self.make_app()
-        app._update_running = True
-        with mock.patch.object(Overlay.updater, "prepare", side_effect=updater.UpdateError("Download unvollständig")), \
-                mock.patch.object(Overlay.updater, "write_script") as write, \
-                mock.patch.object(Overlay.updater, "launch") as launch, \
-                mock.patch.object(Overlay, "append") as log, mock.patch.object(Overlay, "show_message") as message:
-            app._update_install_worker(make_release())
-            self.run_queue(app)
+        flow = self.make_flow()
+        flow.running = True
+        with mock.patch.object(update_flow.updater, "prepare",
+                               side_effect=updater.UpdateError("Download unvollständig")), \
+                mock.patch.object(update_flow.updater, "write_script") as write, \
+                mock.patch.object(update_flow.updater, "launch") as launch, \
+                mock.patch.object(update_flow, "append") as log, \
+                mock.patch.object(update_flow, "show_message") as message:
+            flow._install_worker(make_release())
+            self.run_queue(flow)
         write.assert_not_called()
         launch.assert_not_called()
-        app.close.assert_not_called()
-        self.assertFalse(app._update_running)
-        app._set_buttons.assert_called_once_with(Overlay.tk.NORMAL)
-        self.assertEqual(app.status[-1][1], Overlay.BAD)
-        self.assertIn("Update fehlgeschlagen", app.status[-1][0])
+        flow.close.assert_not_called()
+        self.assertFalse(flow.running)
+        flow.set_buttons.assert_called_once_with(update_flow.tk.NORMAL)
+        self.assertEqual(flow.shown[-1][1], update_flow.BAD)
+        self.assertIn("Update fehlgeschlagen", flow.shown[-1][0])
         self.assertIn("Download unvollständig", message.call_args.args[2])
         self.assertIn("Download unvollständig", log.call_args.args[1])
 
     def test_failed_launch_closes_nothing(self):
-        app = self.make_app()
-        with mock.patch.object(Overlay.updater, "prepare", return_value="quelle"), \
-                mock.patch.object(Overlay.updater, "write_script", side_effect=OSError("Platte voll")), \
-                mock.patch.object(Overlay.updater, "launch") as launch, \
-                mock.patch.object(Overlay, "append"), mock.patch.object(Overlay, "show_message") as message:
-            app._update_install_worker(make_release())
-            self.run_queue(app)
+        flow = self.make_flow()
+        with mock.patch.object(update_flow.updater, "prepare", return_value="quelle"), \
+                mock.patch.object(update_flow.updater, "write_script", side_effect=OSError("Platte voll")), \
+                mock.patch.object(update_flow.updater, "launch") as launch, \
+                mock.patch.object(update_flow, "append"), mock.patch.object(update_flow, "show_message") as message:
+            flow._install_worker(make_release())
+            self.run_queue(flow)
         launch.assert_not_called()
-        app.close.assert_not_called()
+        flow.close.assert_not_called()
         self.assertIn("Platte voll", message.call_args.args[2])
 
-    def test_toast_waits_for_the_start_message(self):
-        app = self.make_app(uptime_ms=1000)
-        with mock.patch.object(Overlay, "show_toast"):
-            Overlay.MasterDuelImporter._queue_toast(app, "x")
-        (wait, _), = app.later
-        # Startmeldung steht 5 s
-        self.assertTrue(4000 <= wait <= Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS, wait)
-        late = self.make_app(uptime_ms=60000)
-        with mock.patch.object(Overlay, "show_toast"):
-            Overlay.MasterDuelImporter._queue_toast(late, "x")
-        self.assertEqual(late.later[0][0], 0)
-
-    def test_several_toasts_come_one_after_the_other(self):
-        app = self.make_app(uptime_ms=60000)
-        with mock.patch.object(Overlay, "show_toast"):
-            for text in ("eins", "zwei", "drei"):
-                Overlay.MasterDuelImporter._queue_toast(app, text)
-        waits = [wait for wait, _ in app.later]
-        step = Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS
-        self.assertEqual(waits[0], 0)
-        self.assertTrue(all(abs((b - a) - step) <= 5 for a, b in zip(waits, waits[1:])), waits)   # nie übereinander
-
     def test_source_run_does_not_check(self):
-        app = SimpleNamespace(_update_worker=lambda: None)
-        with mock.patch.object(Overlay.sys, "frozen", False, create=True), \
-                mock.patch.object(Overlay.threading, "Thread") as thread:
-            Overlay.MasterDuelImporter._start_update_check(app)
+        flow = self.make_flow()
+        with mock.patch.object(update_flow.sys, "frozen", False, create=True), \
+                mock.patch.object(update_flow.threading, "Thread") as thread:
+            flow.start_check()
         thread.assert_not_called()
 
     def test_exe_checks_once_in_background(self):
-        app = SimpleNamespace(_update_worker=lambda: None)
-        with mock.patch.object(Overlay.sys, "frozen", True, create=True), \
-                mock.patch.object(Overlay.threading, "Thread") as thread:
-            Overlay.MasterDuelImporter._start_update_check(app)
+        flow = self.make_flow()
+        with mock.patch.object(update_flow.sys, "frozen", True, create=True), \
+                mock.patch.object(update_flow.threading, "Thread") as thread:
+            flow.start_check()
         thread.assert_called_once()
         self.assertTrue(thread.call_args.kwargs["daemon"])
         thread.return_value.start.assert_called_once()
 
     def test_worker_cleans_up_and_reports_only_a_newer_release(self):
-        queued = []
-        app = SimpleNamespace(_run_on_ui=lambda func, *args: queued.append((func, args)), _on_update_found=object())
+        flow = self.make_flow()
         release = make_release()
-        with mock.patch.object(Overlay.updater, "cleanup_old") as cleanup, \
-                mock.patch.object(Overlay.update_check, "find_update", return_value=release) as find:
-            Overlay.MasterDuelImporter._update_worker(app)
+        with mock.patch.object(update_flow.updater, "cleanup_old") as cleanup, \
+                mock.patch.object(update_flow.update_check, "find_update", return_value=release) as find:
+            flow._worker()
         cleanup.assert_called_once()
-        self.assertEqual(find.call_args.args[0], Overlay.APP_VERSION)
-        self.assertEqual(queued, [(app._on_update_found, (release, False))])
-        queued.clear()
-        with mock.patch.object(Overlay.updater, "cleanup_old"), \
-                mock.patch.object(Overlay.update_check, "find_update", return_value=None):
-            Overlay.MasterDuelImporter._update_worker(app)
-            self.assertEqual(queued, [])
-            app.update_status = object()
-            Overlay.MasterDuelImporter._update_worker(app, manual=True)   # Knopf: Bescheid, dass nichts da ist
-        self.assertEqual(queued, [(app.update_status, (f"Kein Update gefunden (installiert: {Overlay.APP_VERSION})",
-                                                       Overlay.GOOD))])
-        queued.clear()
-        with mock.patch.object(Overlay.updater, "cleanup_old"), \
-                mock.patch.object(Overlay.update_check, "find_update", side_effect=OSError("offline")) as find:
-            Overlay.MasterDuelImporter._update_worker(app, manual=True)   # offline: nicht „kein Update“ melden
+        self.assertEqual(find.call_args.args[0], update_flow.APP_VERSION)
+        self.assertEqual(flow.queued, [(flow.on_found, (release, False))])
+        flow.queued.clear()
+        with mock.patch.object(update_flow.updater, "cleanup_old"), \
+                mock.patch.object(update_flow.update_check, "find_update", return_value=None):
+            flow._worker()
+            self.assertEqual(flow.queued, [])
+            flow._worker(manual=True)   # Knopf: Bescheid, dass nichts da ist
+        self.assertEqual(flow.queued, [(flow.status, (f"Kein Update gefunden (installiert: {update_flow.APP_VERSION})",
+                                                      update_flow.GOOD))])
+        flow.queued.clear()
+        with mock.patch.object(update_flow.updater, "cleanup_old"), \
+                mock.patch.object(update_flow.update_check, "find_update", side_effect=OSError("offline")) as find:
+            flow._worker(manual=True)   # offline: nicht „kein Update“ melden
         self.assertTrue(find.call_args.kwargs["raise_errors"])
-        self.assertEqual(queued, [(app.update_status, ("Update-Prüfung nicht möglich (keine Verbindung?)", Overlay.BAD))])
+        self.assertEqual(flow.queued, [(flow.status, ("Update-Prüfung nicht möglich (keine Verbindung?)",
+                                                      update_flow.BAD))])
 
     def test_no_question_at_start_while_master_duel_runs_but_the_button_asks(self):
         self.md_window.return_value = 1234
-        app = self.make_app()
-        ask = self.found(app, make_release("9.3"))
+        flow = self.make_flow()
+        ask = self.found(flow, make_release("9.3"))
         ask.assert_not_called()                                   # nicht mitten im Spielen
-        self.assertEqual(app.saved, [])                           # nicht gemerkt: beim nächsten Start wird gefragt
-        app.tray.set_update.assert_called_once_with("9.3")
-        self.assertIn("Nach Update suchen", app.status[-1][0])
-        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:   # Optionen → Nach Update suchen
-            Overlay.MasterDuelImporter._on_update_found(self.make_app(notified="9.3"), make_release("9.3"), True)
+        self.assertEqual(flow.saved, [])                          # nicht gemerkt: beim nächsten Start wird gefragt
+        flow.tray_icon.set_update.assert_called_once_with("9.3")
+        self.assertIn("Nach Update suchen", flow.shown[-1][0])
+        with mock.patch.object(update_flow, "ask_choice", return_value=None) as ask:   # Optionen → Nach Update suchen
+            self.make_flow(notified="9.3").on_found(make_release("9.3"), True)
         ask.assert_called_once()                                  # auch schon gefragt und mit Spiel: sofort
 
     def test_option_after_duel_asks_once_no_duel_runs(self):
         self.md_window.return_value = 1234                        # Master Duel läuft
-        app = self.make_app()
-        app.config.update({Overlay.UPDATE_AFTER_DUEL_KEY: True, Overlay.READ_METHOD_KEY: "memory"})
-        app._md_in_front = lambda: True                           # im Menü, Spiel vorne: zählt mit der Option nicht
-        app.match_watch = SimpleNamespace(in_duel=True)
-        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
-                mock.patch.object(Overlay.md_memory, "is_ready", return_value=True):
-            Overlay.MasterDuelImporter._on_update_found(app, make_release("9.3"))
+        flow = self.make_flow(config={update_flow.UPDATE_AFTER_DUEL_KEY: True, update_flow.READ_METHOD_KEY: "memory"})
+        flow.env.front, flow.env.in_duel = True, True             # im Menü, Spiel vorne: zählt mit der Option nicht
+        with mock.patch.object(update_flow, "ask_choice", return_value=None) as ask:
+            flow.on_found(make_release("9.3"))
             ask.assert_not_called()                               # im Duell: verschoben
-            self.assertEqual(len(app.later), 1)
-            app.match_watch.in_duel = False
-            app.later.pop(0)[1]()                                 # Duell vorbei → jetzt fragen
+            self.assertEqual(len(flow.later), 1)
+            flow.env.in_duel = False
+            flow.later.pop(0)[1]()                                # Duell vorbei → jetzt fragen
             ask.assert_called_once()
 
     def test_option_without_memory_connection_falls_back_to_md_in_front(self):
         # Kurz nach dem Start (Speicher noch nicht verbunden) zeigt in_duel nichts – das Duell könnte laufen
         self.md_window.return_value = 1234
-        app = self.make_app()
-        app.config.update({Overlay.UPDATE_AFTER_DUEL_KEY: True, Overlay.READ_METHOD_KEY: "memory"})
-        app._md_in_front = lambda: True
-        app.match_watch = SimpleNamespace(in_duel=False)
-        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
-                mock.patch.object(Overlay.md_memory, "is_ready", return_value=False):
-            Overlay.MasterDuelImporter._on_update_found(app, make_release("9.3"))
+        flow = self.make_flow(config={update_flow.UPDATE_AFTER_DUEL_KEY: True, update_flow.READ_METHOD_KEY: "memory"})
+        flow.env.front, flow.env.in_duel = True, None
+        with mock.patch.object(update_flow, "ask_choice", return_value=None) as ask:
+            flow.on_found(make_release("9.3"))
         ask.assert_not_called()
-        self.assertEqual(len(app.later), 1)                       # wartet, bis Master Duel nicht mehr vorne liegt
+        self.assertEqual(len(flow.later), 1)                      # wartet, bis Master Duel nicht mehr vorne liegt
 
     def test_option_counts_only_in_memory_mode_but_the_button_always_works(self):
-        on = {Overlay.UPDATE_AFTER_DUEL_KEY: True}
-        self.assertTrue(Overlay.update_after_duel(dict(on, **{Overlay.READ_METHOD_KEY: "memory"})))
-        self.assertFalse(Overlay.update_after_duel(dict(on, **{Overlay.READ_METHOD_KEY: "ocr"})))
+        on = {update_flow.UPDATE_AFTER_DUEL_KEY: True}
+        self.assertTrue(update_flow.update_after_duel(dict(on, **{update_flow.READ_METHOD_KEY: "memory"})))
+        self.assertFalse(update_flow.update_after_duel(dict(on, **{update_flow.READ_METHOD_KEY: "ocr"})))
         self.md_window.return_value = 1234
-        app = self.make_app()
-        app.config.update(on, **{Overlay.READ_METHOD_KEY: "ocr"})
-        ask = self.found(app, make_release("9.3"))
+        flow = self.make_flow(config=dict(on, **{update_flow.READ_METHOD_KEY: "ocr"}))
+        ask = self.found(flow, make_release("9.3"))
         ask.assert_not_called()                                    # Texterkennung: nur beim (nächsten) Start
-        with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask:   # Knopf: auch mit Texterkennung
-            Overlay.MasterDuelImporter._on_update_found(app, make_release("9.3"), True)
+        with mock.patch.object(update_flow, "ask_choice", return_value=None) as ask:   # Knopf: auch mit Texterkennung
+            flow.on_found(make_release("9.3"), True)
         ask.assert_called_once()
 
     def test_check_after_duel_only_with_the_option_as_exe_and_not_too_often(self):
-        def app(option, checked_ago, found=None):
-            return SimpleNamespace(config={Overlay.UPDATE_AFTER_DUEL_KEY: option, Overlay.READ_METHOD_KEY: "memory"},
-                                   update_release=found,
-                                   _update_checked_at=Overlay.time.monotonic() - checked_ago, _update_worker=None)
-        long_ago = Overlay.UPDATE_AFTER_DUEL_S + 1
-        cases = [(app(True, long_ago), True, 1), (app(False, long_ago), True, 0), (app(True, long_ago), False, 0),
-                 (app(True, 60), True, 0)]
+        def flow(option, checked_ago, found=None):
+            result = self.make_flow(config={update_flow.UPDATE_AFTER_DUEL_KEY: option,
+                                            update_flow.READ_METHOD_KEY: "memory"})
+            result.release, result.checked_at = found, update_flow.time.monotonic() - checked_ago
+            return result
+        long_ago = update_flow.UPDATE_AFTER_DUEL_S + 1
+        cases = [(flow(True, long_ago), True, 1), (flow(False, long_ago), True, 0), (flow(True, long_ago), False, 0),
+                 (flow(True, 60), True, 0)]
         for fake, frozen, calls in cases:
-            with mock.patch.object(Overlay.sys, "frozen", frozen, create=True), \
-                    mock.patch.object(Overlay.threading, "Thread") as thread:
-                Overlay.MasterDuelImporter._check_update_after_duel(fake)
+            with mock.patch.object(update_flow.sys, "frozen", frozen, create=True), \
+                    mock.patch.object(update_flow.threading, "Thread") as thread:
+                fake.check_after_duel()
             self.assertEqual(thread.call_count, calls)
-        postponed = app(True, 60, make_release())        # beim Start zurückgestellt, Option erst danach an
-        postponed._on_update_found = mock.Mock()
-        with mock.patch.object(Overlay.sys, "frozen", True, create=True), \
-                mock.patch.object(Overlay.threading, "Thread") as thread:
-            Overlay.MasterDuelImporter._check_update_after_duel(postponed)
+        postponed = flow(True, 60, make_release())       # beim Start zurückgestellt, Option erst danach an
+        postponed.on_found = mock.Mock()
+        with mock.patch.object(update_flow.sys, "frozen", True, create=True), \
+                mock.patch.object(update_flow.threading, "Thread") as thread:
+            postponed.check_after_duel()
         thread.assert_not_called()                          # nicht neu laden: die Frage nachholen
-        postponed._on_update_found.assert_called_once_with(postponed.update_release)
+        postponed.on_found.assert_called_once_with(postponed.release)
 
     def test_button_checks_in_the_background(self):
-        app = SimpleNamespace(update_status=mock.Mock(), _update_worker=lambda manual=False: None)
-        with mock.patch.object(Overlay.threading, "Thread") as thread:
-            Overlay.MasterDuelImporter.check_update_now(app)
+        flow = self.make_flow()
+        with mock.patch.object(update_flow.threading, "Thread") as thread:
+            flow.check_now()
         self.assertEqual(thread.call_args.kwargs["args"], (True,))
         thread.return_value.start.assert_called_once()
+        self.assertEqual(flow.shown[-1][0], "Suche nach Update …")
 
     def test_project_page_opens_the_releases(self):
-        with mock.patch.object(Overlay.webbrowser, "open") as opened:
-            Overlay.MasterDuelImporter._open_project_page(SimpleNamespace())
+        flow = self.make_flow()
+        with mock.patch.object(update_flow.webbrowser, "open") as opened:
+            flow.open_page()
         opened.assert_called_once_with("https://github.com/Raijn6969/Yugioh/releases/latest")
-        with mock.patch.object(Overlay.webbrowser, "open", side_effect=OSError("kein Browser")):
-            Overlay.MasterDuelImporter._open_project_page(SimpleNamespace())   # kein Absturz
+        with mock.patch.object(update_flow.webbrowser, "open", side_effect=OSError("kein Browser")):
+            flow.open_page()   # kein Absturz
+
+    def test_failed_marker_gives_one_message_with_a_release_button_and_is_removed(self):
+        folder = tempfile.mkdtemp()
+        marker = os.path.join(folder, updater.FAILED_MARKER)
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("robocopy exit code 8")
+        flow = self.make_flow()
+        flow.env.front = True
+        with mock.patch.object(update_flow, "APP_DIR", folder), \
+                mock.patch.object(update_flow, "show_message") as show:
+            flow.show_failed_marker()
+            show.assert_not_called()                               # Master Duel vorne: später wieder
+            (wait, retry), = flow.later
+            self.assertEqual(wait, 20)
+            flow.env.front = False
+            retry()
+            flow.show_failed_marker()                              # zweiter Start: nichts mehr da
+        show.assert_called_once()
+        self.assertEqual(show.call_args.args[1], "Update unvollständig")
+        self.assertEqual(show.call_args.kwargs["actions"][0][0], "Release-Seite öffnen")
+        self.assertFalse(os.path.exists(marker))
+
+
+class ToastQueueTest(unittest.TestCase):
+    """Hinweise über der Taskleiste (Overlay): einer nach dem anderen, nach der Startmeldung."""
+
+    def make_app(self, uptime_ms):
+        later = []
+        free = (Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS) / 1000   # Startmeldung steht noch so lange
+        return SimpleNamespace(_after_ids={}, _toast_count=0,
+                               _toast_free_at=Overlay.time.monotonic() + free - uptime_ms / 1000,
+                               root=SimpleNamespace(after=lambda ms, func: later.append((ms, func)) or "id"),
+                               later=later)
+
+    def test_toast_waits_for_the_start_message(self):
+        app = self.make_app(uptime_ms=1000)
+        Overlay.MasterDuelImporter._queue_toast(app, "x")
+        (wait, _), = app.later
+        # Startmeldung steht 5 s
+        self.assertTrue(4000 <= wait <= Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS, wait)
+        late = self.make_app(uptime_ms=60000)
+        Overlay.MasterDuelImporter._queue_toast(late, "x")
+        self.assertEqual(late.later[0][0], 0)
+
+    def test_several_toasts_come_one_after_the_other(self):
+        app = self.make_app(uptime_ms=60000)
+        for text in ("eins", "zwei", "drei"):
+            Overlay.MasterDuelImporter._queue_toast(app, text)
+        waits = [wait for wait, _ in app.later]
+        step = Overlay.STARTED_TOAST_MS + Overlay.TOAST_GAP_MS
+        self.assertEqual(waits[0], 0)
+        self.assertTrue(all(abs((b - a) - step) <= 5 for a, b in zip(waits, waits[1:])), waits)   # nie übereinander
 
 
 class FakePystray:

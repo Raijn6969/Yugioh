@@ -126,7 +126,7 @@ class ShouldShowTest(unittest.TestCase):
     def decide(self, own, md, editor, running=False, updating=False):
         fake = type("App", (), {})()
         fake.is_running = running
-        fake._update_running = updating
+        fake.updates = type("U", (), {"running": updating})()
         fake._hidden_by_x = False
         fake.editor_watch = type("W", (), {"visible": editor})()
         import Overlay

@@ -17,10 +17,8 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import traceback
 import json
-import webbrowser
 import pyperclip
 import win32gui
 import win32process
@@ -38,11 +36,11 @@ from calibration import CalibrationWizard
 from card_stats import CardStatsDB, take_recovery_notice
 from deck_analysis import current_changes
 from deck_export import DeckExporter, save_ydk
-from extras_panel import CLOSE_TO_TRAY_KEY, READ_METHOD_KEY, READ_METHODS, UPDATE_AFTER_DUEL_KEY, ExtrasPanel
+from extras_panel import CLOSE_TO_TRAY_KEY, READ_METHOD_KEY, READ_METHODS, ExtrasPanel
 from import_engine import DeckImporterCore
 from match_history import LOSS, RANKED, WIN, MatchWatcher
 from replay_recorder import ReplayRecorder
-from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, DATA_DIR, LOG_FILE, TESSERACT_CMD
+from app_paths import APP_DIR, APP_VERSION, CONFIG_FILE, LOG_FILE, TESSERACT_CMD
 from app_icon import create_icon_image
 from dark_dialog import ask_choice, show_message, show_toast
 from dark_menu import DarkMenu
@@ -53,6 +51,7 @@ from window_style import (BAD, BG, GOOD, INFO, NEUTRAL, PRIMARY, SIZE_SMALL, SIZ
                           apply_frame, font, no_activate)
 from rounded_button import RoundedButton, close_button
 from tray import TrayIcon
+from update_flow import UPDATE_RETRY_MS, UpdateFlow
 from utils import DeckCodeError, parse_clipboard
 from window_automation import find_md_window, get_md_window_size, is_md_process
 import bug_report
@@ -62,7 +61,6 @@ import resume_state
 import season_review
 import single_instance
 import update_check
-import updater
 import win_api
 
 MEMORY_RETRY = 30.0  # Sekunden bis zum nächsten Vorlade-Versuch, wenn Master Duel noch nicht bereit war
@@ -75,15 +73,6 @@ REMINDER_DELAY_MS = 6000  # erst das Ergebnis zeigen, dann die Erinnerung an die
 SHORT_REMINDER = "Bitte Match History öffnen (Gegner-Decks)"
 REMINDER_CHECK_MS = 3000  # so oft prüfen, ob die Match History inzwischen geöffnet wurde (solange der Hinweis steht)
 STATUS_DECK_CHARS = 14  # längere MD-Decknamen in der Statuszeile kürzen (Platz neben dem ✕)
-UPDATE_NOTIFIED_KEY = "UPDATE_NOTIFIED"  # Einstellung: zuletzt gemeldete neuere Version (Frage nur einmal je Version)
-UPDATE_RETRY_MS = 1000  # läuft ein Import, wird die Update-Frage so lange verschoben
-UPDATE_AFTER_DUEL_S = 30 * 60  # „Nach Duell auf Update prüfen“: höchstens so oft bei GitHub nachsehen
-
-
-def update_after_duel(config: dict) -> bool:
-    """Option „Nach Duell auf Update prüfen“ – gilt nur im Speicher-Modus (nur dann ist bekannt, ob ein Duell läuft;
-    mit Texterkennung wird nur beim Start geprüft)."""
-    return bool(config.get(UPDATE_AFTER_DUEL_KEY)) and config.get(READ_METHOD_KEY) == "memory"
 MD_FRONT_RETRY_MS = 1000  # Dialoge ohne Zutun des Nutzers warten, bis Master Duel nicht mehr vorne liegt
 TOAST_GAP_MS = 300  # Pause zwischen zwei Hinweisen über der Taskleiste
 MD_START_CHECK_S = 3  # so oft wird nach dem Start von Master Duel gesucht (für die Startmeldung)
@@ -166,9 +155,6 @@ class MasterDuelImporter:
         self._md_check_at = 0.0  # nächste Suche nach dem Spiel (time.monotonic)
         self._md_found_at = None  # seit wann das Spiel läuft (None = läuft nicht bzw. noch nicht gesucht)
         self._md_checked = False  # schon einmal gesucht? (lief das Spiel schon beim Start des Importers?)
-        self.update_release = None   # neuerer Release laut Update-Prüfung (None = keiner bzw. nicht geprüft)
-        self._update_running = False  # Update wird gerade geladen/installiert
-        self._update_checked_at = time.monotonic()  # letzte Update-Prüfung (die beim Start)
         self._report_running = False  # Fehlerbericht wird gerade erstellt
         # Ist der Deck-Editor zu sehen? (Hintergrund-Thread, prüft nur, solange Master Duel vorne ist)
         self.editor_watch = EditorWatcher(TESSERACT_CMD)
@@ -184,6 +170,12 @@ class MasterDuelImporter:
                                         on_updated=lambda: self._run_on_ui(self._on_matches_updated))
         # IDs der wiederkehrenden Tk-Timer, damit sie beim Schließen gestoppt werden können
         self._after_ids = {}
+        self.updates = UpdateFlow(
+            root=root, get_config=lambda: self.config, save_config=self._save_config_safely, status=self.update_status,
+            run_on_ui=self._run_on_ui, after_ids=self._after_ids, get_tray=lambda: self.tray,
+            busy=lambda: self.is_running, md_in_front=self._md_in_front, md_retry_ms=MD_FRONT_RETRY_MS,
+            in_duel=self._in_duel, set_buttons=self._set_buttons, show_overlay=self._show_for_update,
+            close=self.close)
         self._focus_errors = set()  # Fehlertypen der Fokus-Schleife, die schon im Log stehen
         self.config = self.load_config()
         self._build_main_ui()
@@ -196,7 +188,7 @@ class MasterDuelImporter:
             self.tray = TrayIcon(f"MD Importer {APP_VERSION}",
                                  on_restart=lambda: self._run_on_ui(self.restart),
                                  on_quit=lambda: self._run_on_ui(self.close),
-                                 on_update=lambda: self._run_on_ui(self._ask_update_when_idle),
+                                 on_update=lambda: self._run_on_ui(self.updates.ask_when_idle),
                                  on_report=lambda: self._run_on_ui(self._create_report),
                                  on_menu=lambda x, y: self._run_on_ui(self._show_tray_menu, x, y))
 
@@ -207,8 +199,8 @@ class MasterDuelImporter:
         self.replay_watch.start()
         self._check_window_focus()
         self._backup_database()
-        self._start_update_check()
-        self._run_on_ui(self._show_update_failed)
+        self.updates.start_check()
+        self._run_on_ui(self.updates.show_failed_marker)
 
     def _check_md_started(self):
         """Startmeldung (bei jedem Start von Master Duel) und Rückblick-Hinweis (einmal je Lauf) kommen erst, wenn das
@@ -241,141 +233,12 @@ class MasterDuelImporter:
             # Erst nach der Startmeldung: dann sind Datenbank und Fenster längst bereit
             self._after_ids["review_notice"] = self.root.after(REVIEW_NOTICE_DELAY_MS, self._start_review_notice)
 
-    # --- UPDATE-HINWEIS (einmal pro Start, im Hintergrund) ---
-    def _start_update_check(self):
-        """Gibt es eine neuere Version? Nur als exe (aus dem Quellcode holt man sich Updates mit git selbst)."""
-        if not getattr(sys, "frozen", False):
-            dlog("[UPDATE] Lauf aus dem Quellcode – keine Update-Prüfung.")
-            return
-        threading.Thread(target=self._update_worker, daemon=True, name="update").start()
-
-    def check_update_now(self):
-        """Optionen → „Nach Update suchen“: sofort prüfen und fragen (auch aus dem Quellcode – dort nur der Hinweis)."""
-        self.update_status("Suche nach Update …", INFO)
-        threading.Thread(target=self._update_worker, args=(True,), daemon=True, name="update").start()
-
-    def _update_worker(self, manual=False):
-        updater.cleanup_old(tempfile.gettempdir())  # Reste eines früheren Updates
-        try:
-            release = update_check.find_update(APP_VERSION, log=lambda message: append(LOG_FILE, message),
-                                               raise_errors=manual)
-        except Exception:  # nur beim Knopf: sonst hieße es fälschlich „kein Update“
-            self._run_on_ui(self.update_status, "Update-Prüfung nicht möglich (keine Verbindung?)", BAD)
-            return
-        if release:
-            self._run_on_ui(self._on_update_found, release, manual)
-        elif manual:
-            self._run_on_ui(self.update_status, f"Kein Update gefunden (installiert: {APP_VERSION})", GOOD)
-
-    def _on_update_found(self, release, manual=False):
-        self.update_release = release
-        if self.tray:
-            self.tray.set_update(release.version)
-        if manual:
-            self._ask_update_when_idle()
-            return
-        if not update_after_duel(self.config) and find_md_window() is not None:
-            # Das Spiel läuft schon: in dieser Sitzung nicht fragen (mitten im Spielen stört es), erst beim nächsten
-            # Start – oder über Optionen/Tray. Deshalb auch nicht als „gefragt“ merken. Mit „Nach Duell auf Update
-            # prüfen“ kommt die Frage dagegen, sobald kein Duell mehr läuft.
-            dlog(f"[UPDATE] {release.version} verfügbar – Master Duel läuft, Frage beim nächsten Start.")
-            self.update_status(f"Update {release.version} verfügbar – Optionen → Nach Update suchen", INFO)
-            return
-        notified = self.config.get(UPDATE_NOTIFIED_KEY)
-        if notified and not update_check.is_newer(release.version, notified):
-            return  # zu dieser Version schon gefragt – der Tray-Menüpunkt bleibt
-        self.config[UPDATE_NOTIFIED_KEY] = release.version
-        self._save_config_safely()
-        self._ask_update_when_idle(user=False)
-
-    def _can_self_update(self, release) -> bool:
-        """Ein-Klick-Update nur als exe, mit zip am Release und beschreibbarem Programmordner."""
-        return bool(getattr(sys, "frozen", False) and release.zip_url and DATA_DIR == APP_DIR)
-
     def _show_config_broken(self, message: str):
         if self._md_in_front():
             self._after_ids["config_broken"] = self.root.after(MD_FRONT_RETRY_MS,
                                                                lambda: self._show_config_broken(message))
             return
         show_message(self.root, "Konfiguration beschädigt", message, kind="warning")
-
-    def _ask_update_when_idle(self, user: bool = True):
-        """Update-Frage; läuft gerade ein Import/Export, erst danach (alle UPDATE_RETRY_MS nachsehen). Kommt sie
-        ohne Zutun des Nutzers (user=False, nach der Update-Prüfung), auch erst, wenn Master Duel nicht vorne liegt –
-        mit „Nach Duell auf Update prüfen“ schon, sobald kein Duell mehr läuft."""
-        self._after_ids.pop("update_ask", None)
-        if self.update_release is None or self._update_running:
-            return
-        watch = getattr(self, "match_watch", None)
-        if update_after_duel(self.config) and watch is not None and md_memory.is_ready():
-            blocked = watch.in_duel
-        else:  # ohne Speicher-Verbindung (z. B. kurz nach dem Start) ist unbekannt, ob ein Duell läuft
-            blocked = self._md_in_front()
-        if self.is_running or (not user and blocked):
-            self._after_ids["update_ask"] = self.root.after(UPDATE_RETRY_MS, lambda: self._ask_update_when_idle(user))
-            return
-        release = self.update_release
-        text = f"MD-Importer {release.version} ist da (installiert: {APP_VERSION}). "
-        if self._can_self_update(release):
-            choices = [("Jetzt aktualisieren", "install", PRIMARY), ("Was ist neu?", "page", NEUTRAL),
-                       ("Später", None, NEUTRAL)]
-            text += "Der Importer lädt die neue Version, ersetzt sich selbst und startet neu – deine Daten bleiben."
-        else:
-            choices = [("Release-Seite öffnen", "page", PRIMARY), ("Später", None, NEUTRAL)]
-            text += "Neue Version auf der Release-Seite herunterladen."
-        choice = ask_choice(self.root, "Update verfügbar", text, choices)
-        if choice == "install":
-            self._start_update(release)
-        elif choice == "page":
-            self._open_project_page(release.page)
-
-    def _start_update(self, release):
-        """Laden, entpacken, Hilfsskript starten, beenden (im Hintergrund; Fortschritt in der Statuszeile)."""
-        self._update_running = True
-        self._set_buttons(tk.DISABLED)
-        if hasattr(self.root, "wm_attributes"):
-            try:
-                self.root.wm_attributes("-alpha", 0.95)
-            except tk.TclError:
-                pass
-        self.is_visible = True
-        self.update_status("Update wird geladen … 0 %", INFO)
-        threading.Thread(target=self._update_install_worker, args=(release,), daemon=True,
-                         name="update-install").start()
-
-    def _update_install_worker(self, release):
-        last = [0]
-
-        def progress(done, total):
-            percent = done * 100 // total
-            step = 1 if total > 10 * 1024 * 1024 else 5
-            if percent >= last[0] + step or done == total:
-                last[0] = percent
-                text = "Update wird entpackt …" if done == total else f"Update wird geladen … {percent} %"
-                self._run_on_ui(self.update_status, text, INFO)
-
-        try:
-            temp_root = tempfile.gettempdir()
-            source = updater.prepare(release, temp_root, progress, app_dir=APP_DIR)
-            script = updater.write_script(source, APP_DIR, os.getpid(), updater.EXE_NAME,
-                                          updater.update_dir(temp_root, release.version))
-            updater.launch(script)
-        except Exception as e:  # Netz weg, zip kaputt, Platte voll …: nichts wird beendet
-            append(LOG_FILE, f"[UPDATE] Update fehlgeschlagen: {type(e).__name__}: {e}")
-            self._run_on_ui(self._on_update_failed, str(e) or type(e).__name__)
-            return
-        self._run_on_ui(self._on_update_launched, release.version)
-
-    def _on_update_launched(self, version):
-        dlog(f"[UPDATE] Update auf {version} gestartet – Importer beendet sich, das Skript kopiert und startet neu.")
-        self.close()
-
-    def _on_update_failed(self, error):
-        self._update_running = False
-        self._set_buttons(tk.NORMAL)
-        self.update_status("Update fehlgeschlagen – Release-Seite über das Tray-Symbol", BAD)
-        show_message(self.root, "Update fehlgeschlagen",
-                     f"{error}\n\nDie neue Version lässt sich von Hand laden: Tray-Symbol → Update.", kind="error")
 
     def _queue_toast(self, text):
         """Hinweis über der Taskleiste. Mehrere (Startmeldung, Update, Rückblick) kommen nacheinander,
@@ -425,28 +288,6 @@ class MasterDuelImporter:
         self.config[season_review.NOTICE_KEY] = season_review.month_key(year, month)
         self._save_config_safely()
         self._queue_toast(f"Rückblick für {season_review.MONTHS[month - 1]} ist fertig – Deck → Winrate → Rückblick")
-
-    def _show_update_failed(self):
-        """Das Update-Skript konnte nicht alles kopieren (update_failed.txt im Programmordner): einmal Bescheid
-        geben."""
-        if self._md_in_front():
-            self._after_ids["update_failed"] = self.root.after(MD_FRONT_RETRY_MS, self._show_update_failed)
-            return
-        code = updater.take_failed_marker(APP_DIR)
-        if code is None:
-            return
-        dlog(f"[UPDATE] Letztes Update unvollständig ({code}).")
-        show_message(self.root, "Update unvollständig",
-                     "Update unvollständig (Datei gesperrt). Bitte die zip von GitHub neu laden und entpacken.\n"
-                     f"({code})", kind="warning", wait=False,
-                     actions=[("Release-Seite öffnen", self._open_project_page)])
-
-    def _open_project_page(self, url=None):
-        """Release-Seite im Browser (kein Download, keine Installation)."""
-        try:
-            webbrowser.open(url or update_check.RELEASES_URL)
-        except Exception as e:
-            dlog(f"[UPDATE] Browser nicht geöffnet: {e}")
 
     def _show_tray_menu(self, x: int, y: int):
         if self.tray:  # kann zwischen Rechtsklick und Tk-Thread beendet worden sein
@@ -742,9 +583,9 @@ class MasterDuelImporter:
         zeigt den Deck-Editor (noch nicht erkannt: nein; nicht prüfbar: ja) – während eines Imports immer, ebenso
         während eines Updates (sonst sähe man den Fortschritt nicht).
         """
-        show = own_window_in_front or self._update_running or (
+        show = own_window_in_front or self.updates.running or (
             md_in_front and (self.is_running or self.editor_watch.visible is not False))
-        if self._hidden_by_x and not (self.is_running or self._update_running):
+        if self._hidden_by_x and not (self.is_running or self.updates.running):
             self._hidden_by_x = show  # erst nach einer Pause ohne Overlay (Editor verlassen) wieder zeigen
             return False
         return show
@@ -830,16 +671,13 @@ class MasterDuelImporter:
         sehen – die repariert das in der Regel. Danach der Hinweis mit Update bzw. Texterkennung (Hintergrund-Thread,
         der Fokus-Timer wartet nicht aufs Netz)."""
         def work():
-            release = self.update_release or update_check.find_update(
+            release = self.updates.release or update_check.find_update(
                 APP_VERSION, log=lambda message: append(LOG_FILE, message))
             self._run_on_ui(self._offer_repair, release, text)
         threading.Thread(target=work, daemon=True, name="repair-update").start()
 
     def _offer_repair(self, release, text: str):
-        if release is not None and self.update_release is None:
-            self.update_release = release
-            if self.tray:
-                self.tray.set_update(release.version)
+        self.updates.note_release(release)
         self._offer_ocr_when_idle(text)
 
     def _memory_fell_back(self):
@@ -861,17 +699,17 @@ class MasterDuelImporter:
         text = text or ("Der Speicher-Modus funktioniert gerade nicht, oft nach einem Master-Duel-Update. "
                         "Du kannst zur Texterkennung wechseln.")
         choices = [("Zur Texterkennung wechseln", "ocr", PRIMARY), ("Später", None, NEUTRAL)]
-        release = self.update_release
+        release = self.updates.release
         if release is not None:  # neuere Version da: die passt vermutlich schon zum neuen Master Duel
             text += f"\n\nMD-Importer {release.version} ist da (installiert: {APP_VERSION}) und behebt das vermutlich."
             choices = [("Update installieren", "update", PRIMARY), ("Zur Texterkennung wechseln", "ocr", NEUTRAL),
                        ("Später", None, NEUTRAL)]
         choice = ask_choice(self.root, "Speicher-Modus nicht verfügbar", text, choices, kind="warning")
         if choice == "update":
-            if self._can_self_update(release):
-                self._start_update(release)
+            if self.updates.can_self_update(release):
+                self.updates.start(release)
             else:
-                self._open_project_page(release.page)
+                self.updates.open_page(release.page)
         elif choice:
             self._set_read_method(choice)
 
@@ -1080,7 +918,8 @@ class MasterDuelImporter:
         return f"{self._status_base} · {self._format_duration(time.perf_counter() - self._import_t0)}"
 
     def update_status(self, text, color=TEXT):
-        if getattr(self, "_update_running", False) and not str(text).startswith("Update"):
+        updates = getattr(self, "updates", None)  # beim Laden der Konfiguration gibt es ihn noch nicht
+        if updates is not None and updates.running and not str(text).startswith("Update"):
             return
         self._status_base = text
         self.status_label.config(text=self._status_text(), fg=color)
@@ -1088,6 +927,18 @@ class MasterDuelImporter:
             self.status_label.update_idletasks()
         except (tk.TclError, AttributeError):
             pass
+
+    def _in_duel(self):
+        """Läuft ein Duell? None, solange keine Speicher-Verbindung besteht (dann ist es unbekannt)."""
+        return self.match_watch.in_duel if md_memory.is_ready() else None
+
+    def _show_for_update(self):
+        """Während des Updates sichtbar bleiben (sonst sähe man den Fortschritt nicht)."""
+        try:
+            self.root.wm_attributes("-alpha", 0.95)
+        except tk.TclError:
+            pass
+        self.is_visible = True
 
     def _set_buttons(self, state):
         for button in (self.start_btn, self.export_btn, self.extras_btn, self.speed_btn):
@@ -1415,20 +1266,7 @@ class MasterDuelImporter:
             self._after_ids["reminder"] = self.root.after(REMINDER_DELAY_MS, self._show_history_reminder)
         if self.extras:
             self.extras.refresh_winrate()
-        self._check_update_after_duel()
-
-    def _check_update_after_duel(self):
-        """Option „Nach Duell auf Update prüfen“: nach einem Duell erneut nachsehen (höchstens alle
-        UPDATE_AFTER_DUEL_S, nur als exe); die Frage kommt dann außerhalb des Duells (_ask_update_when_idle)."""
-        if not (update_after_duel(self.config) and getattr(sys, "frozen", False)):
-            return
-        if self.update_release is not None:   # beim Start gefunden, aber zurückgestellt (Option erst später an)
-            self._on_update_found(self.update_release)   # fragt nur, wenn zu dieser Version noch nicht gefragt
-            return
-        if time.monotonic() - self._update_checked_at < UPDATE_AFTER_DUEL_S:
-            return
-        self._update_checked_at = time.monotonic()
-        threading.Thread(target=self._update_worker, daemon=True, name="update").start()
+        self.updates.check_after_duel()
 
     def _on_matches_updated(self):
         """Live-Matches bekamen ihre History-Daten → offene Winrate-/Matchup-Ansicht neu zeichnen."""
@@ -1505,7 +1343,7 @@ class MasterDuelImporter:
                                   on_side_swap=self.start_side_swap,
                                   on_auto_calibrate=self.start_auto_calibration,
                                   on_calibrate_manual=self.open_calibration, has_tray=self.tray is not None,
-                                  on_check_update=self.check_update_now)
+                                  on_check_update=self.updates.check_now)
         if not (self._last_scan and self.extras.try_reuse(self._last_scan)):
             self._start_extras_scan()
 

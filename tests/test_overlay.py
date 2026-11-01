@@ -17,6 +17,7 @@ except Exception:
     HAS_TK = False
 
 import Overlay
+import update_flow
 from dark_scrollbar import DarkScrollbar
 
 _REAL_FOCUS_LOOP = Overlay.MasterDuelImporter._check_window_focus  # vor dem Patch in OverlayTest.setUp
@@ -119,17 +120,23 @@ class OverlayTest(unittest.TestCase):
         app._md_in_front = lambda: front[0]
         with mock.patch.object(Overlay, "ask_choice", return_value=None) as ask, \
                 mock.patch.object(Overlay, "show_message") as show, \
-                mock.patch.object(Overlay, "APP_DIR", folder), \
-                mock.patch.object(Overlay, "MD_FRONT_RETRY_MS", 20), mock.patch.object(Overlay, "UPDATE_RETRY_MS", 20):
-            app.update_release = release
-            app._ask_update_when_idle()  # Klick im Tray-Menü: sofort, auch mit Master Duel vorne
+                mock.patch.object(update_flow, "ask_choice", ask), \
+                mock.patch.object(update_flow, "show_message", show), \
+                mock.patch.object(update_flow, "APP_DIR", folder), \
+                mock.patch.object(Overlay, "MD_FRONT_RETRY_MS", 20), \
+                mock.patch.object(Overlay, "UPDATE_RETRY_MS", 20), \
+                mock.patch.object(update_flow, "UPDATE_RETRY_MS", 20), \
+                mock.patch.object(app.updates, "md_retry_ms", 20):
+            app.updates.md_in_front = app._md_in_front
+            app.updates.release = release
+            app.updates.ask_when_idle()  # Klick im Tray-Menü: sofort, auch mit Master Duel vorne
             self.assertEqual(ask.call_count, 1)
             ask.reset_mock()
             app._ask_read_method()
-            app._on_update_found(release)
+            app.updates.on_found(release)
             app._offer_ocr_when_idle()
             app._show_db_recovered("md_card_stats.db.defekt-1", "2026-10-15")
-            app._show_update_failed()
+            app.updates.show_failed_marker()
             app._show_config_broken("kaputt")
             self.pump(root, 0.15)
             self.assertEqual((ask.call_count, show.call_count), (0, 0))  # Master Duel vorne: kein Dialog
@@ -455,8 +462,8 @@ class OverlayTest(unittest.TestCase):
         release = SimpleNamespace(version="9.9", page="https://github.com/x", zip_url="https://github.com/x.zip")
         with mock.patch.object(Overlay.update_check, "find_update", return_value=release) as find, \
                 mock.patch.object(Overlay, "ask_choice", return_value="update") as ask, \
-                mock.patch.object(app, "_start_update") as start, \
-                mock.patch.object(app, "_can_self_update", return_value=True):
+                mock.patch.object(app.updates, "start") as start, \
+                mock.patch.object(app.updates, "can_self_update", return_value=True):
             app._repair_check(Overlay.MEMORY_CHANGED_TEXT)
             for _ in range(50):
                 if ask.called:
@@ -467,7 +474,7 @@ class OverlayTest(unittest.TestCase):
                          ["Update installieren", "Zur Texterkennung wechseln", "Später"])
         self.assertIn("9.9", ask.call_args.args[2])
         start.assert_called_once_with(release)
-        self.assertIs(app.update_release, release)
+        self.assertIs(app.updates.release, release)
         self.assertTrue(app._use_memory())   # Lesemethode bleibt
 
     def saved_read_method(self):
@@ -1276,7 +1283,7 @@ class MatchStatusTest(unittest.TestCase):
                                _unconfirmed_matches=lambda: self.unconfirmed,
                                status_label=SimpleNamespace(cget=lambda option: shown[-1]),
                                root=SimpleNamespace(after=lambda ms, func: self.later.append(func) or "id"),
-                               _check_update_after_duel=lambda: None)   # eigener Test in test_update_check
+                               updates=SimpleNamespace(check_after_duel=lambda: None))   # Test: test_update_check
         for name in ("_show_history_reminder", "_check_history_reminder"):
             setattr(fake, name, getattr(Overlay.MasterDuelImporter, name).__get__(fake))
         self.unconfirmed = 15
