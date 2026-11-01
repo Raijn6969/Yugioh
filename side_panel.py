@@ -11,6 +11,7 @@ from typing import Callable, Dict, List, Optional
 import side_profiles
 from card_stats import SideProfile
 from dark_scrollbar import DarkScrollbar, bind_wheel
+from debug_log import dlog_changed
 from rounded_button import RoundedButton
 from starter_rules import EXTRA_FRAMES
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
@@ -363,8 +364,8 @@ class SidePanel:
         if todo:
             try:
                 self.names.update({cid: info.name for cid, info in self.db.infos(todo).items()})
-            except Exception:
-                pass
+            except Exception as e:  # ohne Namen zeigt die Liste die Kartennummern
+                dlog_changed("side-names", f"[SIDE] Kartennamen nicht geladen: {e}")
 
     def close(self) -> None:
         if self.closed:

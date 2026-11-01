@@ -32,6 +32,7 @@ import replay_steps as rs
 from card_stats import CardInfo, MatchEntry, Replay
 from dark_dialog import _make_draggable
 from dark_scrollbar import DarkScrollbar
+from debug_log import dlog_changed
 from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, WIN, mode_name
 from rounded_button import RoundedButton, close_button
@@ -581,8 +582,8 @@ class DuelView:
             ids |= {self.passcode(kid) for kid in kids} - {None}
         try:
             self.names.update({cid: info.name for cid, info in self.db.infos(ids - set(self.names)).items()})
-        except Exception:
-            pass
+        except Exception as e:  # ohne Namen zeigt die Ansicht nur Platzhalter
+            dlog_changed("duel-names", f"[DUELL] Kartennamen nicht geladen: {e}")
         if self.replay:
             self.steps = rs.build_steps(self.replay.frames, self.tracker.frame_states, self.replay.my_id,
                                         lambda kid: self.names.get(self.passcode(kid)), self._card_type)

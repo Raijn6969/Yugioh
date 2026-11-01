@@ -62,6 +62,14 @@ class DuelViewTest(unittest.TestCase):
     def texts(self, view):
         return [view.canvas.itemcget(i, "text") for i in view.canvas.find_all() if view.canvas.type(i) == "text"]
 
+    def test_failing_name_lookup_is_logged_and_the_view_still_opens(self):
+        from unittest import mock
+        self.db.infos = mock.Mock(side_effect=OSError("gesperrt"))
+        with mock.patch.object(dv, "dlog_changed") as log:
+            view = self.view([entry(1)])
+        log.assert_called_with("duel-names", "[DUELL] Kartennamen nicht geladen: gesperrt")
+        self.assertIn("SIEG", self.texts(view))
+
     def test_shows_both_decks_result_and_browses(self):
         view = self.view([entry(2), entry(1, mh.LOSS, opp_code="")])
         texts = self.texts(view)

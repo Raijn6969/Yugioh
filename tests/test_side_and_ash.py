@@ -261,6 +261,18 @@ class PanelTest(unittest.TestCase):
         self.assertEqual([p.name for p in other._profiles()], ["Zweiter"])
         self.assertEqual(db.side_profiles(None)[0].deck_name, "Deck")
 
+    def test_failing_name_lookup_is_logged_and_the_panel_still_opens(self):
+        import side_panel
+        db = make_db()
+        zones = {DROLL: "Main", ASH: "Main", MAIN: "Main", FUSION: "Extra"}
+        panel = side_panel.SidePanel(self.root, db, "Deck", DECK, zones, {}, on_swap=lambda t, l: None,
+                                     on_close=lambda: None)
+        self.addCleanup(panel.close)
+        with mock.patch.object(db, "infos", side_effect=OSError("gesperrt")), \
+                mock.patch.object(side_panel, "dlog_changed") as log:
+            panel._learn_names([DROLL])
+        log.assert_called_with("side-names", "[SIDE] Kartennamen nicht geladen: gesperrt")
+
     def test_taking_a_card_out_repaints_only_its_row(self):
         from side_panel import HIGHLIGHT, SidePanel
         zones = {DROLL: "Main", ASH: "Main", MAIN: "Main", FUSION: "Extra"}
