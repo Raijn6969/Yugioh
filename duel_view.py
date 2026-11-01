@@ -36,7 +36,7 @@ from history_panel import when
 from match_history import DRAW, FINISH_SURRENDER, WIN, mode_name
 from rounded_button import RoundedButton, close_button
 from window_style import (NEUTRAL, SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, GOOD, WARN,
-                          BAD, apply_frame, no_activate)
+                          BAD, apply_frame, no_activate, set_alpha)
 
 POLL_MS = 100
 OPP_HAND = 0.62          # Gegnerhand: so hoch (und breit) wie eine Karte, wie in der Factory
@@ -1705,10 +1705,10 @@ class DuelView:
             if not visible:
                 self._stop_play()             # Master Duel nicht mehr vorne: pausieren, kein automatisches Weiter
             alpha = 1.0 if visible else 0.0
-            self.win.wm_attributes("-alpha", alpha)
+            set_alpha(self.win, alpha)
             if self._pile_inspector is not None:
                 try:
-                    self._pile_inspector.wm_attributes("-alpha", alpha)
+                    set_alpha(self._pile_inspector, alpha)
                 except tk.TclError:
                     pass
 

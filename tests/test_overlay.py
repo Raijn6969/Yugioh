@@ -1123,7 +1123,7 @@ class RoundedButtonTest(unittest.TestCase):
             self.assertEqual(button.cget("bg"), fill)
             self.assertGreaterEqual(contrast(fill, fg), 4.5, role)
             # Hover und gesperrt: kurzzeitig bzw. von WCAG ausgenommen, aber noch lesbar
-            self.assertGreaterEqual(contrast(_shade(fill, 1.06), fg), 4.0, role)
+            self.assertGreaterEqual(contrast(_shade(fill, 1.06), fg), 4.5, role)
             self.assertGreaterEqual(contrast(_shade(fill, 0.55), MUTED), 2.8, role)
         button.config(role="danger")
         self.assertEqual(button.cget("bg"), ROLES["danger"][0])

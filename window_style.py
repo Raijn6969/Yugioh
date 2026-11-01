@@ -18,7 +18,7 @@ LINE = "#4a3322"        # Rand, Trenner, Scrollgriff
 TEXT = "#f1e6d3"
 MUTED = "#b19a80"       # Text gedämpft
 GOLD = "#e2b25b"        # Akzent (Titel, Fokus, aktiv)
-GOLD_HOVER = "#5a3f1c"  # dunkles Gold für Hover/aktive Fläche
+GOLD_HOVER = "#4f3718"  # dunkles Gold für Hover/aktive Fläche (Gold darauf auch im Hover ≥ 4,5:1)
 AMBER = "#d08a35"       # Akzent: Anzahl ×N, Häkchen-Füllung, Hauptknopf
 INFO = "#8cc8e8"
 GOOD = "#9fd37f"
@@ -116,9 +116,24 @@ def no_activate(window: tk.Misc) -> None:
     """
     window.update_idletasks()
     try:
+        # Kein Eintrag in Taskleiste/Alt+Tab: über Tk setzen, nicht nur am Fenster – Tk merkt es sich und verliert es
+        # beim Ändern der Deckkraft nicht (sonst taucht z. B. das Deck-Fenster in der Taskleiste auf)
+        window.wm_attributes("-toolwindow", True)
         win_api.set_ex_style(int(window.wm_frame(), 16), win_api.WS_EX_NOACTIVATE)
+        window._no_activate = True  # für set_alpha
     except (tk.TclError, ValueError, OSError):
         pass  # ohne den Stil funktioniert alles, nur evtl. mit Taskleiste
+
+
+def set_alpha(window: tk.Misc, alpha: float) -> None:
+    """Deckkraft ändern, ohne no_activate() zu verlieren: Wird ein voll deckendes Fenster (1.0) durchsichtig, setzt Tk
+    die erweiterten Fensterstile neu und verwirft WS_EX_NOACTIVATE."""
+    window.wm_attributes("-alpha", alpha)
+    if getattr(window, "_no_activate", False):
+        try:
+            win_api.set_ex_style(int(window.wm_frame(), 16), win_api.WS_EX_NOACTIVATE)
+        except (tk.TclError, ValueError, OSError):
+            pass
 
 
 def show_tip(master: tk.Misc, text: str, x: int, y: int, scale: float = 1.0) -> tk.Toplevel:

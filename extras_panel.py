@@ -47,7 +47,7 @@ from hover_card import ANALYSIS_TIME, HoverCard, HoverContent, HoverRow
 from rounded_button import RoundedButton, close_button
 from window_style import (SIZE_SMALL, SIZE_TEXT, SIZE_TITLE, font, BG, PANEL, TEXT, MUTED, GOLD, INFO, GOOD, WARN, BAD,
                           ROW_ALT, HIGHLIGHT, NEUTRAL, AMBER, DIM, HAND, allow_typing, apply_frame, frame_color,
-                          no_activate, show_tip)
+                          no_activate, set_alpha, show_tip)
 
 SHOW_SECOND_KEY = "DECK_SHOW_SECOND_TURN"  # Einstellung: Spalte "2. Zug" anzeigen
 ANIMATION_KEY = "DECK_HOVER_ANIMATION"     # Einstellung: "Analyse…"-Animation (aus = Stats sofort)
@@ -77,6 +77,16 @@ SPELL_KINDS = {"Normal": "Normal", "Quick-Play": "Schnell", "Field": "Feld", "Co
 
 def pct(p: float) -> str:
     return f"{p * 100:.1f} %".replace(".", ",")
+
+
+def _download_images(passcodes: List[str], folder: str, done: threading.Event) -> None:
+    """Hintergrund-Thread ohne Verweis aufs Fenster: Hielte er es, könnte sein Ende das (inzwischen geschlossene)
+    Fenster in diesem Thread aufräumen – Tk stürzt dann ab."""
+    try:
+        card_images.download(passcodes, folder=folder)
+    except Exception:  # offline: die Platzhalter bleiben
+        pass
+    done.set()
 
 
 def art_image(path: Optional[str], size: int, color: str) -> Image.Image:
@@ -178,7 +188,7 @@ class ExtrasPanel:
         self._art: Dict[str, tuple] = {}          # Passcode → (Bild-Label, Rahmenfarbe) der Zeilen
         self._photos: Dict[tuple, object] = {}    # (Passcode oder "", Rahmenfarbe) → PhotoImage (Tk räumt sonst weg)
         self._download: Optional[threading.Thread] = None
-        self._images_loaded = False               # Download fertig: _poll tauscht die Platzhalter aus
+        self._images_loaded = threading.Event()   # Download fertig: _poll tauscht die Platzhalter aus
         self._highlighted: Optional[str] = None
         self._shown_reason: Optional[str] = None
         self._poll_job = None
@@ -190,6 +200,7 @@ class ExtrasPanel:
         self.win = tk.Toplevel(master, bg=BG)
         self.win.overrideredirect(True)
         self.win.wm_attributes("-topmost", True)
+        self.win.wm_attributes("-toolwindow", True)  # vor dem ersten Anzeigen: sonst steht es in der Taskleiste
         self.win.wm_attributes("-alpha", 1.0)
         self.show_second = tk.BooleanVar(master=self.win, value=bool(self.settings.get(SHOW_SECOND_KEY, False)))
         self.animation = tk.BooleanVar(master=self.win, value=bool(self.settings.get(ANIMATION_KEY, True)))
@@ -974,7 +985,7 @@ class ExtrasPanel:
         if self.closed or visible == self._visible:
             return
         self._visible = visible
-        self.win.wm_attributes("-alpha", 1.0 if visible else 0.0)
+        set_alpha(self.win, 1.0 if visible else 0.0)
         for panel in (self.winrate, self.staples, self.combos):  # eigene Fenster (Replay, Kartentipp) darüber
             if panel is not None:
                 panel.set_visible(visible)
@@ -1065,20 +1076,15 @@ class ExtrasPanel:
         missing = [key for key in self._art if not os.path.exists(card_images.image_path(key, self.image_folder))]
         if not missing or (self._download is not None and self._download.is_alive()):
             return
-        self._download = threading.Thread(target=self._download_worker, args=(missing,), daemon=True)
+        self._images_loaded = threading.Event()
+        self._download = threading.Thread(target=_download_images, args=(missing, self.image_folder,
+                                                                        self._images_loaded), daemon=True)
         self._download.start()
 
-    def _download_worker(self, passcodes: List[str]) -> None:
-        try:
-            card_images.download(passcodes, folder=self.image_folder)
-        except Exception:  # offline: die Platzhalter bleiben
-            pass
-        self._images_loaded = True
-
     def _show_new_images(self) -> None:
-        if not self._images_loaded:
+        if not self._images_loaded.is_set():
             return
-        self._images_loaded = False
+        self._images_loaded.clear()
         for key, (label, color) in self._art.items():
             label.config(image=self._photo(key, color))
 

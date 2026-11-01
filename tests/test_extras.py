@@ -1466,3 +1466,29 @@ class ExtrasPanelTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OverlayWindowStyleTest(unittest.TestCase):
+    """Overlay-Fenster: nie in der Taskleiste und nie aktiv – auch nach dem Aus- und Einblenden über die Deckkraft."""
+
+    def styles(self, window):
+        import win32con
+        import win32gui
+        window.update_idletasks()
+        ex = win32gui.GetWindowLong(int(window.wm_frame(), 16), win32con.GWL_EXSTYLE)
+        return bool(ex & 0x80), bool(ex & 0x08000000)   # WS_EX_TOOLWINDOW, WS_EX_NOACTIVATE
+
+    def test_styles_survive_alpha_changes(self):
+        import tkinter as tk
+        from window_style import no_activate, set_alpha
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        root.withdraw()
+        win = tk.Toplevel(root)
+        win.overrideredirect(True)
+        win.wm_attributes("-alpha", 1.0)   # wie das Deck-Fenster: voll deckend, dann aus- und eingeblendet
+        win.geometry("100x100+10+10")
+        no_activate(win)
+        for alpha in (0.0, 1.0, 0.0):
+            set_alpha(win, alpha)
+            self.assertEqual(self.styles(win), (True, True), alpha)
