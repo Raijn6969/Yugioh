@@ -260,6 +260,15 @@ class ProcessReader:
         return hits
 
 
+def string_section(raw: bytes) -> Tuple[int, int]:
+    """(Position, Größe) der Namen in global-metadata.dat. Kopf: Kennung, Version, dann je Abschnitt (Position, Größe)
+    – ab Version 38 (Unity 6) (Position, Größe, Anzahl). Die Namen sind der dritte Abschnitt."""
+    magic, version = struct.unpack_from("<ii", raw, 0)
+    if magic != -89056337:  # 0xFAB11BAF
+        raise MemoryStructureChanged(["Metadaten-Format"])
+    return struct.unpack_from("<ii", raw, 8 + 2 * (12 if version >= 38 else 8))
+
+
 class Il2Cpp:
     """Klassen und Felder eines IL2CPP-Spiels über ihre Namen finden."""
 
@@ -267,10 +276,8 @@ class Il2Cpp:
         self.r = reader
         with open(metadata_path, "rb") as f:
             raw = f.read()
-        header = struct.unpack_from("<8i", raw, 0)
-        if header[0] != -89056337:  # 0xFAB11BAF
-            raise MemoryStructureChanged(["Metadaten-Format"])
-        self.str_offset, self.strings = header[6], raw[header[6]:header[6] + header[7]]
+        self.str_offset, size = string_section(raw)
+        self.strings = raw[self.str_offset:self.str_offset + size]
         self.base = self._find_loaded(raw[:64])
         self._fields: Dict[int, Dict[str, int]] = {}
 

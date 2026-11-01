@@ -715,3 +715,22 @@ class SearchTermTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MetadataHeaderTest(unittest.TestCase):
+    """global-metadata.dat: Lage der Namen je nach Version (ab Unity 6 Abschnitte mit Anzahl)."""
+
+    def header(self, version, sections):
+        return struct.pack("<ii", -89056337, version) + b"".join(struct.pack(f"<{len(s)}i", *s) for s in sections)
+
+    def test_old_layout_pairs(self):
+        raw = self.header(31, [(100, 10), (110, 20), (130, 40)])
+        self.assertEqual(md_memory.string_section(raw), (130, 40))
+
+    def test_unity6_layout_triples(self):
+        raw = self.header(39, [(100, 10, 1), (110, 20, 2), (130, 40, 3)])
+        self.assertEqual(md_memory.string_section(raw), (130, 40))
+
+    def test_unknown_file_is_reported(self):
+        with self.assertRaises(md_memory.MemoryStructureChanged):
+            md_memory.string_section(struct.pack("<ii", 1234, 39) + bytes(40))
