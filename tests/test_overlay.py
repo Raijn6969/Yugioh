@@ -1138,6 +1138,14 @@ class RoundedButtonTest(unittest.TestCase):
             # Hover und gesperrt: kurzzeitig bzw. von WCAG ausgenommen, aber noch lesbar
             self.assertGreaterEqual(contrast(_shade(fill, 1.06), fg), 4.5, role)
             self.assertGreaterEqual(contrast(_shade(fill, 0.55), MUTED), 2.8, role)
+        # Chips der Starter-/Handtrap-Einstufung (Text und Rand) auf allen Zeilenflächen
+        from window_style import DIM, GOLD_HOVER, GOOD, HAND, HIGHLIGHT, ROW_ALT, WARN
+        for chip in (DIM, GOOD, HAND, WARN):
+            for ground in (BG, ROW_ALT):
+                self.assertGreaterEqual(contrast(chip, ground), 4.5, (chip, ground))
+            for ground in (HIGHLIGHT, GOLD_HOVER):
+                self.assertGreaterEqual(contrast(chip, ground), 3.0, (chip, ground))
+        self.assertGreater(contrast(GOOD, BG), contrast(DIM, BG) + 2)  # aktive Chips bleiben klar stärker
         button.config(role="danger")
         self.assertEqual(button.cget("bg"), ROLES["danger"][0])
 
